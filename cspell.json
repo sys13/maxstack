@@ -1,9 +1,5 @@
 {
-	"dictionaries": [
-		"npm",
-		"node",
-		"typescript"
-	],
+	"dictionaries": ["npm", "node", "typescript"],
 	"ignorePaths": [
 		".all-contributorsrc",
 		".github",
@@ -13,7 +9,5 @@
 		"node_modules",
 		"pnpm-lock.yaml"
 	],
-	"words": [
-		"tsdown"
-	]
+	"words": ["arrizza", "maxstack", "tsdown"]
 }
