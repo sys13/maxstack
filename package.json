@@ -12,7 +12,9 @@
 		"email": "daniel.arrizza@gmail.com"
 	},
 	"type": "module",
-	"bin": "bin/index.js",
+	"bin": {
+		"maxstack": "bin/index.js"
+	},
 	"files": [
 		"LICENSE.md",
 		"README.md",
