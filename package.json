@@ -18,6 +18,7 @@
 	"files": [
 		"LICENSE.md",
 		"README.md",
+		"bin/",
 		"lib/",
 		"package.json"
 	],
@@ -76,6 +77,6 @@
 		"node": ">=20.19.0"
 	},
 	"publishConfig": {
-		"provenance": true
+		"provenance": false
 	}
 }
