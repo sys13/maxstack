@@ -12,7 +12,7 @@
 		"email": "daniel.arrizza@gmail.com"
 	},
 	"type": "module",
-	"main": "lib/index.js",
+	"bin": "bin/index.js",
 	"files": [
 		"LICENSE.md",
 		"README.md",
