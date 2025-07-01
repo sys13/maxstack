@@ -1,13 +1,14 @@
 {
-	"name": "maxstack-cli",
+	"name": "maxstack",
 	"version": "0.0.0",
 	"description": "A very lovely package. Hooray!",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/sys13/maxstack-cli.git"
+		"url": "git+https://github.com/sys13/maxstack.git"
 	},
 	"license": "MIT",
 	"author": {
+		"name": "Daniel Arrizza",
 		"email": "daniel.arrizza@gmail.com"
 	},
 	"type": "module",

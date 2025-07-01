@@ -24,7 +24,7 @@
   "files": [
     "README.md"
   ],
-  "projectName": "maxstack-cli",
+  "projectName": "maxstack",
   "projectOwner": "sys13",
   "repoType": "github",
   "commitConvention": "angular"
