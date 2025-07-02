@@ -1,10 +1,17 @@
-import { greet } from "../greet.js";
+import { Command } from "commander";
 
-export function bin(message?: string): number {
-	greet({
-		logger: console.log.bind(console),
-		message: message ?? "Hello, world!",
-		times: 3,
-	});
-	return 0;
+import { initCommand } from "./commands/init.js";
+
+export function bin(): void {
+	const program = new Command();
+
+	program
+		.name("maxstack")
+		.description("A powerful development stack management tool")
+		.version("0.1.0");
+
+	// Add the init command
+	program.addCommand(initCommand);
+
+	program.parse();
 }

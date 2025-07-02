@@ -20,15 +20,7 @@
 
 ## Usage
 
-```shell
-npm i maxstack
-```
-
-```ts
-import { greet } from "maxstack";
-
-greet("Hello, world! 💖");
-```
+🚧 More to come here
 
 ## Development
 
