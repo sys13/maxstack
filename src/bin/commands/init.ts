@@ -31,60 +31,60 @@ export const initCommand = new Command("init")
 	)
 	// .option("-t, --template <type>", "configuration template to use", "default")
 	.action((options: InitOptions) => {
-		const outdir = resolve(process.cwd(), options.outdir);
-
-		if (existsSync(outdir) && !options.force) {
-			console.error(
-				`❌ Directory ${options.outdir} already exists. Use --force to overwrite.`,
-			);
-			return;
-		}
-
-		if (!existsSync(outdir)) {
-			mkdirSync(outdir, { recursive: true });
-		}
-
-		const templateDir = resolve(__dirname, "..", "..", "..", "template");
-		copyDirRecursive(templateDir, outdir);
-		console.log(`✅ Copied template files to ${options.outdir}`);
-
-		const configPath = resolve(process.cwd(), "maxstack.tsx");
-		const maxstackDir = resolve(process.cwd(), ".maxstack");
-		const typesPath = resolve(maxstackDir, "types.ts");
-
-		// Check if file already exists
-		if (existsSync(configPath) && !options.force) {
-			console.error(
-				"❌ maxstack.tsx already exists. Use --force to overwrite.",
-			);
-			return;
-		}
-
 		try {
-			// Create .maxstack directory if it doesn't exist
-			if (!existsSync(maxstackDir)) {
-				mkdirSync(maxstackDir, { recursive: true });
-				console.log("✅ Created .maxstack directory");
+			const outdir = resolve(process.cwd(), options.outdir);
+
+			if (existsSync(outdir) && !options.force) {
+				console.error(
+					`❌ Directory ${options.outdir} already exists. Use --force to overwrite.`,
+				);
+				return;
 			}
 
-			// Create types.ts file if it doesn't exist
-			if (!existsSync(typesPath)) {
-				const typesContent = generateTypesContent();
-				writeFileSync(typesPath, typesContent, "utf8");
-				console.log("✅ Created .maxstack/types.ts file");
+			if (!existsSync(outdir)) {
+				mkdirSync(outdir, { recursive: true });
 			}
 
-			// Create maxstack.tsx configuration file
-			const configContent = generateConfigTemplate(
-				options.template ?? "default",
-			);
-			writeFileSync(configPath, configContent, "utf8");
-			console.log("✅ Created maxstack.tsx configuration file");
-		} catch (error) {
-			console.error(
-				"❌ Failed to create configuration file:",
-				(error as Error).message,
-			);
+			const templateDir = resolve(__dirname, "..", "..", "..", "template");
+			copyDirRecursive(templateDir, outdir);
+
+			const configPath = resolve(outdir, "maxstack.tsx");
+			try {
+				writeFileSync(configPath, "test-write\n", { flag: "w" });
+			} catch (e) {
+				console.error("DEBUG: Failed to write test file to", configPath, e);
+			}
+			const maxstackDir = resolve(outdir, ".maxstack");
+			const typesPath = resolve(maxstackDir, "types.ts");
+
+			try {
+				// Create .maxstack directory if it doesn't exist
+				if (!existsSync(maxstackDir)) {
+					mkdirSync(maxstackDir, { recursive: true });
+					console.log("✅ Created .maxstack directory");
+				}
+
+				// Create types.ts file if it doesn't exist
+				if (!existsSync(typesPath)) {
+					const typesContent = generateTypesContent();
+					writeFileSync(typesPath, typesContent, "utf8");
+					console.log("✅ Created .maxstack/types.ts file");
+				}
+
+				// Create maxstack.tsx configuration file
+				const configContent = generateConfigTemplate(
+					options.template ?? "default",
+				);
+				writeFileSync(configPath, configContent, "utf8");
+				console.log("✅ Created maxstack.tsx configuration file");
+			} catch (error) {
+				console.error(
+					"❌ Failed to create configuration file:",
+					(error as Error).message,
+				);
+			}
+		} catch (err) {
+			console.error("GLOBAL ERROR:", err);
 		}
 	});
 
