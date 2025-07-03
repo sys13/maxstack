@@ -1,5 +1,8 @@
+// eslint-disable-next-line @eslint-community/eslint-comments/disable-enable-pair
+/* eslint-disable n/no-process-exit */
 import { Command } from "commander";
 
+import { genCommand } from "./commands/gen.js";
 import { initCommand } from "./commands/init.js";
 
 export function bin(): void {
@@ -12,6 +15,35 @@ export function bin(): void {
 
 	// Add the init command
 	program.addCommand(initCommand);
+	program.addCommand(genCommand);
 
-	program.parse();
+	program.exitOverride(); // Prevent Commander from exiting the process
+	try {
+		program.parse();
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	} catch (err: any) {
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+		if (err && typeof err.exitCode === "number" && err.exitCode === 0) {
+			// Help/version output, exit 0
+			return;
+		}
+		// Other errors: log and exit 1
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+		console.error(err.message ?? err);
+		process.exit(1);
+	}
+}
+
+// Register CLI entry for ESM (no require.main)
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+	// Top-level error handlers for debugging test failures
+	process.on("unhandledRejection", (reason) => {
+		console.error("[unhandledRejection]", reason);
+		process.exit(1);
+	});
+	process.on("uncaughtException", (err) => {
+		console.error("[uncaughtException]", err);
+		process.exit(1);
+	});
+	bin();
 }

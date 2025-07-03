@@ -64,6 +64,4 @@ describe("CLI", () => {
 		expect(exists).toBe(true);
 		expect(exitCode).toBe(0);
 	});
-
-	// Add more CLI command tests here
 });

@@ -41,7 +41,8 @@
 		"*": "prettier --ignore-unknown --write"
 	},
 	"dependencies": {
-		"commander": "^14.0.0"
+		"commander": "^14.0.0",
+		"node-fetch": "^3.3.2"
 	},
 	"devDependencies": {
 		"@eslint-community/eslint-plugin-eslint-comments": "4.5.0",
