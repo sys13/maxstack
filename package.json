@@ -20,7 +20,8 @@
 		"README.md",
 		"bin/",
 		"lib/",
-		"package.json"
+		"package.json",
+		"template/"
 	],
 	"scripts": {
 		"build": "tsdown",
