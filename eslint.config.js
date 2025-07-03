@@ -20,6 +20,7 @@ export default tseslint.config(
 			"node_modules",
 			"pnpm-lock.yaml",
 			"bin/index.js",
+			"template",
 		],
 	},
 	{ linterOptions: { reportUnusedDisableDirectives: "error" } },
