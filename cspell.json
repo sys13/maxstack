@@ -9,5 +9,22 @@
 		"node_modules",
 		"pnpm-lock.yaml"
 	],
-	"words": ["arrizza", "maxstack", "tsdown"]
+	"words": [
+		"arrizza",
+		"capterra",
+		"cheatsheet",
+		"convertkit",
+		"hubspot",
+		"mailchimp",
+		"maxstack",
+		"papercups",
+		"posthog",
+		"savvycal",
+		"skeuomorphic",
+		"subheadline",
+		"tawk",
+		"tiktok",
+		"trustpilot",
+		"tsdown"
+	]
 }

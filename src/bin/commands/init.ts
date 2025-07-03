@@ -1,6 +1,8 @@
 import { Command } from "commander";
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { resolve } from "path";
+
+import { generateTypesContent } from "./init.utils.js";
 
 interface InitOptions {
 	force?: boolean;
@@ -13,6 +15,8 @@ export const initCommand = new Command("init")
 	// .option("-t, --template <type>", "configuration template to use", "default")
 	.action((options: InitOptions) => {
 		const configPath = resolve(process.cwd(), "maxstack.tsx");
+		const maxstackDir = resolve(process.cwd(), ".maxstack");
+		const typesPath = resolve(maxstackDir, "types.ts");
 
 		// Check if file already exists
 		if (existsSync(configPath) && !options.force) {
@@ -23,6 +27,20 @@ export const initCommand = new Command("init")
 		}
 
 		try {
+			// Create .maxstack directory if it doesn't exist
+			if (!existsSync(maxstackDir)) {
+				mkdirSync(maxstackDir, { recursive: true });
+				console.log("✅ Created .maxstack directory");
+			}
+
+			// Create types.ts file if it doesn't exist
+			if (!existsSync(typesPath)) {
+				const typesContent = generateTypesContent();
+				writeFileSync(typesPath, typesContent, "utf8");
+				console.log("✅ Created .maxstack/types.ts file");
+			}
+
+			// Create maxstack.tsx configuration file
 			const configContent = generateConfigTemplate(
 				options.template ?? "default",
 			);
@@ -38,7 +56,7 @@ export const initCommand = new Command("init")
 
 function generateConfigTemplate(templateType: string): string {
 	const templates = {
-		default: `import type { MAXConfig } from "./types/types";
+		default: `import type { MAXConfig } from "./.maxstack/types";
 
 export default {
 	name: "",
