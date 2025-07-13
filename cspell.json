@@ -12,7 +12,9 @@
 		"plans"
 	],
 	"words": [
+		"APP_NAME_KEBAB",
 		"arrizza",
+		"camelcaseproject",
 		"capterra",
 		"cheatsheet",
 		"convertkit",
@@ -20,8 +22,10 @@
 		"mailchimp",
 		"maxserver",
 		"maxstack",
+		"mixedcase",
 		"papercups",
 		"posthog",
+		"projectname",
 		"savvycal",
 		"skeuomorphic",
 		"subheadline",

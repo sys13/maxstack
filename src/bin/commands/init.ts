@@ -5,6 +5,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readdirSync,
+	readFileSync,
 	statSync,
 	writeFileSync,
 } from "fs";
@@ -19,6 +20,32 @@ const __dirname = dirname(__filename);
 interface InitOptions {
 	force?: boolean;
 	template?: string;
+}
+
+/**
+ * Updates a file by replacing placeholders with actual values.
+ * @param filePath The path to the file to update
+ * @param replacements Object containing placeholder-value pairs
+ */
+function updateFileWithReplacements(
+	filePath: string,
+	replacements: Record<string, string>,
+): void {
+	if (!existsSync(filePath)) {
+		return;
+	}
+
+	try {
+		let content = readFileSync(filePath, "utf8");
+
+		for (const [placeholder, replacement] of Object.entries(replacements)) {
+			content = content.replace(new RegExp(placeholder, "g"), replacement);
+		}
+
+		writeFileSync(filePath, content, "utf8");
+	} catch (error) {
+		console.error(`❌ Failed to update ${filePath}:`, (error as Error).message);
+	}
 }
 
 export const initCommand = new Command("init")
@@ -90,6 +117,22 @@ export const initCommand = new Command("init")
 
 				console.log(
 					`🎉 Successfully created MaxStack project "${projectName}" in ${dirName}/`,
+				);
+				const envExamplePath = resolve(outdir, ".env.example");
+				const envPath = resolve(outdir, ".env");
+				copyFileSync(envExamplePath, envPath);
+
+				// Update fly.toml and deploy-fly.sh with project name
+				const replacements = { APP_NAME_KEBAB: dirName };
+
+				updateFileWithReplacements(resolve(outdir, "fly.toml"), replacements);
+				updateFileWithReplacements(
+					resolve(outdir, "deploy-fly.sh"),
+					replacements,
+				);
+				updateFileWithReplacements(
+					resolve(outdir, "cspell.json"),
+					replacements,
 				);
 			} catch (error) {
 				console.error(
