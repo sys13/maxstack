@@ -1,0 +1,32 @@
+{
+	"typescript.preferences.autoImportFileExcludePatterns": [
+		"@remix-run/server-runtime",
+		"express",
+		"@radix-ui/**",
+		"@react-email/**",
+		"stream/consumers",
+		"node:stream/consumers",
+		"node:test",
+		"node:console",
+		"@headlessui/react",
+		"react-day-picker",
+		"console",
+		"#node_modules"
+	],
+	"[typescriptreact]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"editor.formatOnSave": true,
+	"editor.codeActionsOnSave": {
+		"source.fixAll.biome": "always",
+		"source.organizeImports": "always",
+		"source.organizeImports.biome": "always"
+	},
+	"workbench.editorAssociations": {
+		"*.db": "sqlite-viewer.view"
+	},
+	"editor.defaultFormatter": "biomejs.biome"
+}

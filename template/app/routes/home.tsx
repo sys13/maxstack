@@ -1,13 +1,14 @@
+import maxstack from "maxstack";
+import Template, { registry } from "~/components/templates/template";
 import type { Route } from "./+types/home";
-import { Welcome } from "../welcome/welcome";
 
 export function meta({}: Route.MetaArgs) {
 	return [
-		{ title: "New React Router App" },
-		{ name: "description", content: "Welcome to React Router!" },
+		{ title: maxstack.name },
+		{ name: "description", content: registry.landing.metaDescription },
 	];
 }
 
-export default function Home() {
-	return <Welcome />;
+export default function Home({}: Route.ComponentProps) {
+	return <Template componentName="maxstackWelcome" props={{}} />;
 }

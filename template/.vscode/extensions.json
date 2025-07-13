@@ -1,0 +1,13 @@
+{
+	"recommendations": [
+		"biomejs.biome",
+		"mikestead.dotenv",
+		"github.vscode-github-actions",
+		"github.copilot-chat",
+		"github.vscode-pull-request-github",
+		"ms-playwright.playwright",
+		"bradlc.vscode-tailwindcss",
+		"vitest.explorer",
+		"qwtel.sqlite-viewer"
+	]
+}

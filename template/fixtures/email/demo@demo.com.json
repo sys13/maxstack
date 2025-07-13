@@ -1,0 +1,7 @@
+{
+	"to": "demo@demo.com",
+	"from": "info@example.com",
+	"subject": "Verify your email address",
+	"text": "Click the link to verify your email: http://localhost:5173/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRlbW9AZGVtby5jb20iLCJpYXQiOjE3NTIyNzI1NjgsImV4cCI6MTc1MjI3NjE2OH0.NpK-PbYA3MRTklv5zrNOTWwT_-kffTfKmmb8xhIMUIE&callbackURL=/",
+	"html": "<p>Click the link to verify your email: <a href=\"http://localhost:5173/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRlbW9AZGVtby5jb20iLCJpYXQiOjE3NTIyNzI1NjgsImV4cCI6MTc1MjI3NjE2OH0.NpK-PbYA3MRTklv5zrNOTWwT_-kffTfKmmb8xhIMUIE&callbackURL=/\">http://localhost:5173/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRlbW9AZGVtby5jb20iLCJpYXQiOjE3NTIyNzI1NjgsImV4cCI6MTc1MjI3NjE2OH0.NpK-PbYA3MRTklv5zrNOTWwT_-kffTfKmmb8xhIMUIE&callbackURL=/</a></p>"
+}

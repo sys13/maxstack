@@ -1,0 +1,187 @@
+{
+	"version": "0.2",
+	"language": "en",
+	"words": [
+		"AnalyticsIds",
+		"Announcement",
+		"announcementBar",
+		"appId",
+		"atRest",
+		"autoplay",
+		"avatarUrl",
+		"biome",
+		"BlogPostMeta",
+		"BrandTone",
+		"capterra",
+		"CaseStudy",
+		"chatWidget",
+		"cheatsheet",
+		"convertkit",
+		"cookieConsent",
+		"CookieConsent",
+		"coverImage",
+		"CTA",
+		"ctas",
+		"defaultValue",
+		"DesignDirection",
+		"discountBanner",
+		"DiscountBanner",
+		"dismissible",
+		"dotenvx",
+		"drizzle",
+		"durationMinutes",
+		"e2eTest",
+		"e2eTests",
+		"enumValues",
+		"exitIntentModal",
+		"FAQItem",
+		"featuresIncluded",
+		"FooterColumn",
+		"frequency",
+		"gdpr",
+		"guests",
+		"guides",
+		"HeroBlock",
+		"hubspot",
+		"inTransit",
+		"isbot",
+		"iso27001",
+		"jobsToBeDone",
+		"JTBD",
+		"learnMoreUrl",
+		"libsql",
+		"logoPackUrl",
+		"logoUrl",
+		"LogoWallItem",
+		"loop",
+		"mailchimp",
+		"MAXConfig",
+		"maxstack",
+		"MAXSTACK",
+		"mixpanel",
+		"Modal",
+		"NavItem",
+		"noopener",
+		"notNull",
+		"nums",
+		"one-to-many",
+		"one-to-one",
+		"painPoints",
+		"PaletteColor",
+		"papercups",
+		"pdfUrl",
+		"plausible",
+		"pnpm",
+		"posthog",
+		"priceInterval",
+		"primaryKey",
+		"primaryKeyAutoIncrement",
+		"readingMinutes",
+		"recordingUrl",
+		"registrationCta",
+		"relatedModel",
+		"relationships",
+		"reviewWidget",
+		"savvycal",
+		"scheduledFor",
+		"screenshotsUrl",
+		"scriptUrl",
+		"showDelaySeconds",
+		"signups",
+		"skeuomorphic",
+		"soc2",
+		"soc2Type2",
+		"SocialLink",
+		"stripePriceId",
+		"subheadline",
+		"tailwindcss",
+		"taskly",
+		"tawk",
+		"testCases",
+		"Testimonial",
+		"tiktok",
+		"trackingId",
+		"trafficSplit",
+		"trialDays",
+		"TrustBadge",
+		"trustpilot",
+		"tsx",
+		"unixepoch",
+		"userStories",
+		"validations",
+		"variants",
+		"videoUrl",
+		"vite",
+		"WebinarItem",
+		"webinars",
+		"whitePapers"
+	],
+	"ignorePaths": [
+		".env",
+		".env.example",
+		"node_modules/**",
+		"build/**",
+		"dist/**",
+		".git/**",
+		"pnpm-lock.yaml",
+		"*.min.js",
+		"*.min.css",
+		"node_modules/**",
+		"coverage/**",
+		"*.log",
+		"package-lock.json",
+		"yarn.lock"
+	],
+	"overrides": [
+		{
+			"filename": "**/*.{json,jsonc}",
+			"languageSettings": [
+				{
+					"languageId": "json",
+					"dictionaries": ["json"]
+				}
+			]
+		},
+		{
+			"filename": "**/*.{ts,tsx}",
+			"languageSettings": [
+				{
+					"languageId": "typescript",
+					"dictionaries": ["typescript", "node", "npm"]
+				}
+			]
+		},
+		{
+			"filename": "**/*.{js,jsx}",
+			"languageSettings": [
+				{
+					"languageId": "javascript",
+					"dictionaries": ["javascript", "node", "npm"]
+				}
+			]
+		},
+		{
+			"filename": "**/*.md",
+			"languageSettings": [
+				{
+					"languageId": "markdown",
+					"dictionaries": ["markdown"]
+				}
+			]
+		}
+	],
+	"dictionaries": [
+		"en",
+		"typescript",
+		"node",
+		"npm",
+		"javascript",
+		"json",
+		"markdown"
+	],
+	"import": [
+		"@cspell/dict-typescript/cspell-ext.json",
+		"@cspell/dict-node/cspell-ext.json",
+		"@cspell/dict-npm/cspell-ext.json"
+	]
+}
