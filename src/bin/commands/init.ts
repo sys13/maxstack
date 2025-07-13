@@ -1,18 +1,16 @@
 import { input } from "@inquirer/prompts";
 import { Command } from "commander";
-import {
-	copyFileSync,
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-	writeFileSync,
-} from "fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { generateTypesContent, toKebabCase } from "./init.utils.js";
+import { generateTypesContent } from "./gen-config.js";
+import {
+	copyDirRecursive,
+	generateConfigTemplate,
+	toKebabCase,
+	updateFileWithReplacements,
+} from "./init.utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,32 +18,6 @@ const __dirname = dirname(__filename);
 interface InitOptions {
 	force?: boolean;
 	template?: string;
-}
-
-/**
- * Updates a file by replacing placeholders with actual values.
- * @param filePath The path to the file to update
- * @param replacements Object containing placeholder-value pairs
- */
-function updateFileWithReplacements(
-	filePath: string,
-	replacements: Record<string, string>,
-): void {
-	if (!existsSync(filePath)) {
-		return;
-	}
-
-	try {
-		let content = readFileSync(filePath, "utf8");
-
-		for (const [placeholder, replacement] of Object.entries(replacements)) {
-			content = content.replace(new RegExp(placeholder, "g"), replacement);
-		}
-
-		writeFileSync(filePath, content, "utf8");
-	} catch (error) {
-		console.error(`❌ Failed to update ${filePath}:`, (error as Error).message);
-	}
 }
 
 export const initCommand = new Command("init")
@@ -144,43 +116,3 @@ export const initCommand = new Command("init")
 			console.error("GLOBAL ERROR:", err);
 		}
 	});
-
-function copyDirRecursive(src: string, dest: string) {
-	if (!existsSync(dest)) {
-		mkdirSync(dest, { recursive: true });
-	}
-	for (const entry of readdirSync(src)) {
-		const srcPath = resolve(src, entry);
-		const destPath = resolve(dest, entry);
-		if (statSync(srcPath).isDirectory()) {
-			copyDirRecursive(srcPath, destPath);
-		} else {
-			copyFileSync(srcPath, destPath);
-		}
-	}
-}
-
-function generateConfigTemplate(
-	templateType: string,
-	projectName: string,
-	projectDescription: string,
-): string {
-	const templates = {
-		default: `import type { MAXConfig } from "./.maxstack/types";
-
-export default {
-	name: "${projectName}",
-	description: "${projectDescription}",
-	standardFeatures: [],
-	personas: [],
-	features: [],
-	pages: [],
-	models: [],
-	unitTests: [],
-	e2eTests: [],
-} as const satisfies MAXConfig;
-`,
-	};
-
-	return templates[templateType as keyof typeof templates] || templates.default;
-}
