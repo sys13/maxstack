@@ -41,6 +41,7 @@
 		"*": "prettier --ignore-unknown --write"
 	},
 	"dependencies": {
+		"@inquirer/prompts": "^7.6.0",
 		"commander": "^14.0.0",
 		"node-fetch": "^3.3.2"
 	},

@@ -598,3 +598,18 @@ type DesignDirection =
 	| "skeuomorphic";
 `;
 }
+
+/**
+ * Converts a string to kebab-case format.
+ * @param str The input string to convert
+ * @returns The kebab-case formatted string
+ */
+export function toKebabCase(str: string): string {
+	return str
+		.trim()
+		.toLowerCase()
+		.replace(/[_\s]+/g, "-") // Convert underscores and spaces to hyphens
+		.replace(/[^a-z0-9-]/g, "") // Remove special characters except hyphens
+		.replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+		.replace(/^-|-$/g, ""); // Remove leading/trailing hyphens
+}

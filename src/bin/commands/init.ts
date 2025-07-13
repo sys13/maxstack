@@ -1,3 +1,4 @@
+import { input } from "@inquirer/prompts";
 import { Command } from "commander";
 import {
 	copyFileSync,
@@ -10,33 +11,45 @@ import {
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
-import { generateTypesContent } from "./init.utils.js";
+import { generateTypesContent, toKebabCase } from "./init.utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 interface InitOptions {
 	force?: boolean;
-	outdir: string;
 	template?: string;
 }
 
 export const initCommand = new Command("init")
 	.description("Initialize a new MaxStack application")
 	.option("-f, --force", "overwrite existing files")
-	.option(
-		"-o, --outdir <path>",
-		"output directory for the new application",
-		"maxstack-app",
-	)
 	// .option("-t, --template <type>", "configuration template to use", "default")
-	.action((options: InitOptions) => {
+	.action(async (options: InitOptions) => {
 		try {
-			const outdir = resolve(process.cwd(), options.outdir);
+			// Prompt for project details
+			const projectName = await input({
+				message: "What is your project name?",
+				validate: (input) => {
+					if (!input.trim()) {
+						return "Project name is required";
+					}
+					return true;
+				},
+			});
+
+			const projectDescription = await input({
+				default: "",
+				message: "What is your project description?",
+			});
+
+			// Convert project name to kebab-case for directory name
+			const dirName = toKebabCase(projectName);
+			const outdir = resolve(process.cwd(), dirName);
 
 			if (existsSync(outdir) && !options.force) {
 				console.error(
-					`❌ Directory ${options.outdir} already exists. Use --force to overwrite.`,
+					`❌ Directory ${dirName} already exists. Use --force to overwrite.`,
 				);
 				return;
 			}
@@ -49,11 +62,6 @@ export const initCommand = new Command("init")
 			copyDirRecursive(templateDir, outdir);
 
 			const configPath = resolve(outdir, "maxstack.tsx");
-			try {
-				writeFileSync(configPath, "test-write\n", { flag: "w" });
-			} catch (e) {
-				console.error("DEBUG: Failed to write test file to", configPath, e);
-			}
 			const maxstackDir = resolve(outdir, ".maxstack");
 			const typesPath = resolve(maxstackDir, "types.ts");
 
@@ -71,12 +79,18 @@ export const initCommand = new Command("init")
 					console.log("✅ Created .maxstack/types.ts file");
 				}
 
-				// Create maxstack.tsx configuration file
+				// Create maxstack.tsx configuration file with project details
 				const configContent = generateConfigTemplate(
 					options.template ?? "default",
+					projectName,
+					projectDescription,
 				);
 				writeFileSync(configPath, configContent, "utf8");
 				console.log("✅ Created maxstack.tsx configuration file");
+
+				console.log(
+					`🎉 Successfully created MaxStack project "${projectName}" in ${dirName}/`,
+				);
 			} catch (error) {
 				console.error(
 					"❌ Failed to create configuration file:",
@@ -103,13 +117,17 @@ function copyDirRecursive(src: string, dest: string) {
 	}
 }
 
-function generateConfigTemplate(templateType: string): string {
+function generateConfigTemplate(
+	templateType: string,
+	projectName: string,
+	projectDescription: string,
+): string {
 	const templates = {
 		default: `import type { MAXConfig } from "./.maxstack/types";
 
 export default {
-	name: "",
-	description: "",
+	name: "${projectName}",
+	description: "${projectDescription}",
 	standardFeatures: [],
 	personas: [],
 	features: [],
