@@ -23,8 +23,8 @@ export const genCommand = new Command("gen")
 				// 1. Collect project info
 				const projectInfo = await collectProjectInfo();
 
-				// 2. Send to server (mocked or real)
-				const commands = await sendToServer(projectInfo, opts.production);
+				// 2. Generate local commands
+				const commands = sendToServer(projectInfo);
 
 				// 3. Execute received commands
 				const mockMode = !opts.production;
