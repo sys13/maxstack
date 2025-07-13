@@ -25,7 +25,7 @@ export function bin(): void {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
 		if (err && typeof err.exitCode === "number" && err.exitCode === 0) {
 			// Help/version output, exit 0
-			return;
+			process.exit(0);
 		}
 		// Other errors: log and exit 1
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
