@@ -23,7 +23,7 @@ async function main() {
 	console.log("🌱 Starting database seeding...");
 
 	// Set a consistent seed for reproducible results
-	faker.seed(12345);
+	// faker.seed(12345);
 
 	await clearDatabase();
 
