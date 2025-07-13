@@ -28,14 +28,20 @@ export function generateConfigTemplate(
 	templateType: string,
 	projectName: string,
 	projectDescription: string,
+	selectedFeatures?: string[],
 ): string {
+	const featuresArray =
+		selectedFeatures && selectedFeatures.length > 0
+			? `["${selectedFeatures.join('", "')}"]`
+			: "[]";
+
 	const templates = {
 		default: `import type { MAXConfig } from "./.maxstack/types";
 
 export default {
 	name: "${projectName}",
 	description: "${projectDescription}",
-	standardFeatures: [],
+	standardFeatures: ${featuresArray},
 	personas: [],
 	features: [],
 	pages: [],

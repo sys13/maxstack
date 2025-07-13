@@ -1,4 +1,4 @@
-import { input } from "@inquirer/prompts";
+import { checkbox, input } from "@inquirer/prompts";
 import { Command } from "commander";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
@@ -42,6 +42,28 @@ export const initCommand = new Command("init")
 				message: "What is your project description?",
 			});
 
+			// Prompt for standard features
+			const selectedFeatures = await checkbox({
+				choices: [
+					{
+						checked: false,
+						name: "User Authentication",
+						value: "user-authentication",
+					},
+					{
+						checked: false,
+						name: "Blog",
+						value: "blog",
+					},
+					{
+						checked: false,
+						name: "SaaS Marketing",
+						value: "saas-marketing",
+					},
+				],
+				message: "Select the features you want to include:",
+			});
+
 			// Convert project name to kebab-case for directory name
 			const dirName = toKebabCase(projectName);
 			const outdir = resolve(process.cwd(), dirName);
@@ -83,6 +105,7 @@ export const initCommand = new Command("init")
 					options.template ?? "default",
 					projectName,
 					projectDescription,
+					selectedFeatures,
 				);
 				writeFileSync(configPath, configContent, "utf8");
 				console.log("✅ Created maxstack.tsx configuration file");
