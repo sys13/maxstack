@@ -18,6 +18,13 @@ export function bin(): void {
 	program.addCommand(genCommand);
 
 	program.exitOverride(); // Prevent Commander from exiting the process
+
+	// If no arguments provided, show help and exit 0
+	if (process.argv.length <= 2) {
+		program.outputHelp();
+		process.exit(0);
+	}
+
 	try {
 		program.parse();
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
