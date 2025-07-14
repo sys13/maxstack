@@ -1,7 +1,7 @@
 {
 	"name": "maxstack",
 	"version": "0.1.0",
-	"description": "A very lovely package. Hooray!",
+	"description": "The AI-First Full-Stack Framework - Build production-ready React applications with AI-powered development, built-in templates, and modern tooling",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/sys13/maxstack.git"
@@ -35,7 +35,7 @@
 		"pretest": "pnpm run build",
 		"test": "vitest",
 		"tsc": "tsc",
-		"validate": "pnpm lint && pnpm lint:knip && pnpm lint:md && pnpm lint:packages && pnpm lint:spelling"
+		"validate": "pnpm run lint && pnpm run lint:knip && pnpm run lint:md && pnpm run lint:packages && pnpm run lint:spelling"
 	},
 	"lint-staged": {
 		"*": "prettier --ignore-unknown --write"
