@@ -32,10 +32,10 @@
 		"lint:packages": "pnpm dedupe --check",
 		"lint:spelling": "cspell \"**\" \".github/**/*\"",
 		"prepare": "husky",
-		"pretest": "npm run build",
+		"pretest": "pnpm run build",
 		"test": "vitest",
 		"tsc": "tsc",
-		"validate": "npm run lint && npm run lint:knip && npm run lint:md && npm run lint:packages && npm run lint:spelling"
+		"validate": "pnpm run lint && pnpm run lint:knip && pnpm run lint:md && pnpm run lint:packages && pnpm run lint:spelling"
 	},
 	"lint-staged": {
 		"*": "prettier --ignore-unknown --write"

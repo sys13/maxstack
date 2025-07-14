@@ -10,7 +10,7 @@ Build production-ready web applications faster with AI-powered development, buil
 [![TypeScript](https://img.shields.io/badge/%F0%9F%92%AA_typescript-strict-21bb42.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/%F0%9F%93%9D_license-MIT-21bb42.svg)](https://github.com/sys13/maxstack/blob/main/LICENSE.md)
 
-[Getting Started](#-getting-started) • [Features](#-features) • [Tech Stack](#-tech-stack) • [Documentation](#-documentation) • [Templates](#-templates--examples)
+[Getting Started](#-getting-started) • [Features](#-features) • [Tech Stack](#-tech-stack) • [Documentation](#-documentation)
 
 </div>
 
@@ -190,7 +190,7 @@ npx maxstack init my-saas
 
 AI can know what to do when there are clear conventions, and included `Agents.md` file, and validation scripts.
 
-Start with adding pages into `maxstack.tsx`, run `npx maxstack gen`, and you will have your pages, components, and tests stubbed out, ready for your AI assistant to fill things out. 
+Start with adding pages into `maxstack.tsx`, run `npx maxstack gen`, and you will have your pages, components, and tests stubbed out, ready for your AI assistant to fill things out.
 
 ## 📚 Documentation
 
@@ -237,7 +237,6 @@ MAXSTACK works with any Node.js hosting platform and comes with an included Dock
 
 ### Coming Soon
 
-
 ### In Development
 
 - [ ] More AI model integrations (Claude, Gemini)
@@ -246,13 +245,13 @@ MAXSTACK works with any Node.js hosting platform and comes with an included Dock
 - [ ] Advanced analytics dashboard
 - [ ] Multi-tenant SaaS features
 
-## 💎 Pro Features 
+## 💎 Pro Features
 
 - **Advanced AI Models**: Access to GPT-4, Claude 3, and specialized code models
 - **Premium Templates**: E-commerce, CRM, and enterprise applications
 - **Priority Support**: Direct access to the MAXSTACK team
 - **Custom Integrations**: Tailored solutions for your specific needs
-	
+
 ## 🧪 Try It Now
 
 **Quick Demo**: Create a todo app in 2 minutes
@@ -271,6 +270,7 @@ See [LICENSE.md](LICENSE.md) for details.
 
 **Contributing**: We welcome contributions!
 See our [Contributing Guide](.github/CONTRIBUTING.md) and [Development Setup](.github/DEVELOPMENT.md).
+
 ---
 
 <div align="center">
