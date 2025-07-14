@@ -8,7 +8,6 @@ import { generateTypesContent } from "./gen-config.js";
 import {
 	copyDirRecursive,
 	generateConfigTemplate,
-	removeAuthenticationFiles,
 	toKebabCase,
 	updateFileWithReplacements,
 } from "./init.utils.js";
@@ -48,11 +47,6 @@ export const initCommand = new Command("init")
 				choices: [
 					{
 						checked: false,
-						name: "User Authentication",
-						value: "user-authentication",
-					},
-					{
-						checked: false,
 						name: "Blog",
 						value: "blog",
 					},
@@ -82,11 +76,6 @@ export const initCommand = new Command("init")
 
 			const templateDir = resolve(__dirname, "..", "..", "..", "template");
 			copyDirRecursive(templateDir, outdir);
-
-			// Remove authentication files if User Authentication feature is not selected
-			if (!selectedFeatures.includes("user-authentication")) {
-				removeAuthenticationFiles(outdir);
-			}
 
 			const configPath = resolve(outdir, "maxstack.tsx");
 			const maxstackDir = resolve(outdir, ".maxstack");

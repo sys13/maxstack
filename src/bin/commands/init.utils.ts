@@ -5,7 +5,6 @@ import {
 	readdirSync,
 	readFileSync,
 	statSync,
-	unlinkSync,
 	writeFileSync,
 } from "fs";
 import { resolve } from "path";
@@ -54,45 +53,6 @@ export default {
 	};
 
 	return templates[templateType as keyof typeof templates] || templates.default;
-}
-
-export function removeAuthenticationFiles(projectDir: string): void {
-	const authFiles = [
-		"app/routes/auth-handler.ts",
-		"app/lib/auth-client.ts",
-		"app/lib/auth.server.ts",
-	];
-
-	// Remove authentication files
-	for (const file of authFiles) {
-		const filePath = resolve(projectDir, file);
-		if (existsSync(filePath)) {
-			try {
-				unlinkSync(filePath);
-				console.log(`✅ Removed ${file}`);
-			} catch (error) {
-				console.error(`❌ Failed to remove ${file}:`, (error as Error).message);
-			}
-		}
-	}
-
-	// Remove auth route from routes.ts
-	const routesPath = resolve(projectDir, "app/routes.ts");
-	if (existsSync(routesPath)) {
-		try {
-			let content = readFileSync(routesPath, "utf8");
-
-			// Remove the auth route line
-			content = content.replace(
-				/^\s*route\("\/api\/auth\/\*",\s*"routes\/auth-handler\.ts"\),?\s*\n/gm,
-				"",
-			);
-
-			writeFileSync(routesPath, content, "utf8");
-		} catch (error) {
-			console.error(`❌ Failed to update routes.ts:`, (error as Error).message);
-		}
-	}
 }
 
 export function toKebabCase(str: string): string {
