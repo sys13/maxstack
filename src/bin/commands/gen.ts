@@ -2,20 +2,18 @@ import { Command } from 'commander'
 
 import {
 	collectProjectInfo,
-	executeServerCommands,
-	sendToServer,
+	executeCommands,
+	generateCommands,
 } from './gen.utils.js'
 
 // Define type for gen command options
 interface GenCommandOptions {
 	dir?: string
-	production?: boolean
 }
 
 // Ensure all errors are caught and handled for Commander async action
 export const genCommand = new Command('gen')
-	.description('Automate project updates by communicating with the maxserver')
-	.option('--production', 'Send real requests to the server')
+	.description('Generate pages, components, and tests based on configuration')
 	.option('--dir <path>', 'Directory where files should be created')
 	.action((opts: GenCommandOptions) => {
 		return (async () => {
@@ -23,12 +21,11 @@ export const genCommand = new Command('gen')
 				// 1. Collect project info
 				const projectInfo = await collectProjectInfo()
 
-				// 2. Generate local commands
-				const commands = sendToServer(projectInfo)
+				// 2. Generate commands based on configuration
+				const commands = generateCommands(projectInfo)
 
-				// 3. Execute received commands
-				const mockMode = !opts.production
-				await executeServerCommands(commands, mockMode, opts.dir)
+				// 3. Execute commands
+				await executeCommands(commands, opts.dir)
 
 				console.log('gen: Completed successfully.')
 				return // Success, just return
