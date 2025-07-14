@@ -4,8 +4,15 @@ export default {
 	name: '',
 	description: '',
 	standardFeatures: [],
-	personas: [],
-	features: [],
-	pages: ['Home'],
-	models: [],
+	pages: [
+		{
+			name: 'Home',
+			description: 'The main landing page of the application',
+			routePath: '/',
+			components: ['Header', 'Footer', 'MainContent'],
+			infoOnPage: ['Welcome message', 'Latest news'],
+			userActions: ['Sign Up', 'Login', 'Contact Us'],
+			authRequired: false,
+		},
+	],
 } as const satisfies MAXConfig
