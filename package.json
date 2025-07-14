@@ -12,6 +12,22 @@
 		"email": "daniel.arrizza@gmail.com"
 	},
 	"type": "module",
+	"exports": {
+		".": {
+			"import": "./lib/index.js",
+			"require": "./lib/index.js"
+		},
+		"./types": {
+			"import": "./lib/types.js",
+			"require": "./lib/types.js"
+		},
+		"./utils": {
+			"import": "./lib/utils.js",
+			"require": "./lib/utils.js"
+		}
+	},
+	"main": "lib/index.js",
+	"module": "lib/index.js",
 	"bin": {
 		"maxstack": "bin/index.js"
 	},

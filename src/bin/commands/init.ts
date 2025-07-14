@@ -4,13 +4,13 @@ import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
-import { generateTypesContent } from './gen-config.js'
 import {
 	copyDirRecursive,
 	generateConfigTemplate,
+	generateTypesContent,
 	toKebabCase,
 	updateFileWithReplacements,
-} from './init.utils.js'
+} from '../../utils.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-	generateConfigTemplate,
-	toKebabCase,
-} from '../../src/bin/commands/init.utils.js'
+import { generateConfigTemplate, toKebabCase } from '../../src/utils.js'
 
 describe('generateConfigTemplate', () => {
 	it('generates config without features', () => {
