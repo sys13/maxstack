@@ -39,10 +39,9 @@ npm run dev              # 🚀 Start developing
 
 ### 🎨 **Built-in Design System**
 
-- 40+ pre-built UI components using Radix UI
 - Beautiful, accessible templates for common pages
 - Blog, marketing, auth, and SaaS templates included
-- Responsive design with Tailwind CSS
+- Responsive design with Tailwind CSS and shadcn/ui components
 
 ### ⚡ **Production-Ready Stack**
 
@@ -65,7 +64,7 @@ MAXSTACK includes everything you need for modern web development:
 
 | Category         | Technology                 | Purpose                                       |
 | ---------------- | -------------------------- | --------------------------------------------- |
-| **Frontend**     | React 19 + React Router v7 | Modern React with file-based routing          |
+| **Frontend**     | React 19 + React Router v7 | Modern full-stack React with routing          |
 | **Styling**      | Tailwind CSS + Radix UI    | Utility-first CSS with accessible components  |
 | **Backend**      | Node.js + TypeScript       | Type-safe server-side development             |
 | **Database**     | Drizzle ORM + SQLite       | Type-safe database queries and migrations     |
@@ -105,7 +104,7 @@ Your app will be running at `http://localhost:5173` with:
 - ✅ UI components available
 - ✅ Testing setup complete
 
-### Generate AI-Powered Features
+### Generate a project with scaffolding
 
 ```bash
 # Generate new components and features with AI
@@ -157,7 +156,7 @@ my-app/
 └── maxstack.tsx           # Project configuration
 ```
 
-## 🎨 Templates & Examples
+## 🎨 Standard Features
 
 MAXSTACK includes production-ready templates for common use cases:
 
@@ -187,67 +186,18 @@ npx maxstack init my-saas
 - Newsletter sign-up forms
 - Customer testimonials
 
-### 🏪 **E-commerce Ready**
+## 🔧 AI-Ready
 
-- Product catalogs and shopping carts
-- Payment integration templates
-- Order management system
-- Customer dashboards
+AI can know what to do when there are clear conventions, and included `Agents.md` file, and validation scripts.
 
-## 🔧 AI-Powered Generation
-
-The `maxstack gen` command uses AI to understand your project and generate contextual code:
-
-```bash
-# Generate new features based on your existing codebase
-npx maxstack gen
-
-# Example AI generations:
-# "Add a user profile page with avatar upload"
-# "Create a dashboard with analytics charts"
-# "Build a contact form with email notifications"
-# "Add a product review system"
-```
-
-The AI analyzes your current project structure, database schema, and existing components to generate code that fits seamlessly into your application.
+Start with adding pages into `maxstack.tsx`, run `npx maxstack gen`, and you will have your pages, components, and tests stubbed out, ready for your AI assistant to fill things out. 
 
 ## 📚 Documentation
 
 - **[Getting Started Guide](https://maxstack.dev/docs/getting-started)** - Comprehensive tutorial
 - **[API Reference](https://maxstack.dev/docs/api)** - Complete API documentation
 - **[Template Gallery](https://maxstack.dev/templates)** - Browse all available templates
-- **[Migration Guide](https://maxstack.dev/docs/migration)** - Upgrading from other stacks
 - **[Deployment Guide](https://maxstack.dev/docs/deployment)** - Production deployment options
-
-## 🌟 Why Choose MAXSTACK?
-
-### **vs. Create React App**
-
-- ✅ Full-stack solution (not just frontend)
-- ✅ Database and auth included
-- ✅ Production deployment ready
-- ✅ Modern React Router v7
-
-### **vs. Next.js**
-
-- ✅ Simpler architecture (no server components complexity)
-- ✅ AI-powered code generation
-- ✅ Built-in design system
-- ✅ Opinionated best practices
-
-### **vs. T3 Stack**
-
-- ✅ More comprehensive (includes UI components)
-- ✅ AI integration built-in
-- ✅ Better DX with templates
-- ✅ Deployment automation
-
-### **vs. Building from Scratch**
-
-- ✅ Saves weeks of setup time
-- ✅ Battle-tested configuration
-- ✅ Regular updates and security patches
-- ✅ Community support
 
 ## 🚀 Deployment
 
@@ -266,56 +216,43 @@ This automatically:
 - ✅ Deploys with zero downtime
 - ✅ Sets up monitoring and health checks
 
+### Digital Ocean
+
+Fill in the env variables requested in `scripts/deploy-digitalocean.sh`, and run it with `pnpm run deploy:digitalocean`
+
 ### Other Platforms
 
-MAXSTACK works with any Node.js hosting platform:
+MAXSTACK works with any Node.js hosting platform and comes with an included Dockerfile:
 
 - **Vercel**: `npm run build && vercel deploy`
 - **Railway**: Connect your GitHub repo
-- **DigitalOcean**: Use the included Dockerfile
 - **AWS/GCP**: Deploy with standard Node.js configuration
 
 ## 🤝 Community & Support
 
-- **[Discord Community](https://discord.gg/maxstack)** - Get help and share projects
+- **[Discord Community](https://discord.gg/mR4jax5BCC)** - Get help and share projects
 - **[GitHub Discussions](https://github.com/sys13/maxstack/discussions)** - Feature requests and Q&A
-- **[Twitter](https://twitter.com/maxstackdev)** - Updates and announcements
-- **[YouTube](https://youtube.com/@maxstack)** - Video tutorials and demos
 
 ## 🗺️ Roadmap
 
 ### Coming Soon
 
-- [ ] Visual UI builder with drag-and-drop
-- [ ] More AI model integrations (Claude, Gemini)
-- [ ] Real-time collaboration features
-- [ ] Advanced deployment options (Kubernetes, AWS)
-- [ ] Mobile app templates (React Native)
 
 ### In Development
 
-- [ ] GraphQL API generation
+- [ ] More AI model integrations (Claude, Gemini)
+- [ ] Advanced deployment options (Kubernetes, AWS)
+- [ ] More Standard Features
 - [ ] Advanced analytics dashboard
 - [ ] Multi-tenant SaaS features
-- [ ] Internationalization support
 
-## 💎 Pro Features (Coming Soon)
+## 💎 Pro Features 
 
 - **Advanced AI Models**: Access to GPT-4, Claude 3, and specialized code models
 - **Premium Templates**: E-commerce, CRM, and enterprise applications
 - **Priority Support**: Direct access to the MAXSTACK team
 - **Custom Integrations**: Tailored solutions for your specific needs
-
-## 🎯 Examples in Production
-
-See MAXSTACK in action:
-
-- **[TaskFlow](https://taskflow.app)** - Project management SaaS built in 2 weeks
-- **[BlogCraft](https://blogcraft.io)** - AI-powered blog platform
-- **[ShopStack](https://shopstack.com)** - E-commerce solution for small businesses
-
-_Want your project featured? [Submit it here](https://github.com/sys13/maxstack/discussions/new?category=showcase)_
-
+	
 ## 🧪 Try It Now
 
 **Quick Demo**: Create a todo app in 2 minutes
@@ -324,9 +261,6 @@ _Want your project featured? [Submit it here](https://github.com/sys13/maxstack/
 npx maxstack init todo-demo
 cd todo-demo && npm install && npm run dev
 ```
-
-**Live Playground**: Try MAXSTACK in your browser  
-👉 **[StackBlitz demo](https://stackblitz.com/github/sys13/maxstack/tree/main/template)**
 
 ---
 
@@ -337,23 +271,11 @@ See [LICENSE.md](LICENSE.md) for details.
 
 **Contributing**: We welcome contributions!
 See our [Contributing Guide](.github/CONTRIBUTING.md) and [Development Setup](.github/DEVELOPMENT.md).
-
-### How to Contribute
-
-1. 🍴 Fork the repository
-2. 🌿 Create a feature branch
-3. ✨ Make your changes
-4. ✅ Add tests
-5. 📝 Update documentation
-6. 🔀 Submit a pull request
-
-**Good First Issues**: Check out issues labeled [`good first issue`](https://github.com/sys13/maxstack/labels/good%20first%20issue)
-
 ---
 
 <div align="center">
 
-⭐ Star this repo if MAXSTACK helped you build faster!
+⭐ Star this repo if MAXSTACK helps you build faster!
 
 Built with ❤️ by the MAXSTACK team
 
