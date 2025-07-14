@@ -7,12 +7,12 @@ import { describe, expect, it } from 'vitest'
 // gen CLI tests
 
 describe('gen CLI', () => {
-	it('runs in mock mode and executes commands', async () => {
+	it('runs and generates basic database schema when no config exists', async () => {
 		// Create a temporary directory for testing
 		const tempDir = await mkdtemp(path.join(os.tmpdir(), 'maxstack-test-'))
 
 		try {
-			// Run the CLI with the gen command (mocked)
+			// Run the CLI with the gen command
 			const result = await execa(
 				'node',
 				['bin/index.js', 'gen', '--dir', tempDir],
@@ -22,19 +22,10 @@ describe('gen CLI', () => {
 			)
 			expect(result.exitCode).toBe(0)
 			expect(result.stdout).toMatch(/Completed successfully/)
-			// Since no maxstack.tsx config exists in temp dir, saas-marketing won't be found
-			expect(result.stdout).toMatch(
-				/saas-marketing not found in standardFeatures/,
-			)
-			// Should still create database schema files
+			// Should create basic database schema files
 			expect(result.stdout).toMatch(
 				new RegExp(
-					`Created database/schema/users.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-				),
-			)
-			expect(result.stdout).toMatch(
-				new RegExp(
-					`Created database/schema/organizations.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+					`Created app/db/schema/user.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 				),
 			)
 		} finally {
@@ -43,21 +34,76 @@ describe('gen CLI', () => {
 		}
 	})
 
-	it('runs in production mode (mocked network)', async () => {
+	it('generates pages and models from configuration', async () => {
 		// Create a temporary directory for testing
 		const tempDir = await mkdtemp(path.join(os.tmpdir(), 'maxstack-test-'))
 
 		try {
-			// This test assumes the network is mocked or intercepted
+			// Create a test config
+			const configContent = `import type { MAXConfig } from '.maxstack/types'
+
+export default {
+	name: 'TestApp',
+	description: 'A test application',
+	standardFeatures: ['blog'],
+	pages: [
+		{
+			name: 'Home',
+			description: 'The home page',
+			routePath: '/',
+			authRequired: false,
+		},
+	],
+} as const satisfies MAXConfig`
+
+			const typesContent = `export type MAXConfig = {
+	name: string
+	description: string
+	standardFeatures?: string[]
+	pages?: { name: string; description?: string; routePath?: string; authRequired?: boolean }[]
+}`
+
+			// Write the config files
+			await execa('mkdir', ['-p', path.join(tempDir, '.maxstack')])
+
+			await execa('sh', [
+				'-c',
+				`cat > ${path.join(tempDir, 'maxstack.tsx')} << 'EOF'
+${configContent}
+EOF`,
+			])
+
+			await execa('sh', [
+				'-c',
+				`cat > ${path.join(tempDir, '.maxstack', 'types.tsx')} << 'EOF'
+${typesContent}
+EOF`,
+			])
+
+			// Run the CLI from the temp directory
 			const result = await execa(
 				'node',
-				['bin/index.js', 'gen', '--production', '--dir', tempDir],
+				[path.join(process.cwd(), 'bin/index.js'), 'gen'],
 				{
 					reject: false,
+					cwd: tempDir,
 				},
 			)
-			// Accept either success or network error
-			expect([0, 1]).toContain(result.exitCode)
+
+			expect(result.exitCode).toBe(0)
+			expect(result.stdout).toMatch(/Completed successfully/)
+			expect(result.stdout).toMatch(/Found pages in configuration/)
+			expect(result.stdout).toMatch(/Found blog in standardFeatures/)
+			expect(result.stdout).toMatch(
+				new RegExp(
+					`Created app/routes/home.tsx in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+				),
+			)
+			expect(result.stdout).toMatch(
+				new RegExp(
+					`Created app/db/schema/blog.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+				),
+			)
 		} finally {
 			// Clean up the temporary directory
 			await rm(tempDir, { force: true, recursive: true })
