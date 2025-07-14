@@ -3,11 +3,11 @@ import {
 	AccordionContent,
 	AccordionItem,
 	AccordionTrigger,
-} from "@/components/ui/accordion";
-import * as z from "zod";
+} from '@/components/ui/accordion'
+import * as z from 'zod'
 
 export const FaqSchema = z.object({
-	title: z.string().default("Frequently Asked Questions").optional(),
+	title: z.string().default('Frequently Asked Questions').optional(),
 	faqs: z
 		.array(
 			z.object({
@@ -16,13 +16,13 @@ export const FaqSchema = z.object({
 			}),
 		)
 		.default([]),
-});
+})
 
-export type FaqProps = z.infer<typeof FaqSchema>;
+export type FaqProps = z.infer<typeof FaqSchema>
 
 function Faq({ title, faqs }: FaqProps) {
 	if (!faqs || faqs.length === 0) {
-		return null;
+		return null
 	}
 	return (
 		<section className="faq-section space-y-8">
@@ -38,7 +38,7 @@ function Faq({ title, faqs }: FaqProps) {
 				</Accordion>
 			</div>
 		</section>
-	);
+	)
 }
 
-export default Faq;
+export default Faq

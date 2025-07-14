@@ -1,10 +1,10 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const AboutSchema = z.object({
-	title: z.string().default("About Us"),
-	description: z.string().default("Learn more about our mission and team"),
+	title: z.string().default('About Us'),
+	description: z.string().default('Learn more about our mission and team'),
 	mission: z.string().optional(),
 	team: z
 		.array(
@@ -26,10 +26,10 @@ export const AboutSchema = z.object({
 			}),
 		)
 		.optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type AboutProps = z.infer<typeof AboutSchema>;
+export type AboutProps = z.infer<typeof AboutSchema>
 
 export default function About({
 	title,
@@ -90,5 +90,5 @@ export default function About({
 				</section>
 			)}
 		</div>
-	);
+	)
 }

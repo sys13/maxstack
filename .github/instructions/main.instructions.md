@@ -1,5 +1,5 @@
 ---
-applyTo: "*"
+applyTo: '*'
 ---
 
 When running tests, use `pnpm test run` to execute the test suite.

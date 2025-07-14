@@ -596,5 +596,5 @@ type DesignDirection =
 	| "modern"
 	| "playful"
 	| "skeuomorphic";
-`;
+`
 }

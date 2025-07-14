@@ -1,10 +1,10 @@
-import { z } from "zod";
+import { z } from 'zod'
 
 export const PrivacyPolicySchema = z.object({
 	textParagraphs: z.array(z.string()),
-});
+})
 
-export type PrivacyPolicyProps = z.infer<typeof PrivacyPolicySchema>;
+export type PrivacyPolicyProps = z.infer<typeof PrivacyPolicySchema>
 
 export function PrivacyPolicy({ textParagraphs }: PrivacyPolicyProps) {
 	return (
@@ -23,7 +23,7 @@ export function PrivacyPolicy({ textParagraphs }: PrivacyPolicyProps) {
 				))}
 			</div>
 		</section>
-	);
+	)
 }
 
-export default PrivacyPolicy;
+export default PrivacyPolicy

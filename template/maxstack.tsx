@@ -1,11 +1,11 @@
-import type { MAXConfig } from ".maxstack/types";
+import type { MAXConfig } from '.maxstack/types'
 
 export default {
-	name: "",
-	description: "",
+	name: '',
+	description: '',
 	standardFeatures: [],
 	personas: [],
 	features: [],
-	pages: ["Home"],
+	pages: ['Home'],
 	models: [],
-} as const satisfies MAXConfig;
+} as const satisfies MAXConfig

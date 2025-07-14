@@ -1,12 +1,12 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const PricingSchema = z.object({
-	title: z.string().default("Pricing Plans").optional(),
+	title: z.string().default('Pricing Plans').optional(),
 	description: z
 		.string()
-		.default("Choose the plan that fits your needs")
+		.default('Choose the plan that fits your needs')
 		.optional(),
 	plans: z.array(
 		z.object({
@@ -24,10 +24,10 @@ export const PricingSchema = z.object({
 		}),
 	),
 	children: z.any().optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type PricingProps = z.infer<typeof PricingSchema>;
+export type PricingProps = z.infer<typeof PricingSchema>
 
 export default function Pricing({
 	title,
@@ -51,8 +51,8 @@ export default function Pricing({
 						key={plan.name}
 						className={`pricing-plan relative bg-white dark:bg-gray-800 rounded-lg shadow-lg border p-8 transition-transform hover:scale-105 ${
 							plan.featured
-								? "featured border-blue-500 ring-2 ring-blue-500 ring-opacity-50"
-								: "border-gray-200 dark:border-gray-700"
+								? 'featured border-blue-500 ring-2 ring-blue-500 ring-opacity-50'
+								: 'border-gray-200 dark:border-gray-700'
 						}`}
 					>
 						{plan.featured && (
@@ -103,8 +103,8 @@ export default function Pricing({
 								href={plan.cta.href}
 								className={`cta-button block w-full text-center py-3 px-6 rounded-lg font-semibold transition-colors ${
 									plan.featured
-										? "bg-blue-500 text-white hover:bg-blue-600"
-										: "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600"
+										? 'bg-blue-500 text-white hover:bg-blue-600'
+										: 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600'
 								}`}
 							>
 								{plan.cta.text}
@@ -115,5 +115,5 @@ export default function Pricing({
 			</div>
 			{children}
 		</div>
-	);
+	)
 }

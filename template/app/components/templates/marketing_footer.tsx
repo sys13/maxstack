@@ -1,5 +1,5 @@
-import { Link } from "react-router";
-import z from "zod/v4";
+import { Link } from 'react-router'
+import z from 'zod/v4'
 
 export const MarketingFooterSchema = z.object({
 	appName: z.string(),
@@ -11,9 +11,9 @@ export const MarketingFooterSchema = z.object({
 			}),
 		)
 		.optional(),
-});
+})
 
-export type MarketingFooterProps = z.infer<typeof MarketingFooterSchema>;
+export type MarketingFooterProps = z.infer<typeof MarketingFooterSchema>
 
 export default function MarketingFooter({
 	appName,
@@ -52,5 +52,5 @@ export default function MarketingFooter({
 				</div>
 			</div>
 		</footer>
-	);
+	)
 }

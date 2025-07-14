@@ -1,10 +1,10 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const BlogLandingSchema = z.object({
-	title: z.string().default("Blog"),
-	description: z.string().default("Latest insights and updates"),
+	title: z.string().default('Blog'),
+	description: z.string().default('Latest insights and updates'),
 	posts: z
 		.array(
 			z.object({
@@ -20,18 +20,18 @@ export const BlogLandingSchema = z.object({
 		)
 		.optional(),
 	categories: z.array(z.string()).optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type BlogLandingProps = z.infer<typeof BlogLandingSchema>;
+export type BlogLandingProps = z.infer<typeof BlogLandingSchema>
 
 export default function BlogLanding(props: Partial<BlogLandingProps>) {
 	const {
-		title = "Blog",
-		description = "Latest insights and updates",
+		title = 'Blog',
+		description = 'Latest insights and updates',
 		posts = [],
 		categories = [],
-	} = BlogLandingSchema.parse(props);
+	} = BlogLandingSchema.parse(props)
 
 	return (
 		<div className="blog-landing">
@@ -98,5 +98,5 @@ export default function BlogLanding(props: Partial<BlogLandingProps>) {
 				))}
 			</div>
 		</div>
-	);
+	)
 }

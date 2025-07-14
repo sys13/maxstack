@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { Link } from "react-router";
-import z from "zod/v4";
-import { Button } from "~/components/ui/button";
-import { authClient } from "~/lib/auth-client";
-import { cn } from "~/lib/utils";
+import { useState } from 'react'
+import { Link } from 'react-router'
+import z from 'zod/v4'
+import { Button } from '~/components/ui/button'
+import { authClient } from '~/lib/auth-client'
+import { cn } from '~/lib/utils'
 
 export const MarketingNavSchema = z.object({
 	appName: z.string(),
@@ -15,15 +15,15 @@ export const MarketingNavSchema = z.object({
 			}),
 		)
 		.optional(),
-});
+})
 
-export type MarketingNavProps = z.infer<typeof MarketingNavSchema>;
+export type MarketingNavProps = z.infer<typeof MarketingNavSchema>
 
 export default function MarketingNav({ appName, links }: MarketingNavProps) {
-	const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-	const user = authClient.useSession().data?.user;
+	const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+	const user = authClient.useSession().data?.user
 	return (
-		<nav className={cn("w-full bg-white border-b sticky top-0 z-50")}>
+		<nav className={cn('w-full bg-white border-b sticky top-0 z-50')}>
 			<div className="w-full md:max-w-none md:w-full flex items-center justify-between py-4 px-4 mx-auto">
 				{/* Logo */}
 				<Link
@@ -124,5 +124,5 @@ export default function MarketingNav({ appName, links }: MarketingNavProps) {
 				</div>
 			</div>
 		</nav>
-	);
+	)
 }

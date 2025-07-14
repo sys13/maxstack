@@ -1,6 +1,6 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const BlogPostSchema = z.object({
 	title: z.string(),
@@ -12,10 +12,10 @@ export const BlogPostSchema = z.object({
 	tags: z.array(z.string()).optional(),
 	categories: z.array(z.string()).optional(),
 	coverImage: z.string().optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type BlogPostProps = z.infer<typeof BlogPostSchema>;
+export type BlogPostProps = z.infer<typeof BlogPostSchema>
 
 export default function BlogPost({
 	title,
@@ -111,5 +111,5 @@ export default function BlogPost({
 				</footer>
 			)}
 		</article>
-	);
+	)
 }

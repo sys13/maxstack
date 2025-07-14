@@ -6,20 +6,20 @@ import {
 	readFileSync,
 	statSync,
 	writeFileSync,
-} from "fs";
-import { resolve } from "path";
+} from 'fs'
+import { resolve } from 'path'
 
 export function copyDirRecursive(src: string, dest: string) {
 	if (!existsSync(dest)) {
-		mkdirSync(dest, { recursive: true });
+		mkdirSync(dest, { recursive: true })
 	}
 	for (const entry of readdirSync(src)) {
-		const srcPath = resolve(src, entry);
-		const destPath = resolve(dest, entry);
+		const srcPath = resolve(src, entry)
+		const destPath = resolve(dest, entry)
 		if (statSync(srcPath).isDirectory()) {
-			copyDirRecursive(srcPath, destPath);
+			copyDirRecursive(srcPath, destPath)
 		} else {
-			copyFileSync(srcPath, destPath);
+			copyFileSync(srcPath, destPath)
 		}
 	}
 }
@@ -33,7 +33,7 @@ export function generateConfigTemplate(
 	const featuresArray =
 		selectedFeatures && selectedFeatures.length > 0
 			? `["${selectedFeatures.join('", "')}"]`
-			: "[]";
+			: '[]'
 
 	const templates = {
 		default: `import type { MAXConfig } from "./.maxstack/types";
@@ -50,19 +50,19 @@ export default {
 	e2eTests: [],
 } as const satisfies MAXConfig;
 `,
-	};
+	}
 
-	return templates[templateType as keyof typeof templates] || templates.default;
+	return templates[templateType as keyof typeof templates] || templates.default
 }
 
 export function toKebabCase(str: string): string {
 	return str
 		.trim()
 		.toLowerCase()
-		.replace(/[_\s]+/g, "-") // Convert underscores and spaces to hyphens
-		.replace(/[^a-z0-9-]/g, "") // Remove special characters except hyphens
-		.replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
-		.replace(/^-|-$/g, ""); // Remove leading/trailing hyphens
+		.replace(/[_\s]+/g, '-') // Convert underscores and spaces to hyphens
+		.replace(/[^a-z0-9-]/g, '') // Remove special characters except hyphens
+		.replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+		.replace(/^-|-$/g, '') // Remove leading/trailing hyphens
 }
 
 export function updateFileWithReplacements(
@@ -70,18 +70,18 @@ export function updateFileWithReplacements(
 	replacements: Record<string, string>,
 ): void {
 	if (!existsSync(filePath)) {
-		return;
+		return
 	}
 
 	try {
-		let content = readFileSync(filePath, "utf8");
+		let content = readFileSync(filePath, 'utf8')
 
 		for (const [placeholder, replacement] of Object.entries(replacements)) {
-			content = content.replace(new RegExp(placeholder, "g"), replacement);
+			content = content.replace(new RegExp(placeholder, 'g'), replacement)
 		}
 
-		writeFileSync(filePath, content, "utf8");
+		writeFileSync(filePath, content, 'utf8')
 	} catch (error) {
-		console.error(`❌ Failed to update ${filePath}:`, (error as Error).message);
+		console.error(`❌ Failed to update ${filePath}:`, (error as Error).message)
 	}
 }

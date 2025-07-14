@@ -1,12 +1,12 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const FeaturesSchema = z.object({
-	title: z.string().default("Features"),
+	title: z.string().default('Features'),
 	description: z
 		.string()
-		.default("Powerful features to help you manage tasks effectively"),
+		.default('Powerful features to help you manage tasks effectively'),
 	features: z
 		.array(
 			z.object({
@@ -17,10 +17,10 @@ export const FeaturesSchema = z.object({
 			}),
 		)
 		.optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type FeaturesProps = z.infer<typeof FeaturesSchema>;
+export type FeaturesProps = z.infer<typeof FeaturesSchema>
 
 export default function Features({
 	title,
@@ -84,5 +84,5 @@ export default function Features({
 				))}
 			</div>
 		</div>
-	);
+	)
 }

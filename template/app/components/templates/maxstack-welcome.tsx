@@ -1,26 +1,26 @@
-import z from "zod/v4";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
+import z from 'zod/v4'
+import { Badge } from '~/components/ui/badge'
+import { Button } from '~/components/ui/button'
 import {
 	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
-} from "~/components/ui/card";
-import { Separator } from "~/components/ui/separator";
+} from '~/components/ui/card'
+import { Separator } from '~/components/ui/separator'
 
 export const MaxStackWelcomeSchema = z
 	.object({
-		title: z.string().default("Welcome to MaxStack").optional(),
+		title: z.string().default('Welcome to MaxStack').optional(),
 		subtitle: z
 			.string()
-			.default("The AI-First Full-Stack Framework")
+			.default('The AI-First Full-Stack Framework')
 			.optional(),
 		description: z
 			.string()
 			.default(
-				"Build production-ready applications with AI-powered development, built-in templates, and one-click deployment.",
+				'Build production-ready applications with AI-powered development, built-in templates, and one-click deployment.',
 			)
 			.optional(),
 		showQuickStart: z.boolean().default(true).optional(),
@@ -29,9 +29,9 @@ export const MaxStackWelcomeSchema = z
 		showFeatures: z.boolean().default(true).optional(),
 	})
 	.optional()
-	.default({});
+	.default({})
 
-export type MaxStackWelcomeProps = z.infer<typeof MaxStackWelcomeSchema>;
+export type MaxStackWelcomeProps = z.infer<typeof MaxStackWelcomeSchema>
 
 export default function MaxStackWelcome({
 	title,
@@ -44,114 +44,114 @@ export default function MaxStackWelcome({
 }: MaxStackWelcomeProps) {
 	const quickStartSteps = [
 		{
-			step: "1",
-			title: "Initialize Project",
-			command: "npx maxstack init my-app",
-			description: "Create a new MaxStack project with AI-powered scaffolding",
+			step: '1',
+			title: 'Initialize Project',
+			command: 'npx maxstack init my-app',
+			description: 'Create a new MaxStack project with AI-powered scaffolding',
 		},
 		{
-			step: "2",
-			title: "Generate Templates",
-			command: "npx maxstack gen blog",
+			step: '2',
+			title: 'Generate Templates',
+			command: 'npx maxstack gen blog',
 			description:
-				"Generate routes, schemas, and components with built-in templates",
+				'Generate routes, schemas, and components with built-in templates',
 		},
 		{
-			step: "3",
-			title: "Deploy",
-			command: "npm run deploy",
-			description: "One-click deployment to Fly.io with automatic migrations",
+			step: '3',
+			title: 'Deploy',
+			command: 'npm run deploy',
+			description: 'One-click deployment to Fly.io with automatic migrations',
 		},
-	];
+	]
 
 	const nextSteps = [
 		{
-			title: "Customize Your App",
+			title: 'Customize Your App',
 			description:
-				"Modify maxstack.tsx to define your app structure and let AI generate the implementation",
-			icon: "🎨",
+				'Modify maxstack.tsx to define your app structure and let AI generate the implementation',
+			icon: '🎨',
 		},
 		{
-			title: "Add Authentication",
-			description: "Built-in auth system ready to use out of the box",
-			icon: "🔐",
+			title: 'Add Authentication',
+			description: 'Built-in auth system ready to use out of the box',
+			icon: '🔐',
 		},
 		{
-			title: "Explore Templates",
+			title: 'Explore Templates',
 			description:
-				"Browse the template gallery for pre-built components and pages",
-			icon: "📚",
+				'Browse the template gallery for pre-built components and pages',
+			icon: '📚',
 		},
 		{
-			title: "Set Up CI/CD",
+			title: 'Set Up CI/CD',
 			description:
-				"GitHub Actions integration with automatic testing and deployment",
-			icon: "🚀",
+				'GitHub Actions integration with automatic testing and deployment',
+			icon: '🚀',
 		},
-	];
+	]
 
 	const resources = [
 		{
-			title: "Documentation",
-			description: "Complete guides and API reference",
-			url: "/docs",
-			icon: "📖",
+			title: 'Documentation',
+			description: 'Complete guides and API reference',
+			url: '/docs',
+			icon: '📖',
 		},
 		{
-			title: "Tutorial Videos",
-			description: "Step-by-step video walkthroughs",
-			url: "/tutorials",
-			icon: "🎥",
+			title: 'Tutorial Videos',
+			description: 'Step-by-step video walkthroughs',
+			url: '/tutorials',
+			icon: '🎥',
 		},
 		{
-			title: "Discord Community",
-			description: "Join the MaxStack community for support and discussions",
-			url: "/discord",
-			icon: "💬",
+			title: 'Discord Community',
+			description: 'Join the MaxStack community for support and discussions',
+			url: '/discord',
+			icon: '💬',
 		},
 		{
-			title: "GitHub Repository",
-			description: "View source code, report issues, and contribute",
-			url: "https://github.com/maxstack/maxstack",
-			icon: "⭐",
+			title: 'GitHub Repository',
+			description: 'View source code, report issues, and contribute',
+			url: 'https://github.com/maxstack/maxstack',
+			icon: '⭐',
 		},
 		{
-			title: "Roadmap",
+			title: 'Roadmap',
 			description: "See what's coming next in MaxStack development",
-			url: "/roadmap",
-			icon: "🗺️",
+			url: '/roadmap',
+			icon: '🗺️',
 		},
 		{
-			title: "Live Demo",
-			description: "See a Todo app built in 2 minutes with MaxStack",
-			url: "/demo",
-			icon: "⚡",
+			title: 'Live Demo',
+			description: 'See a Todo app built in 2 minutes with MaxStack',
+			url: '/demo',
+			icon: '⚡',
 		},
-	];
+	]
 
 	const features = [
 		{
-			title: "AI-Powered Development",
-			description: "Generate code, components, and schemas with AI assistance",
-			icon: "🤖",
+			title: 'AI-Powered Development',
+			description: 'Generate code, components, and schemas with AI assistance',
+			icon: '🤖',
 		},
 		{
-			title: "Built-in Templates",
-			description: "Pre-made components and design system ready to use",
-			icon: "🎨",
+			title: 'Built-in Templates',
+			description: 'Pre-made components and design system ready to use',
+			icon: '🎨',
 		},
 		{
-			title: "One-Click Deployment",
-			description: "Deploy to Fly.io with automatic migrations and setup",
-			icon: "🚀",
+			title: 'One-Click Deployment',
+			description: 'Deploy to Fly.io with automatic migrations and setup',
+			icon: '🚀',
 		},
 		{
-			title: "Full-Stack Ready",
+			title: 'Full-Stack Ready',
 			description:
-				"Database, auth, email, and testing configured out of the box",
-			icon: "⚡",
+				'Database, auth, email, and testing configured out of the box',
+			icon: '⚡',
 		},
-	];
+	]
 
 	return (
 		<div className="maxstack-welcome space-y-12 max-w-6xl mx-auto px-4 py-8">
@@ -331,11 +331,11 @@ export default function MaxStackWelcome({
 										<a
 											href={resource.url}
 											target={
-												resource.url.startsWith("http") ? "_blank" : "_self"
+												resource.url.startsWith('http') ? '_blank' : '_self'
 											}
 											rel={
-												resource.url.startsWith("http")
-													? "noopener noreferrer"
+												resource.url.startsWith('http')
+													? 'noopener noreferrer'
 													: undefined
 											}
 										>
@@ -403,5 +403,5 @@ export default function MaxStackWelcome({
 				</div>
 			</footer>
 		</div>
-	);
+	)
 }

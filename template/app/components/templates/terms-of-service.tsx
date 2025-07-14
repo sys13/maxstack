@@ -1,10 +1,10 @@
-import { z } from "zod";
+import { z } from 'zod'
 
 export const TermsOfServiceSchema = z.object({
 	textParagraphs: z.array(z.string()),
-});
+})
 
-export type TermsOfServiceProps = z.infer<typeof TermsOfServiceSchema>;
+export type TermsOfServiceProps = z.infer<typeof TermsOfServiceSchema>
 
 export function TermsOfService({ textParagraphs }: TermsOfServiceProps) {
 	return (
@@ -23,7 +23,7 @@ export function TermsOfService({ textParagraphs }: TermsOfServiceProps) {
 				))}
 			</div>
 		</section>
-	);
+	)
 }
 
-export default TermsOfService;
+export default TermsOfService

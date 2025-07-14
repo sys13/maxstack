@@ -1,10 +1,10 @@
-import z from "zod/v4";
+import z from 'zod/v4'
 
-export const variants = ["default"] as const;
+export const variants = ['default'] as const
 
 export const ContactSchema = z.object({
-	title: z.string().default("Contact Us"),
-	description: z.string().default("Get in touch with our team"),
+	title: z.string().default('Contact Us'),
+	description: z.string().default('Get in touch with our team'),
 	email: z.string().optional(),
 	phone: z.string().optional(),
 	address: z.string().optional(),
@@ -17,10 +17,10 @@ export const ContactSchema = z.object({
 			}),
 		)
 		.optional(),
-	variant: z.enum(variants).default("default").optional(),
-});
+	variant: z.enum(variants).default('default').optional(),
+})
 
-export type ContactProps = z.infer<typeof ContactSchema>;
+export type ContactProps = z.infer<typeof ContactSchema>
 
 export default function Contact({
 	title,
@@ -104,5 +104,5 @@ export default function Contact({
 				</div>
 			</div>
 		</div>
-	);
+	)
 }
