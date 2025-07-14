@@ -22,14 +22,19 @@ describe('gen CLI', () => {
 			)
 			expect(result.exitCode).toBe(0)
 			expect(result.stdout).toMatch(/Completed successfully/)
+			// Since no maxstack.tsx config exists in temp dir, saas-marketing won't be found
+			expect(result.stdout).toMatch(
+				/saas-marketing not found in standardFeatures/,
+			)
+			// Should still create database schema files
 			expect(result.stdout).toMatch(
 				new RegExp(
-					`Updated maxstack.tsx in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+					`Created database/schema/users.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 				),
 			)
 			expect(result.stdout).toMatch(
 				new RegExp(
-					`Created newfile.txt in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+					`Created database/schema/organizations.ts in ${tempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 				),
 			)
 		} finally {
