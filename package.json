@@ -25,8 +25,8 @@
 	],
 	"scripts": {
 		"build": "tsdown",
-		"format": "prettier .",
-		"lint": "eslint . --max-warnings 0",
+		"format": "prettier . --write",
+		"lint": "eslint --fix . --max-warnings 0",
 		"lint:knip": "knip",
 		"lint:md": "markdownlint \"**/*.md\" \".github/**/*.md\" --rules sentences-per-line",
 		"lint:packages": "pnpm dedupe --check",

@@ -1,5 +1,7 @@
 import { Command } from 'commander'
 
+import { parseMaxstack } from '../../maxstack-parsing/parseMs.js'
+
 // Define type for gen command options
 interface GenCommandOptions {
 	dir?: string
@@ -15,14 +17,13 @@ export const genCommand = new Command('gen')
 			const fs = await import('fs/promises')
 			const path = await import('path')
 
-			const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
-			let routesFileContent: string
+			// we need to look at the maxstack config and generate the routes based on it
+			const msConfig = await parseMaxstack(
+				path.resolve(process.cwd(), 'maxstack-config.ts'),
+			)
+			const configRoutes = msConfig.pages
 
-			try {
-				routesFileContent = await fs.readFile(routesFilePath, 'utf-8')
-				console.log('routes.ts content:\n', routesFileContent)
-			} catch (err) {
-				console.error(`Failed to read routes.ts:`, err)
-			}
+			const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
+			const routesFileContent = await fs.readFile(routesFilePath, 'utf-8')
 		})()
 	})

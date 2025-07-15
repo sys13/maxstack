@@ -24,4 +24,14 @@ describe('gen CLI', () => {
 		// 	await rm(tempDir, { force: true, recursive: true })
 		// }
 	})
+
+	it.todo('adds new routes based on maxstack config', async () => {})
+	it.todo('removes routes based on maxstack config', async () => {})
+	it.todo('adds components in pages maxstack config', async () => {
+		// the components are created
+		// the page is created
+	})
+	it.todo('removes components in pages maxstack config', async () => {
+		// the components is removed from the page
+	})
 })
