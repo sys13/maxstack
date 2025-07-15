@@ -1,3 +1,12 @@
+import {
+	ModuleKind,
+	ModuleResolutionKind,
+	type Node,
+	Project,
+	ScriptTarget,
+	SyntaxKind,
+} from 'ts-morph'
+
 interface ParsedRoute {
 	filePath: string
 	layout?: string
@@ -24,60 +33,153 @@ interface ParsedRoute {
 // ] satisfies RouteConfig
 // `
 export function parseRoutes(routesFileContent: string): ParsedRoute[] {
-	const routeRegex = /route\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)/g
-	const indexRegex = /index\(\s*['"]([^'"]+)['"]\s*\)/g
-	const layoutRegex = /layout:\s*['"]([^'"]+)['"]/g
+	const project = new Project({
+		compilerOptions: {
+			allowSyntheticDefaultImports: true,
+			esModuleInterop: true,
+			module: ModuleKind.ESNext,
+			moduleResolution: ModuleResolutionKind.Node10,
+			skipLibCheck: true,
+			target: ScriptTarget.ES2020,
+		},
+		useInMemoryFileSystem: true,
+	})
 
+	const sourceFile = project.createSourceFile('routes.ts', routesFileContent)
 	const routes: ParsedRoute[] = []
 
-	// Find all matches with their positions to preserve order
-	const allMatches: {
-		match: RegExpExecArray
-		type: 'index' | 'layout' | 'route'
-	}[] = []
+	function parseRouteElement(
+		element: Node,
+		pathPrefix = '',
+		currentLayout?: string,
+	): void {
+		const kind = element.getKind()
 
-	let match: null | RegExpExecArray
+		// Handle CallExpression (route(), index(), layout(), prefix())
+		if (kind === SyntaxKind.CallExpression) {
+			const callExpression = element.asKindOrThrow(SyntaxKind.CallExpression)
+			const expression = callExpression.getExpression()
 
-	// Reset regex lastIndex to ensure we start from the beginning
-	routeRegex.lastIndex = 0
-	indexRegex.lastIndex = 0
-	layoutRegex.lastIndex = 0
-
-	while ((match = routeRegex.exec(routesFileContent)) !== null) {
-		allMatches.push({ match, type: 'route' })
-	}
-
-	routeRegex.lastIndex = 0
-	while ((match = indexRegex.exec(routesFileContent)) !== null) {
-		allMatches.push({ match, type: 'index' })
-	}
-
-	indexRegex.lastIndex = 0
-	while ((match = layoutRegex.exec(routesFileContent)) !== null) {
-		allMatches.push({ match, type: 'layout' })
-	}
-
-	// Sort by position in the file
-	allMatches.sort((a, b) => a.match.index - b.match.index)
-
-	// Process matches in order
-	for (const { match, type } of allMatches) {
-		if (type === 'route') {
-			routes.push({
-				filePath: match[2],
-				route: match[1],
-			})
-		} else if (type === 'index') {
-			routes.push({
-				filePath: match[1],
-				route: '/',
-			})
-		} else {
-			// type === 'layout'
-			const lastRoute = routes.at(-1)
-			if (lastRoute) {
-				lastRoute.layout = match[1]
+			if (expression.getKind() !== SyntaxKind.Identifier) {
+				return
 			}
+
+			const functionName = expression.getText()
+			const args = callExpression.getArguments()
+
+			if (functionName === 'route' && args.length >= 2) {
+				const path = args[0].getText().replace(/['"]/g, '')
+				const filePath = args[1].getText().replace(/['"]/g, '')
+				const fullPath = pathPrefix
+					? `/${pathPrefix}${path === '/' ? '' : `/${path}`}`
+					: path
+
+				const route: ParsedRoute = {
+					filePath,
+					route:
+						fullPath.startsWith('/') || fullPath === '*'
+							? fullPath
+							: `/${fullPath}`,
+				}
+
+				if (currentLayout) {
+					route.layout = currentLayout
+				}
+
+				routes.push(route)
+			} else if (functionName === 'index' && args.length >= 1) {
+				const filePath = args[0].getText().replace(/['"]/g, '')
+				const fullPath = pathPrefix ? `/${pathPrefix}` : '/'
+
+				const route: ParsedRoute = {
+					filePath,
+					route: fullPath,
+				}
+
+				if (currentLayout) {
+					route.layout = currentLayout
+				}
+
+				routes.push(route)
+			} else if (functionName === 'layout' && args.length >= 2) {
+				const layoutFile = args[0].getText().replace(/['"]/g, '')
+				const childrenArg = args[1]
+
+				if (childrenArg.getKind() === SyntaxKind.ArrayLiteralExpression) {
+					const arrayLiteral = childrenArg.asKindOrThrow(
+						SyntaxKind.ArrayLiteralExpression,
+					)
+					const children = arrayLiteral.getElements()
+					for (const child of children) {
+						parseRouteElement(child, pathPrefix, layoutFile)
+					}
+				}
+			} else if (functionName === 'prefix' && args.length >= 2) {
+				const prefixPath = args[0].getText().replace(/['"]/g, '')
+				const childrenArg = args[1]
+
+				if (childrenArg.getKind() === SyntaxKind.ArrayLiteralExpression) {
+					const arrayLiteral = childrenArg.asKindOrThrow(
+						SyntaxKind.ArrayLiteralExpression,
+					)
+					const children = arrayLiteral.getElements()
+					for (const child of children) {
+						parseRouteElement(child, prefixPath, currentLayout)
+					}
+				}
+			}
+		}
+		// Handle SpreadElement (...prefix())
+		else if (kind === SyntaxKind.SpreadElement) {
+			const spreadElement = element.asKindOrThrow(SyntaxKind.SpreadElement)
+			const expression = spreadElement.getExpression()
+			if (expression.getKind() === SyntaxKind.CallExpression) {
+				parseRouteElement(expression, pathPrefix, currentLayout)
+			}
+		}
+		// Handle ArrayLiteralExpression
+		else if (kind === SyntaxKind.ArrayLiteralExpression) {
+			const arrayLiteral = element.asKindOrThrow(
+				SyntaxKind.ArrayLiteralExpression,
+			)
+			const elements = arrayLiteral.getElements()
+			for (const child of elements) {
+				parseRouteElement(child, pathPrefix, currentLayout)
+			}
+		}
+	}
+
+	// Find the export assignments (both export = and export default)
+	const exportAssignments = sourceFile.getExportAssignments()
+
+	for (const exportAssignment of exportAssignments) {
+		let expression = exportAssignment.getExpression()
+
+		// Handle "satisfies" type assertions (e.g., "[] satisfies RouteConfig")
+		if (expression.getKind() === SyntaxKind.TypeAssertionExpression) {
+			const typeAssertion = expression.asKindOrThrow(
+				SyntaxKind.TypeAssertionExpression,
+			)
+			expression = typeAssertion.getExpression()
+		} else if (expression.getKind() === SyntaxKind.AsExpression) {
+			const asExpression = expression.asKindOrThrow(SyntaxKind.AsExpression)
+			expression = asExpression.getExpression()
+		} else if (expression.getKind() === SyntaxKind.SatisfiesExpression) {
+			const satisfiesExpression = expression.asKindOrThrow(
+				SyntaxKind.SatisfiesExpression,
+			)
+			expression = satisfiesExpression.getExpression()
+		}
+
+		if (expression.getKind() === SyntaxKind.ArrayLiteralExpression) {
+			const arrayLiteral = expression.asKindOrThrow(
+				SyntaxKind.ArrayLiteralExpression,
+			)
+			const elements = arrayLiteral.getElements()
+			for (const element of elements) {
+				parseRouteElement(element)
+			}
+			break
 		}
 	}
 
