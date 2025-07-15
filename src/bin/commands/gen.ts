@@ -1,11 +1,5 @@
 import { Command } from 'commander'
 
-import {
-	collectProjectInfo,
-	executeServerCommands,
-	sendToServer,
-} from './gen.utils.js'
-
 // Define type for gen command options
 interface GenCommandOptions {
 	dir?: string
@@ -15,30 +9,20 @@ interface GenCommandOptions {
 // Ensure all errors are caught and handled for Commander async action
 export const genCommand = new Command('gen')
 	.description('Automate project updates by communicating with the maxserver')
-	.option('--production', 'Send real requests to the server')
-	.option('--dir <path>', 'Directory where files should be created')
-	.action((opts: GenCommandOptions) => {
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	.action((_opts: GenCommandOptions) => {
 		return (async () => {
+			const fs = await import('fs/promises')
+			const path = await import('path')
+
+			const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
+			let routesFileContent: string
+
 			try {
-				// 1. Collect project info
-				const projectInfo = await collectProjectInfo()
-
-				// 2. Generate local commands
-				const commands = sendToServer(projectInfo)
-
-				// 3. Execute received commands
-				const mockMode = !opts.production
-				await executeServerCommands(commands, mockMode, opts.dir)
-
-				console.log('gen: Completed successfully.')
-				return // Success, just return
+				routesFileContent = await fs.readFile(routesFilePath, 'utf-8')
+				console.log('routes.ts content:\n', routesFileContent)
 			} catch (err) {
-				if (err instanceof Error) {
-					console.error('gen: Error:', err.stack ?? err.message)
-				} else {
-					console.error('gen: Error:', err)
-				}
-				throw err // Let the error propagate for proper exit code
+				console.error(`Failed to read routes.ts:`, err)
 			}
 		})()
 	})
