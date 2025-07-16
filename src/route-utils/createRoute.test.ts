@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Page } from './maxstack-parsing/msZod.js'
+import type { Page } from '../maxstack-parsing/msZod.js'
 
 import { createRouteText } from './createRoute.js'
 
@@ -18,7 +18,7 @@ describe('createRouteText', () => {
 			.toBe(`import Template, { registry } from '~/components/templates/template'
 import type { Route } from './+types/home-page'
 
-export default function home-pagePage({}: ) {
+export default function home-pagePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			
@@ -51,7 +51,7 @@ import type { Route } from './+types/user-profile'
 // data to show user: user details,settings
 // user actions: edit profile,change password
 // auth required: yes
-export default function user-profilePage({}: ) {
+export default function user-profilePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			<Template componentName="about" />
@@ -74,7 +74,7 @@ export default function user-profilePage({}: ) {
 			"import type { Route } from './+types/admin-dashboard-settings'",
 		)
 		expect(result.fileString).toContain(
-			'export default function admin-dashboard-settingsPage({}: ) {',
+			'export default function admin-dashboard-settingsPage({}: Route.ComponentProps ) {',
 		)
 	})
 
@@ -91,7 +91,7 @@ export default function user-profilePage({}: ) {
 			"import type { Route } from './+types/user-profile-settings'",
 		)
 		expect(result.fileString).toContain(
-			'export default function user-profile-settingsPage({}: ) {',
+			'export default function user-profile-settingsPage({}: Route.ComponentProps ) {',
 		)
 	})
 
@@ -114,7 +114,7 @@ export default function user-profilePage({}: ) {
 import type { Route } from './+types/empty-page'
 
 // auth required: no
-export default function empty-pagePage({}: ) {
+export default function empty-pagePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			
@@ -255,7 +255,7 @@ export default function empty-pagePage({}: ) {
 			"import type { Route } from './+types/test-page'",
 		)
 		expect(result.fileString).toContain(
-			'export default function test-pagePage({}: ) {',
+			'export default function test-pagePage({}: Route.ComponentProps ) {',
 		)
 		expect(result.fileString).toContain('return (')
 		expect(result.fileString).toContain('<>')

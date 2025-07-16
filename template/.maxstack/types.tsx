@@ -1,39 +1,63 @@
-/**
- * Configuration for a MAXSTACK project.
- */
-export type MAXConfig = {
-	/** The name of the project */
-	name: string
-	/** A description of the project */
-	description: string
-	/** List of standard features included in the project */
-	standardFeatures?: StandardFeature[]
-	/** List of routes in your app */
-	pages?: Page[]
-	domainName?: string
-}
+import { z } from 'zod'
 
 /**
  * Complete list of standard site-level features.
  */
-export type StandardFeature = 'blog' | 'saas-marketing'
+export const StandardFeatureSchema = z.enum(['blog', 'saas-marketing'])
+
+const templateComponents = z.enum([
+	'about',
+	'blogLanding',
+	'blogPost',
+	'contact',
+	'faq',
+	'landing',
+	'marketingFooter',
+	'marketingNav',
+	'maxstackWelcome',
+	'newsletterSignup',
+	'pricing',
+	'privacyPolicy',
+	'termsOfService',
+])
 
 /**
  * Represents a page in the application.
  */
-export type Page = {
+export const PageSchema = z.object({
 	/** The name of the page */
-	name: string
+	name: z.string(),
 	/** Optional description of the page */
-	description?: string
+	description: z.string().optional(),
 	/** Optional route path for the page */
-	routePath?: string
+	routePath: z.string(),
+	templateComponents: z.array(templateComponents).optional(),
 	/** List of components used in the page */
-	components?: string[]
+	components: z.array(z.string()).optional(),
 	/** Data to show user */
-	infoOnPage?: string[]
+	infoOnPage: z.array(z.string()).optional(),
 	/** List of user actions that can be performed on the page */
-	userActions?: string[]
+	userActions: z.array(z.string()).optional(),
 	/** Whether authentication is required to access the page */
-	authRequired?: boolean
-}
+	authRequired: z.boolean().optional(),
+})
+
+/**
+ * Configuration for a MAXSTACK project.
+ */
+export const MAXConfigSchema = z.object({
+	/** The name of the project */
+	name: z.string(),
+	/** A description of the project */
+	description: z.string().describe('A brief description of the project'),
+	domainName: z.string().optional(),
+	/** List of routes in your app */
+	pages: z.array(PageSchema).optional(),
+	/** List of standard features included in the project */
+	standardFeatures: z.array(StandardFeatureSchema).optional(),
+})
+
+// Export the inferred types for convenience
+export type MAXConfig = z.infer<typeof MAXConfigSchema>
+export type Page = z.infer<typeof PageSchema>
+export type StandardFeature = z.infer<typeof StandardFeatureSchema>

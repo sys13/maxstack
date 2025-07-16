@@ -1,5 +1,5 @@
-import { toKebabCase } from './bin/commands/init.utils.js'
-import { Page } from './maxstack-parsing/msZod.js'
+import { toKebabCase } from '../bin/commands/init.utils.js'
+import { Page } from '../maxstack-parsing/msZod.js'
 
 export function createRouteText(page: Page): {
 	fileName: string
@@ -44,7 +44,7 @@ export function createRouteText(page: Page): {
 		fileString: `import Template, { registry } from '~/components/templates/template'
 import type { Route } from './+types/${toKebabCase(page.name)}'
 
-${commentSection}export default function ${toKebabCase(page.name)}Page({}: ) {
+${commentSection}export default function ${toKebabCase(page.name)}Page({}: Route.ComponentProps ) {
 	return (
 		<>
 			${templateComponents.map((component) => component).join('\n')}
