@@ -3,5 +3,5 @@
 	"entry": ["src/**/*.test.*", "src/lib/bin/index.ts"],
 	"ignoreExportsUsedInFile": { "interface": true, "type": true },
 	"project": ["src/**/*.ts", "tests/**/*.ts"],
-	"ignore": ["template/**"]
+	"ignore": ["template/**", "test-structures/**", "plans/**"]
 }

@@ -95,7 +95,15 @@ describe('toKebabCase', () => {
 
 	it('handles uppercase text', () => {
 		expect(toKebabCase('UPPERCASE_TEXT')).toBe('uppercase-text')
-		expect(toKebabCase('MixedCASE')).toBe('mixedcase')
-		expect(toKebabCase('CamelCaseProject')).toBe('camelcaseproject')
+		expect(toKebabCase('MixedCASE')).toBe('mixed-case')
+		expect(toKebabCase('CamelCaseProject')).toBe('camel-case-project')
+	})
+
+	it('handles camelCase conversion properly', () => {
+		expect(toKebabCase('HomePage')).toBe('home-page')
+		expect(toKebabCase('userProfile')).toBe('user-profile')
+		expect(toKebabCase('adminDashboard')).toBe('admin-dashboard')
+		expect(toKebabCase('XMLHttpRequest')).toBe('xml-http-request')
+		expect(toKebabCase('HTMLElement')).toBe('html-element')
 	})
 })

@@ -58,6 +58,8 @@ export default {
 export function toKebabCase(str: string): string {
 	return str
 		.trim()
+		.replace(/([a-z])([A-Z])/g, '$1-$2') // Insert hyphen before uppercase letters following lowercase
+		.replace(/([A-Z])([A-Z][a-z])/g, '$1-$2') // Insert hyphen before last uppercase letter in consecutive uppercase sequence
 		.toLowerCase()
 		.replace(/[_\s]+/g, '-') // Convert underscores and spaces to hyphens
 		.replace(/[^a-z0-9-]/g, '') // Remove special characters except hyphens

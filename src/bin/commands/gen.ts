@@ -1,6 +1,7 @@
 import { Command } from 'commander'
 
 import { parseMaxstack } from '../../maxstack-parsing/parseMs.js'
+import { parseRoutes } from '../../parseRoutes.js'
 
 // Define type for gen command options
 interface GenCommandOptions {
@@ -25,5 +26,27 @@ export const genCommand = new Command('gen')
 
 			const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
 			const routesFileContent = await fs.readFile(routesFilePath, 'utf-8')
+			const routesInRoutesTsx = parseRoutes(routesFileContent)
+
+			// Check if the routes in the config match the routes in routes.tsx
+			const configRoutesPaths = configRoutes
+				? configRoutes.map((route) => route.routePath)
+				: []
+
+			const routesInRoutesTsxPaths = routesInRoutesTsx.map(
+				(route) => route.route,
+			)
+
+			const missingRoutes = configRoutesPaths.filter(
+				(route) => !routesInRoutesTsxPaths.includes(route),
+			)
+			const extraRoutes = routesInRoutesTsxPaths.filter(
+				(route) => !configRoutesPaths.includes(route),
+			)
+
+			// todo: modify the routes.tsx file to include the missing routes
+			// the routes should use <Template componentName="" /> for any templateComponents
+
+			// todo: create the components for the pages if they do not exist
 		})()
 	})

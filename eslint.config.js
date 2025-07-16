@@ -21,6 +21,7 @@ export default tseslint.config(
 			'pnpm-lock.yaml',
 			'bin/index.js',
 			'template',
+			'test-structures',
 		],
 	},
 	{ linterOptions: { reportUnusedDisableDirectives: 'error' } },

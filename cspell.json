@@ -9,6 +9,7 @@
 		"node_modules",
 		"pnpm-lock.yaml",
 		"template",
+		"test-structures",
 		"plans"
 	],
 	"words": [

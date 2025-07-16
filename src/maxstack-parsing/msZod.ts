@@ -5,6 +5,22 @@ import { z } from 'zod'
  */
 export const StandardFeatureSchema = z.enum(['blog', 'saas-marketing'])
 
+const templateComponents = z.enum([
+	'about',
+	'blogLanding',
+	'blogPost',
+	'contact',
+	'faq',
+	'landing',
+	'marketingFooter',
+	'marketingNav',
+	'maxstackWelcome',
+	'newsletterSignup',
+	'pricing',
+	'privacyPolicy',
+	'termsOfService',
+])
+
 /**
  * Represents a page in the application.
  */
@@ -14,7 +30,8 @@ export const PageSchema = z.object({
 	/** Optional description of the page */
 	description: z.string().optional(),
 	/** Optional route path for the page */
-	routePath: z.string().optional(),
+	routePath: z.string(),
+	templateComponents: z.array(templateComponents).optional(),
 	/** List of components used in the page */
 	components: z.array(z.string()).optional(),
 	/** Data to show user */
