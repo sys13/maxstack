@@ -1,14 +1,15 @@
-import { toKebabCase } from '../bin/commands/init.utils.js'
+import { camelCase, kebabCase } from 'es-toolkit'
+
 import { Page } from '../maxstack-parsing/msZod.js'
 
 export function createRouteText(page: Page): {
 	fileName: string
 	fileString: string
 } {
-	const routeFileName = toKebabCase(page.name) + '.tsx'
+	const routeFileName = kebabCase(page.name) + '.tsx'
 	const templateComponents = page.templateComponents
 		? page.templateComponents.map(
-				(component) => `<Template componentName="${toKebabCase(component)}" />`,
+				(component) => `<Template componentName="${kebabCase(component)}" />`,
 			)
 		: []
 
@@ -42,9 +43,9 @@ export function createRouteText(page: Page): {
 	return {
 		fileName: routeFileName,
 		fileString: `import Template, { registry } from '~/components/templates/template'
-import type { Route } from './+types/${toKebabCase(page.name)}'
+import type { Route } from './+types/${kebabCase(page.name)}'
 
-${commentSection}export default function ${toKebabCase(page.name)}Page({}: Route.ComponentProps ) {
+${commentSection}export default function ${camelCase(page.name)}Page({}: Route.ComponentProps ) {
 	return (
 		<>
 			${templateComponents.map((component) => component).join('\n')}

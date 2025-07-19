@@ -1,5 +1,6 @@
 import { checkbox, input } from '@inquirer/prompts'
 import { Command } from 'commander'
+import { kebabCase } from 'es-toolkit'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -8,7 +9,6 @@ import { generateTypesContent } from './gen-config.js'
 import {
 	copyDirRecursive,
 	generateConfigTemplate,
-	toKebabCase,
 	updateFileWithReplacements,
 } from './init.utils.js'
 
@@ -60,7 +60,7 @@ export const initCommand = new Command('init')
 			})
 
 			// Convert project name to kebab-case for directory name
-			const dirName = toKebabCase(projectName)
+			const dirName = kebabCase(projectName)
 			const outdir = resolve(process.cwd(), dirName)
 
 			if (existsSync(outdir) && !options.force) {
