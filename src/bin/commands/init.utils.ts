@@ -42,12 +42,7 @@ export default {
 	name: "${projectName}",
 	description: "${projectDescription}",
 	standardFeatures: ${featuresArray},
-	personas: [],
-	features: [],
 	pages: [],
-	models: [],
-	unitTests: [],
-	e2eTests: [],
 } as const satisfies MAXConfig;
 `,
 	}

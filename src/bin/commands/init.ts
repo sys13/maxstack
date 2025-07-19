@@ -108,6 +108,8 @@ export const initCommand = new Command('init')
 				console.log(
 					`🎉 Successfully created MaxStack project "${projectName}" in ${dirName}/`,
 				)
+				console.log('Next steps:')
+				console.log(`cd ${dirName}\npnpm i\npnpm run dev`)
 				const envExamplePath = resolve(outdir, '.env.example')
 				const envPath = resolve(outdir, '.env')
 				copyFileSync(envExamplePath, envPath)
