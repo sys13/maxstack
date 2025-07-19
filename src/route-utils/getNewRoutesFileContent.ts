@@ -3,44 +3,57 @@ import { Page } from '../maxstack-parsing/msZod.js'
 /**
  * Generate React Router routes file content from Page objects.
  */
-export function getNewRoutesFileContent(newPages: Page[]): string {
-	if (newPages.length === 0) {
-		return `import { index, route, type RouteConfig } from '@react-router/dev/routes'
 
-export default [
-	index('routes/home.tsx'),
-	route('/healthcheck', 'routes/healthcheck.tsx'),
-	route('*', './catchall.tsx'),
-] satisfies RouteConfig
-`
+export function getNewRoutesFileContent(newPages: Page[]): string {
+	// Helper to normalize file names from page names
+	function normalizeFileName(name: string): string {
+		return name
+			.toLowerCase()
+			.replace(/\s+/g, '-')
+			.replace(/[^a-z0-9\-&]/g, '-')
+			.replace(/-+/g, '-')
+			.replace(/^-|-$/g, '')
+	}
+
+	// Helper to normalize route paths
+	function normalizeRoutePath(routePath: string | undefined): string {
+		if (!routePath || routePath.trim() === '') {
+			// If no routePath, generate from name
+			return ''
+		}
+		let p = routePath.trim()
+		if (!p.startsWith('/')) {
+			p = '/' + p
+		}
+		return p
 	}
 
 	const routes: string[] = []
 
-	// Process each page to generate route entries
-	for (const page of newPages) {
-		const fileName = `routes/${page.name.toLowerCase().replace(/\s+/g, '-')}.tsx`
+	if (newPages.length === 0) {
+		routes.push(`\tindex('routes/home.tsx')`)
+	} else {
+		for (const page of newPages) {
+			const fileName = `routes/${normalizeFileName(page.name)}.tsx`
+			const routePath = normalizeRoutePath(page.routePath)
 
-		if (page.routePath === '/' || page.routePath === '') {
-			// Use index route for the root path
-			routes.push(`\tindex('${fileName}')`)
-		} else {
-			// Use regular route for other paths
-			const normalizedPath = page.routePath.startsWith('/')
-				? page.routePath
-				: `/${page.routePath}`
-			routes.push(`\troute('${normalizedPath}', '${fileName}')`)
+			if (routePath === '/' || routePath === '') {
+				// index route for root or empty
+				routes.push(`\tindex('${fileName}')`)
+			} else {
+				routes.push(`\troute('${routePath}', '${fileName}')`)
+			}
 		}
 	}
 
-	// Always add the standard routes at the end
-	routes.push(`\troute('/healthcheck', 'routes/healthcheck.tsx'),`)
+	// Always add catchall and healthcheck at the end
+	routes.push(`\troute('/healthcheck', 'routes/healthcheck.tsx')`)
 	routes.push(`\troute('*', './catchall.tsx')`)
 
 	return `import { index, route, type RouteConfig } from '@react-router/dev/routes'
 
 export default [
-${routes.join(',\n')},
+${routes.join(',\n')}
 ] satisfies RouteConfig
 `
 }

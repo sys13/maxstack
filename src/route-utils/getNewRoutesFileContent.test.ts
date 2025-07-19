@@ -14,7 +14,8 @@ describe('getNewRoutesFileContent', () => {
 
 export default [
 	index('routes/home.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -44,7 +45,8 @@ export default [
 	index('routes/home.tsx'),
 	route('/about', 'routes/about.tsx'),
 	route('/contact', 'routes/contact.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -53,11 +55,11 @@ export default [
 		const newPages: Page[] = [
 			{
 				name: 'Dashboard',
-				routePath: '/dashboard',
+				routePath: '',
 			},
 			{
 				name: 'User Profile',
-				routePath: '/user-profile',
+				routePath: '',
 			},
 		]
 
@@ -67,9 +69,10 @@ export default [
 			.toBe(`import { index, route, type RouteConfig } from '@react-router/dev/routes'
 
 export default [
-	route('/dashboard', 'routes/dashboard.tsx'),
-	route('/user-profile', 'routes/user-profile.tsx'),
-	route('*', './catchall.tsx'),
+	index('routes/dashboard.tsx'),
+	index('routes/user-profile.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -89,7 +92,8 @@ export default [
 
 export default [
 	index('routes/my-custom-page.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -114,7 +118,8 @@ export default [
 export default [
 	route('/user-settings', 'routes/user-settings-&-preferences.tsx'),
 	route('/api-docs', 'routes/api-documentation.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -134,7 +139,8 @@ export default [
 
 export default [
 	route('/blog', 'routes/blog.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
@@ -169,7 +175,8 @@ export default [
 	route('/about', 'routes/about-us.tsx'),
 	route('/services', 'routes/services.tsx'),
 	index('routes/contact-form.tsx'),
-	route('*', './catchall.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
+	route('*', './catchall.tsx')
 ] satisfies RouteConfig
 `)
 	})
