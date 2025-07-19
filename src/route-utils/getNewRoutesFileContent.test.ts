@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Page } from '../maxstack-parsing/msZod.js'
 
-import { getNewRoutesFileContent } from './addRoutesToRoutesFile.js'
+import { getNewRoutesFileContent } from './getNewRoutesFileContent.js'
 
 describe('getNewRoutesFileContent', () => {
 	it('should generate basic routes file with empty pages array', () => {

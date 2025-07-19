@@ -2,7 +2,9 @@ import { Command } from 'commander'
 
 import { parseMaxstack } from '../../maxstack-parsing/parseMs.js'
 import { createRouteText } from '../../route-utils/createRoute.js'
+import { getNewRoutesFileContent } from '../../route-utils/getNewRoutesFileContent.js'
 import { parseRoutes } from '../../route-utils/parseRoutes.js'
+import { readIfExists } from './gen.utils.js'
 
 // Define type for gen command options
 interface GenCommandOptions {
@@ -26,7 +28,11 @@ export const genCommand = new Command('gen')
 			const configRoutes = msConfig.pages
 
 			const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
-			const routesFileContent = await fs.readFile(routesFilePath, 'utf-8')
+			const routesFileContent = await readIfExists(routesFilePath)
+			invariant(
+				routesFileContent !== null,
+				`Routes file not found at ${routesFilePath}. Please ensure it exists.`,
+			)
 			const routesInRoutesTsx = parseRoutes(routesFileContent)
 
 			const routesInRoutesTsxPaths = routesInRoutesTsx.map(
@@ -60,6 +66,13 @@ export const genCommand = new Command('gen')
 				console.log(`Created route file: ${result.fileName}`)
 			}
 
-			// todo: modify the routes.tsx file to include the missing routes
+			const routesText = getNewRoutesFileContent(pagesToCreate)
+			await fs.writeFile(routesFilePath, routesText, 'utf-8')
 		})()
 	})
+
+function invariant(condition: boolean, message: string): asserts condition {
+	if (!condition) {
+		throw new Error(message)
+	}
+}

@@ -1,11 +1,8 @@
-import { mkdtemp } from 'fs/promises'
-import os from 'os'
-import path from 'path'
 import { describe, expect, it } from 'vitest'
 
 describe('gen CLI', () => {
-	it('runs in production mode (mocked network)', async () => {
-		const tempDir = await mkdtemp(path.join(os.tmpdir(), 'maxstack-test-'))
+	it('runs in production mode (mocked network)', () => {
+		// const tempDir = await mkdtemp(path.join(os.tmpdir(), 'maxstack-test-'))
 
 		expect(1).toBe(1) // Placeholder for actual test logic
 		// try {
@@ -25,8 +22,10 @@ describe('gen CLI', () => {
 		// }
 	})
 
-	it.todo('adds new routes based on maxstack config', async () => {})
-	it.todo('removes routes based on maxstack config', async () => {})
+	// eslint-disable-next-line @typescript-eslint/no-empty-function
+	it.todo('adds new routes based on maxstack config', () => {})
+	// eslint-disable-next-line @typescript-eslint/no-empty-function
+	it.todo('removes routes based on maxstack config', () => {})
 	it.todo('adds components in pages maxstack config', async () => {
 		// the components are created
 		// the page is created
