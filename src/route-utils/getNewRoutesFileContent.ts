@@ -34,8 +34,8 @@ export default [
 	}
 
 	// Always add the standard routes at the end
-	routes.push(`\troute('*', './catchall.tsx')`)
 	routes.push(`\troute('/healthcheck', 'routes/healthcheck.tsx'),`)
+	routes.push(`\troute('*', './catchall.tsx')`)
 
 	return `import { index, route, type RouteConfig } from '@react-router/dev/routes'
 
