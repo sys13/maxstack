@@ -6,7 +6,6 @@ import jsonc from 'eslint-plugin-jsonc'
 import markdown from 'eslint-plugin-markdown'
 import n from 'eslint-plugin-n'
 import packageJson from 'eslint-plugin-package-json'
-import perfectionist from 'eslint-plugin-perfectionist'
 import * as regexp from 'eslint-plugin-regexp'
 import yml from 'eslint-plugin-yml'
 import tseslint from 'typescript-eslint'
@@ -34,7 +33,6 @@ export default tseslint.config(
 	markdown.configs.recommended,
 	n.configs['flat/recommended'],
 	packageJson.configs.recommended,
-	perfectionist.configs['recommended-natural'],
 	regexp.configs['flat/recommended'],
 	{
 		extends: [
@@ -61,7 +59,6 @@ export default tseslint.config(
 			'operator-assignment': 'error',
 		},
 		settings: {
-			perfectionist: { partitionByComment: true, type: 'natural' },
 			vitest: { typecheck: true },
 		},
 	},

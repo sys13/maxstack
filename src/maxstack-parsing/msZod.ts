@@ -6,8 +6,11 @@ export const StandardFeatureSchema = z
 
 const templateComponents = z.enum([
 	'about',
+	'blogCreate',
+	'blogEdit',
 	'blogLanding',
 	'blogPost',
+	'blogTags',
 	'contact',
 	'faq',
 	'landing',
@@ -23,28 +26,33 @@ const templateComponents = z.enum([
 /**
  * Represents a page in the application.
  */
-export const PageSchema = z.object({
-	authRequired: z
-		.boolean()
-		.optional()
-		.describe('Whether authentication is required to access the page'),
-	components: z
-		.array(z.string())
-		.optional()
-		.describe('List of components used in the page'),
-	description: z
-		.string()
-		.optional()
-		.describe('Optional description of the page'),
-	infoOnPage: z.array(z.string()).optional().describe('Data to show user'),
-	name: z.string().describe('The name of the page'),
-	routePath: z.string().describe('Optional route path for the page'),
-	templateComponents: z.array(templateComponents).optional(),
-	userActions: z
-		.array(z.string())
-		.optional()
-		.describe('List of user actions that can be performed on the page'),
-})
+export const PageSchema = z
+	.object({
+		authRequired: z
+			.boolean()
+			.optional()
+			.describe('Whether authentication is required to access the page'),
+		components: z
+			.array(z.string())
+			.optional()
+			.describe('List of components used in the page'),
+		description: z
+			.string()
+			.optional()
+			.describe('Optional description of the page'),
+		infoOnPage: z.array(z.string()).optional().describe('Data to show user'),
+		name: z.string().describe('Name of the page'),
+		routePath: z.string().describe('Optional route path for the page'),
+		templateComponents: z
+			.array(templateComponents)
+			.optional()
+			.describe('List of components that already have templates'),
+		userActions: z
+			.array(z.string())
+			.optional()
+			.describe('List of user actions that can be performed on the page'),
+	})
+	.describe('Your routes and components')
 
 /**
  * Configuration for a MAXSTACK project.
