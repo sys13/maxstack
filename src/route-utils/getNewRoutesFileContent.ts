@@ -9,6 +9,7 @@ export function getNewRoutesFileContent(newPages: Page[]): string {
 
 export default [
 	index('routes/home.tsx'),
+	route('/healthcheck', 'routes/healthcheck.tsx'),
 	route('*', './catchall.tsx'),
 ] satisfies RouteConfig
 `
@@ -32,8 +33,9 @@ export default [
 		}
 	}
 
-	// Always add the catchall route at the end
+	// Always add the standard routes at the end
 	routes.push(`\troute('*', './catchall.tsx')`)
+	routes.push(`\troute('/healthcheck', 'routes/healthcheck.tsx'),`)
 
 	return `import { index, route, type RouteConfig } from '@react-router/dev/routes'
 
