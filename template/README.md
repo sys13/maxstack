@@ -87,3 +87,11 @@ For the best development experience, install the Biome VSCode extension:
    - Select "Format Document With..."
    - Select "Configure Default Formatter"
    - Choose "Biome"
+
+## DB
+
+We use [Drizzle](https://orm.drizzle.team) as the ORM.
+
+### Querying DB
+
+[relational API](https://github.com/drizzle-team/drizzle-orm/discussions/2316)

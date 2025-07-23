@@ -51,7 +51,6 @@
 
 ## E2E Tests
 
-- User signup/login/logout
 - Create/edit/delete post
 - Comment and reply flow
 - Tag & category filtering

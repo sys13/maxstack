@@ -13,14 +13,13 @@
 		"plans"
 	],
 	"words": [
-		"healthcheck",
-		"shadcn",
 		"APP_NAME_KEBAB",
 		"arrizza",
 		"camelcaseproject",
 		"capterra",
 		"cheatsheet",
 		"convertkit",
+		"healthcheck",
 		"hubspot",
 		"mailchimp",
 		"maxserver",
@@ -30,6 +29,7 @@
 		"posthog",
 		"projectname",
 		"savvycal",
+		"shadcn",
 		"skeuomorphic",
 		"subheadline",
 		"Taskly",
@@ -37,6 +37,7 @@
 		"tiktok",
 		"trustpilot",
 		"tsdown",
-		"unbundle"
+		"unbundle",
+		"unixepoch"
 	]
 }

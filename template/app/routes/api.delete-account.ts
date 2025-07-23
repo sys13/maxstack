@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { data, type ActionFunctionArgs } from 'react-router'
 import { auth } from '~/lib/auth.server'
 import { db } from '~/utils/db.server'
-import { user } from '../../database/schema'
+import { user } from '../../database/main/schema'
 
 export async function action({ request }: ActionFunctionArgs) {
 	if (request.method !== 'DELETE') {

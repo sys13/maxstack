@@ -11,7 +11,8 @@
 		"@headlessui/react",
 		"react-day-picker",
 		"console",
-		"#node_modules"
+		"#node_modules",
+		"/database/_schema.ts"
 	],
 	"[typescriptreact]": {
 		"editor.defaultFormatter": "biomejs.biome"
