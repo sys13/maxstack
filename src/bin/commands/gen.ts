@@ -26,17 +26,17 @@ function invariant(condition: boolean, message: string): asserts condition {
 	}
 }
 
-export async function gen() {
+export async function gen(projectDir?: string) {
 	const fs = await import('fs/promises')
 	const path = await import('path')
 
+	const workingDir = projectDir ?? process.cwd()
+
 	// we need to look at the maxstack config and generate the routes based on it
-	const msConfig = await parseMaxstack(
-		path.resolve(process.cwd(), 'maxstack.tsx'),
-	)
+	const msConfig = await parseMaxstack(path.resolve(workingDir, 'maxstack.tsx'))
 	const configRoutes = msConfig.pages
 
-	const routesFilePath = path.resolve(process.cwd(), 'app', 'routes.ts')
+	const routesFilePath = path.resolve(workingDir, 'app', 'routes.ts')
 	const routesFileContent = await readIfExists(routesFilePath)
 	invariant(
 		routesFileContent !== null,
@@ -64,7 +64,7 @@ export async function gen() {
 	for (const page of pagesToCreate) {
 		const result = createRouteText(page)
 		const routeFilePath = path.resolve(
-			process.cwd(),
+			workingDir,
 			'app',
 			'routes',
 			result.fileName,

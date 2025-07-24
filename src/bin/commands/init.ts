@@ -123,6 +123,8 @@ export const initCommand = new Command('init')
 					replacements,
 				)
 
+				console.log('projectDir', projectDir)
+
 				await implStdFeatures({ projectDir, selectedFeatures })
 
 				// send messages to the user

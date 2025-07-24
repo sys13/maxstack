@@ -1,20 +1,23 @@
 import { execSync } from 'child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
-import { fileURLToPath } from 'url'
 import { gen } from './bin/commands/gen.js'
 import { StandardFeature } from './maxstack-parsing/msZod.js'
 import { pages as blogPages } from './std-features/blog/pages.js'
 import { relations as blogRelations } from './std-features/blog/relations.js'
-
-const __filename = fileURLToPath(import.meta.url)
+import { schema as blogSchema } from './std-features/blog/schema.js'
 
 const pages: Record<StandardFeature, typeof blogPages> = {
 	blog: blogPages,
 	'saas-marketing': blogPages,
 }
 
-const relations: Record<StandardFeature, typeof blogRelations> = {
+const schema: Record<StandardFeature, string> = {
+	blog: blogSchema,
+	'saas-marketing': blogSchema,
+}
+
+const relations: Record<StandardFeature, string> = {
 	blog: blogRelations,
 	'saas-marketing': blogRelations,
 }
@@ -33,27 +36,19 @@ export async function implStdFeatures({
 		dbStuff({ featureName: 'blog', projectDir })
 	}
 
+	updateRelationsFile({
+		selectedFeatures,
+		projectDir,
+	})
+
 	updateConfig({
 		featureNames: selectedFeatures as StandardFeature[],
 		projectDir,
 	})
 
-	await gen()
+	await gen(projectDir)
 
-	const mainRelationsPath = resolve(projectDir, 'database', 'relations.ts')
-	const mainRelationsText = readFileSync(mainRelationsPath, 'utf-8')
-
-	const allRelationsText = Object.entries(relations)
-		.filter(([featureName]) => selectedFeatures.includes(featureName))
-		.map(([_, val]) => val)
-		.join('\n')
-	const mainRelationsWithoutClosing = mainRelationsText.replace(
-		'}))',
-		allRelationsText + '}))',
-	)
-	const updatedRelationsText =
-		mainRelationsWithoutClosing + '\n' + allRelationsText + '\n}'
-	writeFileSync(mainRelationsPath, updatedRelationsText)
+	runPnpmInstall({ projectDir })
 
 	dbGenAndMigrate({ projectDir })
 }
@@ -62,22 +57,14 @@ function dbStuff({
 	featureName,
 	projectDir,
 }: {
-	featureName: string
+	featureName: StandardFeature
 	projectDir: string
 }) {
-	// create folder /database/featureName
 	const dbFolder = resolve(projectDir, 'database', featureName)
 	mkdirSync(dbFolder, { recursive: true })
 
-	const schemaPath = resolve(
-		__filename,
-		'std-features',
-		featureName,
-		'schema.ts',
-	)
-	const schemaText = readFileSync(schemaPath, 'utf-8')
 	const targetSchemaPath = resolve(dbFolder, 'schema.ts')
-	writeFileSync(targetSchemaPath, schemaText)
+	writeFileSync(targetSchemaPath, schema[featureName])
 
 	// append the schema to the main schema file
 	const mainSchemaPath = resolve(projectDir, 'database', '_schema.ts')
@@ -85,17 +72,6 @@ function dbStuff({
 	const updatedMainSchemaText =
 		mainSchemaText + '\n' + `export * from './${featureName}/schema'`
 	writeFileSync(mainSchemaPath, updatedMainSchemaText)
-
-	// update the relations
-	const relationsPath = resolve(
-		projectDir,
-		'std-features',
-		featureName,
-		'relations.ts',
-	)
-	const relationsText = readFileSync(relationsPath, 'utf-8')
-	const targetRelationsPath = resolve(dbFolder, 'relations.ts')
-	writeFileSync(targetRelationsPath, relationsText)
 
 	// append the relations to the main relations file
 	// replacing the last line with the new relations '}))'
@@ -131,4 +107,38 @@ function dbGenAndMigrate({ projectDir }: { projectDir: string }) {
 	} catch (error) {
 		console.error('Error generating and migrating database schema:', error)
 	}
+}
+
+function runPnpmInstall({ projectDir }: { projectDir: string }) {
+	try {
+		execSync('pnpm i', {
+			cwd: projectDir,
+			stdio: 'inherit',
+		})
+		console.log('Dependencies installed successfully.')
+	} catch (error) {
+		console.error('Error installing dependencies:', error)
+	}
+}
+
+function updateRelationsFile({
+	selectedFeatures,
+	projectDir,
+}: {
+	selectedFeatures: string[]
+	projectDir: string
+}) {
+	const mainRelationsPath = resolve(projectDir, 'database', 'relations.ts')
+	const mainRelationsText = readFileSync(mainRelationsPath, 'utf-8')
+
+	const allRelationsText = Object.entries(relations)
+		.filter(([featureName]) => selectedFeatures.includes(featureName))
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		.map(([_, val]) => val)
+		.join('\n')
+	const newRelationsText = mainRelationsText.replace(
+		'}))',
+		allRelationsText + '}))',
+	)
+	writeFileSync(mainRelationsPath, newRelationsText)
 }

@@ -1,5 +1,5 @@
 export const schema = `import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
-import { id, timestamps, user } from '../schema.js'
+import { id, timestamps, user } from '../main/schema'
 
 // Category table
 export const category = sqliteTable('category', {
