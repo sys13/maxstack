@@ -1,4 +1,4 @@
-import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+export const schema = `import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { id, timestamps, user } from '../schema.js'
 
 // Category table
@@ -66,3 +66,4 @@ export const postTag = sqliteTable(
 	},
 	(table) => [primaryKey({ columns: [table.postId, table.tagId] })],
 )
+`

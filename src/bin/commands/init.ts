@@ -4,6 +4,7 @@ import { kebabCase } from 'es-toolkit'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
+import { implStdFeatures } from '../../impl-std-features.js'
 
 import { generateTypesContent } from './gen-config.js'
 import {
@@ -61,38 +62,36 @@ export const initCommand = new Command('init')
 
 			// Convert project name to kebab-case for directory name
 			const dirName = kebabCase(projectName)
-			const outdir = resolve(process.cwd(), dirName)
+			const projectDir = resolve(process.cwd(), dirName)
 
-			if (existsSync(outdir) && !options.force) {
+			if (existsSync(projectDir) && !options.force) {
 				console.error(
 					`❌ Directory ${dirName} already exists. Use --force to overwrite.`,
 				)
 				return
 			}
 
-			if (!existsSync(outdir)) {
-				mkdirSync(outdir, { recursive: true })
+			if (!existsSync(projectDir)) {
+				mkdirSync(projectDir, { recursive: true })
 			}
 
 			const templateDir = resolve(__dirname, '..', '..', '..', 'template')
-			copyDirRecursive(templateDir, outdir)
+			copyDirRecursive(templateDir, projectDir)
 
-			const configPath = resolve(outdir, 'maxstack.tsx')
-			const maxstackDir = resolve(outdir, '.maxstack')
+			const configPath = resolve(projectDir, 'maxstack.tsx')
+			const maxstackDir = resolve(projectDir, '.maxstack')
 			const typesPath = resolve(maxstackDir, 'types.ts')
 
 			try {
 				// Create .maxstack directory if it doesn't exist
 				if (!existsSync(maxstackDir)) {
 					mkdirSync(maxstackDir, { recursive: true })
-					console.log('✅ Created .maxstack directory')
 				}
 
 				// Create types.ts file if it doesn't exist
 				if (!existsSync(typesPath)) {
 					const typesContent = generateTypesContent()
 					writeFileSync(typesPath, typesContent, 'utf8')
-					console.log('✅ Created .maxstack/types.ts file')
 				}
 
 				// Create maxstack.tsx configuration file with project details
@@ -103,26 +102,35 @@ export const initCommand = new Command('init')
 					selectedFeatures,
 				)
 				writeFileSync(configPath, configContent, 'utf8')
-				console.log('✅ Created maxstack.tsx configuration file')
 
+				// create .env.example file
+				const envExamplePath = resolve(projectDir, '.env.example')
+				const envPath = resolve(projectDir, '.env')
+				copyFileSync(envExamplePath, envPath)
+
+				// Update files that need the project name
+				const replacements = { APP_NAME_KEBAB: dirName }
+				updateFileWithReplacements(
+					resolve(projectDir, 'fly.toml'),
+					replacements,
+				)
+				updateFileWithReplacements(
+					resolve(projectDir, 'deploy-fly.sh'),
+					replacements,
+				)
+				updateFileWithReplacements(
+					resolve(projectDir, 'cspell.json'),
+					replacements,
+				)
+
+				await implStdFeatures({ projectDir, selectedFeatures })
+
+				// send messages to the user
 				console.log(
 					`🎉 Successfully created MaxStack project "${projectName}" in ${dirName}/`,
 				)
 				console.log('Next steps:')
 				console.log(`cd ${dirName}\npnpm i\npnpm run dev`)
-				const envExamplePath = resolve(outdir, '.env.example')
-				const envPath = resolve(outdir, '.env')
-				copyFileSync(envExamplePath, envPath)
-
-				// Update fly.toml and deploy-fly.sh with project name
-				const replacements = { APP_NAME_KEBAB: dirName }
-
-				updateFileWithReplacements(resolve(outdir, 'fly.toml'), replacements)
-				updateFileWithReplacements(
-					resolve(outdir, 'deploy-fly.sh'),
-					replacements,
-				)
-				updateFileWithReplacements(resolve(outdir, 'cspell.json'), replacements)
 			} catch (error) {
 				console.error(
 					'❌ Failed to create configuration file:',

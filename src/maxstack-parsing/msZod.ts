@@ -1,7 +1,9 @@
 import { z } from 'zod'
 
+const STD_FEATURES = ['blog', 'saas-marketing'] as const
+
 export const StandardFeatureSchema = z
-	.enum(['blog', 'saas-marketing'])
+	.enum(STD_FEATURES)
 	.describe('Complete list of standard site-level features')
 
 const templateComponents = z.enum([
