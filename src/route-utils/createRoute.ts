@@ -9,7 +9,7 @@ export function createRouteText(page: Page): {
 	const routeFileName = kebabCase(page.name) + '.tsx'
 	const templateComponents = page.templateComponents
 		? page.templateComponents.map(
-				(component) => `<Template componentName="${kebabCase(component)}" />`,
+				(component) => `<Template componentName="${component}" />`,
 			)
 		: []
 
@@ -38,14 +38,15 @@ export function createRouteText(page: Page): {
 		comments.push(`// auth required: ${page.authRequired ? 'yes' : 'no'}`)
 	}
 
-	const commentSection = comments.length > 0 ? comments.join('\n') + '\n' : ''
+	const commentSection = comments.length > 0 ? comments.join('\n') : ''
 
 	return {
 		fileName: routeFileName,
 		fileString: `import Template, { registry } from '~/components/templates/template'
 import type { Route } from './+types/${kebabCase(page.name)}'
 
-${commentSection}export default function ${camelCase(page.name)}Page({}: Route.ComponentProps ) {
+${commentSection}
+export default function ${page.name.charAt(0).toUpperCase() + camelCase(page.name).slice(1)}Page({}: Route.ComponentProps ) {
 	return (
 		<>
 			${templateComponents.map((component) => component).join('\n')}

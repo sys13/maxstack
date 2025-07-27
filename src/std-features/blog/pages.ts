@@ -1,3 +1,4 @@
+import z from 'zod'
 import { MAXConfig } from '../../maxstack-parsing/msZod.js'
 
 export const pages: Required<MAXConfig['pages']> = [
@@ -27,10 +28,8 @@ export const pages: Required<MAXConfig['pages']> = [
 		routePath: '/blog/edit/:id',
 		templateComponents: ['blogEdit'],
 	},
-	{
-		description: 'Blog posts filtered by tag',
-		name: 'Posts by Tag',
-		routePath: '/blog/tags/:tag',
-		templateComponents: ['blogTags'],
-	},
 ]
+
+z.object({
+	name: z.string().describe('Name of the page'),
+})
