@@ -18,7 +18,7 @@ describe('createRouteText', () => {
 			.toBe(`import Template, { registry } from '~/components/templates/template'
 import type { Route } from './+types/home-page'
 
-export default function homePagePage({}: Route.ComponentProps ) {
+export default function HomePagePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			
@@ -51,7 +51,7 @@ import type { Route } from './+types/user-profile'
 // data to show user: user details,settings
 // user actions: edit profile,change password
 // auth required: yes
-export default function userProfilePage({}: Route.ComponentProps ) {
+export default function UserProfilePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			<Template componentName="about" />
@@ -74,7 +74,7 @@ export default function userProfilePage({}: Route.ComponentProps ) {
 			"import type { Route } from './+types/admin-dashboard-settings'",
 		)
 		expect(result.fileString).toContain(
-			'export default function adminDashboardSettingsPage({}: Route.ComponentProps ) {',
+			'export default function AdminDashboardSettingsPage({}: Route.ComponentProps ) {',
 		)
 	})
 
@@ -91,7 +91,7 @@ export default function userProfilePage({}: Route.ComponentProps ) {
 			"import type { Route } from './+types/user-profile-settings'",
 		)
 		expect(result.fileString).toContain(
-			'export default function userProfileSettingsPage({}: Route.ComponentProps ) {',
+			'export default function UserProfileSettingsPage({}: Route.ComponentProps ) {',
 		)
 	})
 
@@ -114,7 +114,7 @@ export default function userProfilePage({}: Route.ComponentProps ) {
 import type { Route } from './+types/empty-page'
 
 // auth required: no
-export default function emptyPagePage({}: Route.ComponentProps ) {
+export default function EmptyPagePage({}: Route.ComponentProps ) {
 	return (
 		<>
 			
@@ -255,7 +255,7 @@ export default function emptyPagePage({}: Route.ComponentProps ) {
 			"import type { Route } from './+types/test-page'",
 		)
 		expect(result.fileString).toContain(
-			'export default function testPagePage({}: Route.ComponentProps ) {',
+			'export default function TestPagePage({}: Route.ComponentProps ) {',
 		)
 		expect(result.fileString).toContain('return (')
 		expect(result.fileString).toContain('<>')
