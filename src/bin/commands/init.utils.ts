@@ -42,27 +42,12 @@ export default {
 	name: "${projectName}",
 	description: "${projectDescription}",
 	standardFeatures: ${featuresArray},
-	personas: [],
-	features: [],
 	pages: [],
-	models: [],
-	unitTests: [],
-	e2eTests: [],
 } as const satisfies MAXConfig;
 `,
 	}
 
 	return templates[templateType as keyof typeof templates] || templates.default
-}
-
-export function toKebabCase(str: string): string {
-	return str
-		.trim()
-		.toLowerCase()
-		.replace(/[_\s]+/g, '-') // Convert underscores and spaces to hyphens
-		.replace(/[^a-z0-9-]/g, '') // Remove special characters except hyphens
-		.replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-		.replace(/^-|-$/g, '') // Remove leading/trailing hyphens
 }
 
 export function updateFileWithReplacements(

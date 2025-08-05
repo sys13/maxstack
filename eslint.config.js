@@ -6,7 +6,6 @@ import jsonc from 'eslint-plugin-jsonc'
 import markdown from 'eslint-plugin-markdown'
 import n from 'eslint-plugin-n'
 import packageJson from 'eslint-plugin-package-json'
-import perfectionist from 'eslint-plugin-perfectionist'
 import * as regexp from 'eslint-plugin-regexp'
 import yml from 'eslint-plugin-yml'
 import tseslint from 'typescript-eslint'
@@ -21,6 +20,7 @@ export default tseslint.config(
 			'pnpm-lock.yaml',
 			'bin/index.js',
 			'template',
+			'test-structures',
 		],
 	},
 	{ linterOptions: { reportUnusedDisableDirectives: 'error' } },
@@ -33,7 +33,6 @@ export default tseslint.config(
 	markdown.configs.recommended,
 	n.configs['flat/recommended'],
 	packageJson.configs.recommended,
-	perfectionist.configs['recommended-natural'],
 	regexp.configs['flat/recommended'],
 	{
 		extends: [
@@ -60,7 +59,6 @@ export default tseslint.config(
 			'operator-assignment': 'error',
 		},
 		settings: {
-			perfectionist: { partitionByComment: true, type: 'natural' },
 			vitest: { typecheck: true },
 		},
 	},
@@ -78,7 +76,6 @@ export default tseslint.config(
 		extends: [yml.configs['flat/standard'], yml.configs['flat/prettier']],
 		files: ['**/*.{yml,yaml}'],
 		rules: {
-			'yml/file-extension': ['error', { extension: 'yml' }],
 			'yml/sort-keys': [
 				'error',
 				{ order: { type: 'asc' }, pathPattern: '^.*$' },

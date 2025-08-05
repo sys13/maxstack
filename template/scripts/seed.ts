@@ -4,7 +4,7 @@ import { faker } from '@faker-js/faker'
 import { createId } from '@paralleldrive/cuid2'
 import { drizzle } from 'drizzle-orm/libsql'
 import { auth } from '../app/lib/auth.server'
-import * as schema from '../database/schema'
+import * as schema from '../database/_schema'
 
 // Initialize database connection
 const db = drizzle({

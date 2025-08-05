@@ -10,7 +10,7 @@ export function bin(): void {
 
 	program
 		.name('maxstack')
-		.description('A powerful development stack management tool')
+		.description('Create full-stack web applications with MAXSTACK')
 		.version('0.1.0')
 
 	// Add the init command
