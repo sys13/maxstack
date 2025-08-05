@@ -18,6 +18,7 @@ import { invariantResponse } from '~/utils/invariant'`,
 
 	return { post }
 }`,
+		loaderObj: 'post',
 	},
 	blogPost: {
 		importsText: `import { db } from '~/utils/db.server'`,
@@ -35,5 +36,6 @@ import { invariantResponse } from '~/utils/invariant'`,
 		posts,
 	}
 }`,
+		loaderObj: 'posts',
 	},
 }

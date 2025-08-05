@@ -77,7 +77,8 @@ ${commentSection}`
 		camelCase(page.name).slice(1) +
 		'Page'
 
-	fileContent += `export default function ${functionName}({}: Route.ComponentProps ) {
+	fileContent += `export default function ${functionName}({ ${templateData?.loaderText ? 'loaderData' : ''} }: Route.ComponentProps ) {
+	${templateData?.loaderObj ? `const { ${templateData.loaderObj} } = loaderData` : ''}
 	return (
 		<>
 			${templateComponents.join('\n')}
