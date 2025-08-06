@@ -4,7 +4,7 @@
 
 ## The AI-First Full-Stack Framework
 
-Build production-ready web applications faster with AI-powered development, built-in templates, and modern tooling
+Build web-apps faster with built-in templates and guardrails so your AI can code faster.
 
 [![npm version](https://img.shields.io/npm/v/maxstack?color=21bb42&label=%F0%9F%93%A6%20npm)](http://npmjs.com/package/maxstack)
 [![TypeScript](https://img.shields.io/badge/%F0%9F%92%AA_typescript-strict-21bb42.svg)](https://www.typescriptlang.org/)
