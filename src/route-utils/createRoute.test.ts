@@ -172,7 +172,7 @@ export default function EmptyPagePage({}: Route.ComponentProps ) {
 
 		expect(result.fileName).toBe('blog-page.tsx')
 		expect(result.fileString).toContain(
-			'<Template componentName="blogLanding" props={{ post }} />',
+			'<Template componentName="blogLanding" props={{ posts }} />',
 		)
 	})
 

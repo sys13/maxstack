@@ -1,5 +1,5 @@
 export const templates = {
-	blogLanding: {
+	blogPost: {
 		importsText: `import { db } from '~/utils/db.server'
 import { invariantResponse } from '~/utils/invariant'`,
 		loaderText: `export async function loader({ params }: Route.LoaderArgs) {
@@ -20,7 +20,7 @@ import { invariantResponse } from '~/utils/invariant'`,
 }`,
 		loaderObj: 'post',
 	},
-	blogPost: {
+	blogLanding: {
 		importsText: `import { db } from '~/utils/db.server'`,
 		loaderText: `export async function loader({}: Route.LoaderArgs) {
 	const posts = (

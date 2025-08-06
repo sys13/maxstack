@@ -85,9 +85,9 @@ ${commentSection}`
 
 	fileContent += `export default function ${functionName}({${templateData?.loaderText ? ' loaderData ' : ''}}: Route.ComponentProps ) {`
 	fileContent += templateData?.loaderObj
-		? `\nconst { ${templateData.loaderObj} } = loaderData`
+		? `\n\tconst { ${templateData.loaderObj} } = loaderData`
 		: ''
-	fileContent += `\n	return (
+	fileContent += `\n\treturn (
 		<>
 			${templateComponents.join('\n')}
 		</>
