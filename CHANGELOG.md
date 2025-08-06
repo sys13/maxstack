@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0](https://github.com/sys13/maxstack/compare/0.1.0...0.2.0) (2025-08-06)
+
+### Features
+
+- docs ([2f80649](https://github.com/sys13/maxstack/commit/2f80649e3bf9465bf9948ee059744a444b771dca))
+
 ## 0.1.0 (2025-07-01)
 
 ### Features

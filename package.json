@@ -1,6 +1,6 @@
 {
 	"name": "maxstack",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "The AI-First Full-Stack Framework - Build production-ready React applications with AI-powered development, built-in templates, and modern tooling",
 	"repository": {
 		"type": "git",
