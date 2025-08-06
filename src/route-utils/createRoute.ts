@@ -9,9 +9,15 @@ export function createRouteText(page: Page): {
 } {
 	const routeFileName = kebabCase(page.name) + '.tsx'
 	const templateComponents = page.templateComponents
-		? page.templateComponents.map(
-				(component) => `<Template componentName="${kebabCase(component)}" />`,
-			)
+		? page.templateComponents.map((component) => {
+				const templateD = templates[component as keyof typeof templates]
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+				if (templateD?.loaderObj) {
+					return `<Template componentName="${component}" props={{ ${templateD.loaderObj} }} />`
+				} else {
+					return `<Template componentName="${component}" />`
+				}
+			})
 		: []
 
 	// Check if any templateComponents match keys in templates
@@ -77,9 +83,11 @@ ${commentSection}`
 		camelCase(page.name).slice(1) +
 		'Page'
 
-	fileContent += `export default function ${functionName}({ ${templateData?.loaderText ? 'loaderData' : ''} }: Route.ComponentProps ) {
-	${templateData?.loaderObj ? `const { ${templateData.loaderObj} } = loaderData` : ''}
-	return (
+	fileContent += `export default function ${functionName}({${templateData?.loaderText ? ' loaderData ' : ''}}: Route.ComponentProps ) {`
+	fileContent += templateData?.loaderObj
+		? `\nconst { ${templateData.loaderObj} } = loaderData`
+		: ''
+	fileContent += `\n	return (
 		<>
 			${templateComponents.join('\n')}
 		</>

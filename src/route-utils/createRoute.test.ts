@@ -152,12 +152,12 @@ export default function EmptyPagePage({}: Route.ComponentProps ) {
 
 		expect(result.fileName).toBe('marketing-page.tsx')
 		expect(result.fileString).toContain(
-			'<Template componentName="marketing-nav" />',
+			'<Template componentName="marketingNav" />',
 		)
 		expect(result.fileString).toContain('<Template componentName="landing" />')
 		expect(result.fileString).toContain('<Template componentName="pricing" />')
 		expect(result.fileString).toContain(
-			'<Template componentName="marketing-footer" />',
+			'<Template componentName="marketingFooter" />',
 		)
 	})
 
@@ -165,17 +165,14 @@ export default function EmptyPagePage({}: Route.ComponentProps ) {
 		const page: Page = {
 			name: 'BlogPage',
 			routePath: '/blog',
-			templateComponents: ['blogLanding', 'blogPost'],
+			templateComponents: ['blogLanding'],
 		}
 
 		const result = createRouteText(page)
 
 		expect(result.fileName).toBe('blog-page.tsx')
 		expect(result.fileString).toContain(
-			'<Template componentName="blog-landing" />',
-		)
-		expect(result.fileString).toContain(
-			'<Template componentName="blog-post" />',
+			'<Template componentName="blogLanding" props={{ post }} />',
 		)
 	})
 
@@ -279,13 +276,13 @@ export default function EmptyPagePage({}: Route.ComponentProps ) {
 
 		expect(result.fileName).toBe('complex-page.tsx')
 		expect(result.fileString).toContain(
-			'<Template componentName="newsletter-signup" />',
+			'<Template componentName="newsletterSignup" />',
 		)
 		expect(result.fileString).toContain(
-			'<Template componentName="privacy-policy" />',
+			'<Template componentName="privacyPolicy" />',
 		)
 		expect(result.fileString).toContain(
-			'<Template componentName="terms-of-service" />',
+			'<Template componentName="termsOfService" />',
 		)
 	})
 
