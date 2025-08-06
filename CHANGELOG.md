@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0](https://github.com/sys13/maxstack/compare/0.3.0...0.4.0) (2025-08-06)
+
+### Features
+
+- fix blog templates ([e751134](https://github.com/sys13/maxstack/commit/e75113491d37c12f3a3d58e5d4833e76246e765e))
+
 ## [0.3.0](https://github.com/sys13/maxstack/compare/0.2.0...0.3.0) (2025-08-06)
 
 ### Features
