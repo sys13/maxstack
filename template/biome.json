@@ -7,7 +7,15 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!drizzle"]
+		"includes": [
+			"**",
+			"!drizzle",
+			"!**/node_modules/**",
+			"!**/dist/**",
+			"!**/build/**",
+			"!**/.react-router/**",
+			"!.biome/**"
+		]
 	},
 	"formatter": {
 		"enabled": true,

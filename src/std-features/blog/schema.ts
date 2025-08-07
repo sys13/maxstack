@@ -1,4 +1,4 @@
-export const schema = `import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+export const schema = `import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { id, timestamps, user } from '../main/schema'
 
 // Category table
@@ -22,6 +22,7 @@ export const post = sqliteTable('post', {
 	content: text().notNull(),
 	slug: text().notNull().unique(),
 	title: text().notNull(),
+	publishedAt: integer({ mode: 'timestamp' }),
 	...timestamps,
 })
 

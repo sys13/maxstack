@@ -114,6 +114,10 @@ export default async function seed() {
 				title,
 				slug: \`\${slug}-\${i}\`, // Ensure uniqueness
 				content,
+				publishedAt: new Date(
+					Date.now() -
+						faker.number.int({ min: 0, max: 30 * 24 * 60 * 60 * 1000 }),
+				),
 				createdAt: new Date(
 					Date.now() -
 						faker.number.int({ min: 0, max: 30 * 24 * 60 * 60 * 1000 }),

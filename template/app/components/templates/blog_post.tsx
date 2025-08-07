@@ -3,28 +3,32 @@ import z from 'zod'
 export const variants = ['default'] as const
 
 export const BlogPostSchema = z.object({
-	title: z.string(),
-	content: z.string(),
-	summary: z.string().optional(),
-	author: z.string().optional(),
-	publishedAt: z.date().nullable(),
-	tags: z.array(z.string()).optional(),
-	categories: z.array(z.string()).optional(),
-	coverImage: z.string().optional(),
-	variant: z.enum(variants).default('default').optional(),
+	post: z.object({
+		title: z.string(),
+		content: z.string(),
+		summary: z.string().optional(),
+		author: z.string().optional(),
+		publishedAt: z.date().nullable(),
+		tags: z.array(z.string()).optional(),
+		categories: z.array(z.string()).optional(),
+		coverImage: z.string().optional(),
+		variant: z.enum(variants).default('default').optional(),
+	}),
 })
 
 export type BlogPostProps = z.infer<typeof BlogPostSchema>
 
 export default function BlogPost({
-	title,
-	content,
-	summary,
-	author,
-	publishedAt,
-	tags = [],
-	categories = [],
-	coverImage,
+	post: {
+		title,
+		content,
+		summary,
+		author,
+		publishedAt,
+		tags = [],
+		categories = [],
+		coverImage,
+	},
 }: BlogPostProps) {
 	return (
 		<article

@@ -6,8 +6,8 @@ import { Separator } from '~/components/ui/separator'
 export const variants = ['default'] as const
 
 export const BlogLandingSchema = z.object({
-	title: z.string().optional().default('Blog'),
-	description: z.string().optional().default('Latest insights and updates'),
+	title: z.string().default('Blog').optional(),
+	description: z.string().default('Latest insights and updates').optional(),
 	posts: z.array(
 		z.object({
 			title: z.string(),
