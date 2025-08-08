@@ -1,6 +1,6 @@
 import { Slot } from '@radix-ui/react-slot'
 import { ChevronRight, MoreHorizontal } from 'lucide-react'
-import type * as React from 'react'
+import * as React from 'react'
 
 import { cn } from '~/lib/utils'
 
@@ -31,27 +31,27 @@ function BreadcrumbItem({ className, ...props }: React.ComponentProps<'li'>) {
 	)
 }
 
-function BreadcrumbLink({
-	asChild,
-	className,
-	...props
-}: React.ComponentProps<'a'> & {
-	asChild?: boolean
-}) {
+const BreadcrumbLink = React.forwardRef<
+	HTMLAnchorElement,
+	React.ComponentProps<'a'> & { asChild?: boolean }
+>(({ asChild, className, ...props }, ref) => {
 	const Comp = asChild ? Slot : 'a'
 
 	return (
 		<Comp
+			ref={ref}
 			data-slot="breadcrumb-link"
 			className={cn('hover:text-foreground transition-colors', className)}
 			{...props}
 		/>
 	)
-}
+})
+BreadcrumbLink.displayName = 'BreadcrumbLink'
 
 function BreadcrumbPage({ className, ...props }: React.ComponentProps<'span'>) {
 	return (
 		// biome-ignore lint/a11y/useFocusableInteractive: ui
+		// biome-ignore lint/a11y/useSemanticElements: ui
 		<span
 			data-slot="breadcrumb-page"
 			role="link"
