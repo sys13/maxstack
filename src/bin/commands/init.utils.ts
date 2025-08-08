@@ -70,3 +70,31 @@ export function updateFileWithReplacements(
 		console.error(`❌ Failed to update ${filePath}:`, (error as Error).message)
 	}
 }
+
+export function createGitIgnore(projectDir: string) {
+	const gitIgnorePath = resolve(projectDir, '.gitignore')
+	if (!existsSync(gitIgnorePath)) {
+		const gitIgnoreContent = `.DS_Store
+/node_modules/
+/.env
+
+# React Router
+/.react-router/
+/build/
+
+local.db
+test-seed.db
+
+/coverage/
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+`
+		writeFileSync(gitIgnorePath, gitIgnoreContent, 'utf8')
+		console.log('Created .gitignore file')
+	}
+}

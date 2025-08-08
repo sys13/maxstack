@@ -9,6 +9,7 @@ import { implStdFeatures } from '../../impl-std-features.js'
 import { generateTypesContent } from './gen-config.js'
 import {
 	copyDirRecursive,
+	createGitIgnore,
 	generateConfigTemplate,
 	updateFileWithReplacements,
 } from './init.utils.js'
@@ -123,9 +124,9 @@ export const initCommand = new Command('init')
 					replacements,
 				)
 
-				console.log('projectDir', projectDir)
-
 				await implStdFeatures({ projectDir, selectedFeatures })
+
+				createGitIgnore(projectDir)
 
 				// send messages to the user
 				console.log(
