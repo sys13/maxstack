@@ -147,22 +147,39 @@ const QUERY_SECTIONS = [
 	'api',
 ] as const
 
-const OP_ARG_SCHEMA: JsonSchema = {
-	type: 'object',
-	properties: {
-		op: {
-			type: 'string',
-			enum: [...SPEC_OP_NAMES],
-			description:
-				'The spec-op name. Call query_spec {section:"ops"} for the full vocabulary — every op\'s layer and summary — and query_spec {section:"ops", ops:[...]} for the JSON Schema of the args of the ones you name.',
+/**
+ * Built on demand, not at module load, because `SPEC_OP_NAMES` crosses a package
+ * boundary and this module sits in an import cycle with the one that defines it.
+ * As a module-level `const` the spread ran during evaluation, and under the
+ * bundler's chunking the two modules can be ordered so that it runs *first* —
+ * `SPEC_OP_NAMES` is then still in its temporal dead zone and the whole server
+ * dies at boot with "SPEC_OP_NAMES is not iterable". A cycle that resolves by
+ * luck resolves differently every time the chunk graph shifts, so the fix is to
+ * stop reading the binding at init rather than to hope for a kinder order.
+ *
+ * Every caller is inside `platformTools()` already, so nothing needs this before
+ * the first tool listing. Memoized because that listing is per-request.
+ */
+let opArgSchemaCache: JsonSchema | undefined
+function opArgSchema(): JsonSchema {
+	opArgSchemaCache ??= {
+		type: 'object',
+		properties: {
+			op: {
+				type: 'string',
+				enum: [...SPEC_OP_NAMES],
+				description:
+					'The spec-op name. Call query_spec {section:"ops"} for the full vocabulary — every op\'s layer and summary — and query_spec {section:"ops", ops:[...]} for the JSON Schema of the args of the ones you name.',
+			},
+			args: {
+				type: 'object',
+				description:
+					'The op-specific arguments (e.g. data.addField needs {entityId, field:{id,name,type,required}}, where field.type is one of string|number|boolean|date|enum|json — use "string" for text, not "text"). On add-op rows, provenance is optional and best OMITTED — the server stamps the correct default; if supplied it must be the full {isSuggested, isAccepted, isAddedManually, suggestedDescription, priority} object. Structural ops are additive, except the set-ops: page.setBlockOrder retunes an existing table block\'s {pageId, blockId, order:{field, direction}}; page.setBlockVariant sets its presentation {pageId, blockId, variant: "table"|"cards"|"feed"}; page.setBlockFields picks which entity fields it renders and in what order {pageId, blockId, fields:["title","rating",…]} (first = the title column); theme.set replaces the whole app theme {theme:{preset, accent?, radius?, density?, font?, typeScale?}} (last-wins).',
+			},
 		},
-		args: {
-			type: 'object',
-			description:
-				'The op-specific arguments (e.g. data.addField needs {entityId, field:{id,name,type,required}}, where field.type is one of string|number|boolean|date|enum|json — use "string" for text, not "text"). On add-op rows, provenance is optional and best OMITTED — the server stamps the correct default; if supplied it must be the full {isSuggested, isAccepted, isAddedManually, suggestedDescription, priority} object. Structural ops are additive, except the set-ops: page.setBlockOrder retunes an existing table block\'s {pageId, blockId, order:{field, direction}}; page.setBlockVariant sets its presentation {pageId, blockId, variant: "table"|"cards"|"feed"}; page.setBlockFields picks which entity fields it renders and in what order {pageId, blockId, fields:["title","rating",…]} (first = the title column); theme.set replaces the whole app theme {theme:{preset, accent?, radius?, density?, font?, typeScale?}} (last-wins).',
-		},
-	},
-	required: ['op', 'args'],
+		required: ['op', 'args'],
+	}
+	return opArgSchemaCache
 }
 
 /**
@@ -227,7 +244,7 @@ export function platformTools(ctx: PlatformContext): McpTool[] {
 						type: 'array',
 						description:
 							'An opening batch of typed spec-ops, in order, each {op, args} exactly as propose_spec_change takes one. Validated as a unit against the running projection, so later ops may depend on earlier ones. All-or-nothing.',
-						items: OP_ARG_SCHEMA,
+						items: opArgSchema(),
 					},
 					apply: {
 						type: 'boolean',
@@ -330,13 +347,13 @@ export function platformTools(ctx: PlatformContext): McpTool[] {
 			name: 'propose_spec_change',
 			description:
 				'Validate + diff a typed spec-op WITHOUT applying it (the "suggest" half of suggest→accept). Returns {valid, errors, diff, effect, warnings, next}. `diff` is spec-shaped — what the document would say; `effect` is app-shaped — which tables, columns, routes, forms, REST payloads and public fields would appear, change or STOP EXISTING if you applied it, and it can say the op would change nothing anyone can see. Always propose before apply.',
-			inputSchema: OP_ARG_SCHEMA,
+			inputSchema: opArgSchema(),
 		},
 		{
 			name: 'apply_spec_change',
 			description:
 				'Apply a typed spec-op to the spec (the "accept" half — applied rows land accepted with AI provenance and go live in the running app immediately). Re-validates server-side and rejects any op that would break referential integrity; logs it to the op-log with provenance. Returns {applied, diff, effect, warnings, next}. READ `effect` and `warnings` before you report what you changed — `diff` is spec-shaped and cannot tell you that what you applied changes nothing a user can see (a shadowed block, an unbuilt app, a row nothing has accepted yet). `effect.changesBuiltApp === false` means the document moved and the application did not; `null` means this layer is outside what the surface inventory models, which is not the same as "no effect".',
-			inputSchema: OP_ARG_SCHEMA,
+			inputSchema: opArgSchema(),
 		},
 		{
 			name: 'run_generator',
