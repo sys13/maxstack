@@ -96,6 +96,22 @@ export interface ColumnMetadata {
 	 * being told which column it is.
 	 */
 	rankKey?: boolean
+	/**
+	 * This column is encrypted at rest. The stored value is an
+	 * AES-256-GCM envelope; the plaintext exists only inside a request that was
+	 * allowed to see it. Carried on the column so the seal-on-write and
+	 * open-on-read happen at the one depth every caller reaches (`operations.ts`)
+	 * rather than in whichever surface remembered.
+	 */
+	encrypted?: boolean
+	/**
+	 * How this column is rendered to a caller who may not see its value —
+	 * `redact`, `last4` or a keyed `hash`, plus the roles that read it
+	 * unmasked. Distinct from {@link hidden}, which removes the column entirely:
+	 * "this record has a tax id on file" is often exactly what a support user
+	 * needs to know while the value is what they must not see.
+	 */
+	mask?: { style: 'redact' | 'last4' | 'hash'; unmaskRoles?: string[] }
 	// formatting
 	format?: string
 	prefix?: string

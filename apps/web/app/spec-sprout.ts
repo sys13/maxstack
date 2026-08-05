@@ -767,6 +767,12 @@ export function groundedEntityShapes(
 				// here would leave the board drawing a limit nothing checks.
 				rank: field.rank,
 				limits: field.limits,
+				// Encryption and masking are data declarations too, and
+				// this is the fold the *runtime* uses — drop either here and the web
+				// host registers the column as ordinary text, so a field the spec says
+				// is sealed is stored in plaintext and served in full.
+				encrypted: field.encrypted,
+				mask: field.mask,
 				reference: field.reference
 					? groundReference(entities, field.reference, options.installedBundles)
 					: undefined,

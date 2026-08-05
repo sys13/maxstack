@@ -574,6 +574,21 @@ export function searchIndexErrors(
 			errors.push(
 				`${ctx}: field "${spec.name}" is a rank key — it holds an ordering position, not text`,
 			)
+		// An encrypted field must not be indexable, and this is a
+		// refusal rather than a silent skip. A full-text index is a SECOND COPY of
+		// the column, in plaintext, inside the tsvector: index a sealed value and
+		// the thing the encryption was bought for is sitting beside it, searchable,
+		// in the same database. A field masked for every caller is the same leak
+		// one step out — the match predicate answers "does this row contain X?" for
+		// the exact value the mask hid.
+		else if (spec.encrypted)
+			errors.push(
+				`${ctx}: field "${spec.name}" is encrypted — indexing it would store the plaintext in the index beside the ciphertext, which is the leak the encryption was for`,
+			)
+		else if (spec.mask && (spec.mask.unmaskRoles ?? []).length === 0)
+			errors.push(
+				`${ctx}: field "${spec.name}" is masked for every caller — a search over it answers "does this row contain X?" one guess at a time, which is the value the mask hides`,
+			)
 		else if (!searchableFieldTypes.includes(spec.type))
 			errors.push(
 				`${ctx}: field "${spec.name}" is a ${spec.type} — only ${searchableFieldTypes.join(' and ')} fields carry language; filter on it instead, which is already indexed and exact`,

@@ -17,6 +17,12 @@ import {
 	type DocumentPlan,
 	MAX_DOCUMENT_TABLE_ROWS,
 } from './documents.ts'
+import {
+	assertNoMaskedProbe,
+	openRows,
+	sealRow,
+	stripEchoedMasks,
+} from './field-privacy.ts'
 import { builtinParser, type ImportParser } from './import-parse.ts'
 import {
 	type ImportPlan,
@@ -314,6 +320,41 @@ async function withDerived(
 ): Promise<Row[]> {
 	if (!ctx.derived || rows.length === 0) return [...rows]
 	return ctx.derived(resource, rows)
+}
+
+/**
+ * Open the encrypted columns this caller may see and mask the ones they may not.
+ *
+ * Applied on the way out of **every** op that returns a row — the reads, and the
+ * writes' echoed result too, since `opCreate` returning the row it just wrote is
+ * as much a read as `opGet` is. It sits at the same chokepoint `withDerived` and
+ * `projectForPortal` use, which is what makes one declaration bind REST, the MCP
+ * tools, the admin loaders, a rendered document, an importer's preview and a
+ * related-records panel at once.
+ */
+async function reveal(
+	ctx: OpContext,
+	entry: RegisteredResource,
+	rows: readonly Row[],
+): Promise<Row[]> {
+	return openRows(entry, ctx.user, rows)
+}
+
+/** Refuse an ordering/filter/search that probes a column this caller reads
+ * masked — see `assertNoMaskedProbe` for why it is an oracle. */
+function assertPrivacyReadShape(
+	user: SproutUser | null,
+	resource: string,
+	entry: RegisteredResource,
+	opts: {
+		orderBy?: string
+		filter?: ListOptions['filter']
+		searchFields?: readonly string[]
+	},
+): void {
+	assertNoMaskedProbe(entry, user, opts, () => {
+		throw new PermissionError(resource, 'read')
+	})
 }
 
 /** Emit an audit entry, swallowing sink failures so logging can never break a
@@ -750,6 +791,11 @@ export async function opList(
 	// An orderBy or filter naming a column the portal does not expose is a
 	// comparison oracle over a hidden column — refused, never ignored.
 	assertPortalReadShape(user, resource, entry, opts)
+	// Same shape of refusal for a column this caller reads masked:
+	// the permutation of rows an ordering produces is a comparison oracle over
+	// the exact value the mask hid, and a count under an equality filter is the
+	// blunter version of the same question.
+	assertPrivacyReadShape(user, resource, entry, opts)
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
 	// Tenant scope, the soft-delete default scope and the portal's declared bound
@@ -778,7 +824,15 @@ export async function opList(
 	// The portal projection runs after THAT, so an undeclared rollup is dropped
 	// on the way out rather than never computed — the gate is one place, and it
 	// is the last one.
-	return projectForPortal(user, entry, await withDerived(ctx, resource, rows))
+	//
+	// The privacy pass runs between them: it needs the stored value
+	// to open, and the portal projection needs to be able to drop the masked
+	// result like any other column.
+	return projectForPortal(
+		user,
+		entry,
+		await reveal(ctx, entry, await withDerived(ctx, resource, rows)),
+	)
 }
 
 /**
@@ -864,7 +918,10 @@ export async function opSearch(
 		resource,
 		hits.map((h) => h.row),
 	)
-	return hits.map((hit, i) => ({ row: rows[i] ?? hit.row, rank: hit.rank }))
+	// And the privacy pass, for `opList`'s reason: a search result is
+	// a row leaving the system, so it leaves through the same gate.
+	const revealed = await reveal(ctx, entry, rows)
+	return hits.map((hit, i) => ({ row: revealed[i] ?? hit.row, rank: hit.rank }))
 }
 
 /** Matching-row count for a search, under exactly {@link opSearch}'s gate and scopes. */
@@ -950,6 +1007,11 @@ export async function opCount(
 	)
 	assertPortalMayEnumerate(user, resource)
 	assertPortalReadShape(user, resource, entry, opts)
+	// Same shape of refusal for a column this caller reads masked:
+	// the permutation of rows an ordering produces is a comparison oracle over
+	// the exact value the mask hid, and a count under an equality filter is the
+	// blunter version of the same question.
+	assertPrivacyReadShape(user, resource, entry, opts)
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
 	let filter = opts.filter
@@ -1003,7 +1065,7 @@ export async function opGetMany(
 	return projectForPortal(
 		user,
 		entry,
-		await withDerived(ctx, resource, visible),
+		await reveal(ctx, entry, await withDerived(ctx, resource, visible)),
 	)
 }
 
@@ -1042,7 +1104,8 @@ export async function opGet(
 	// a query the caller would not otherwise be allowed to run.
 	await authorize(resource, entry.config.access, 'read', { user, row })
 	const derived = (await withDerived(ctx, resource, [row]))[0] ?? row
-	return projectForPortal(user, entry, [derived])[0] ?? derived
+	const revealed = (await reveal(ctx, entry, [derived]))[0] ?? derived
+	return projectForPortal(user, entry, [revealed])[0] ?? revealed
 }
 
 /**
@@ -1085,7 +1148,8 @@ export async function opGet(
  * exposure report and from nothing else. A template delivered only by email kept
  * a working public URL that the declaration said it did not have.
  *
- * The check is here rather than in the route, on issue #186's finding — a
+ * The check is here rather than in the route, on the finding that moved
+ * authorization out of the routes — a
  * route-level gate is a gate the other callers skip, and there is now more than
  * one caller (the route, the admin UI's link, the MCP tool). `via` **defaults to
  * `'download'`**, the checked value, so a caller that has not thought about it
@@ -1334,8 +1398,8 @@ export async function planImport(
  * It takes a plan and **nothing else** — see {@link planImport} and the module
  * comment in `imports.ts`. Every write goes through `opCreate`/`opUpdate` and
  * there is no other path out of this function, so tenancy stamping, soft-delete
- * scoping, the per-value caps of issue #172, the `customValidation` hook and the
- * audit attribution of #186/#141 are all **inherited** rather than
+ * scoping, the per-value caps, the `customValidation` hook and the
+ * audit attribution are all **inherited** rather than
  * re-implemented. An import performed by an agent is attributed exactly like any
  * other write, because it *is* any other write.
  *
@@ -1430,13 +1494,22 @@ export async function opCreate(
 		tenant,
 		softField,
 	)
-	const created = await store.create(resource, validated.data as Row)
+	// Sealed AFTER validation and immediately before the write. That
+	// order is load-bearing in both directions: the declared length/pattern rules
+	// have to run against the *plaintext* (an envelope would fail every one of
+	// them), and nothing between the seal and the store can see a plaintext row it
+	// might log.
+	const sealed = await sealRow(entry, validated.data as Row)
+	const created = await store.create(resource, sealed)
 	const createdId = String(created[entry.resource.primaryKey])
 	await record(ctx, { action: 'create', resource, resourceId: createdId })
 	// After the commit, never before: a channel must not announce a row that a
 	// later validation error would have prevented from existing.
 	await publish(ctx, resource, createdId)
-	return created
+	// The echoed row goes out through the same gate a read does — otherwise the
+	// one response that always contains the value you just sealed would be the one
+	// response that returns it in the clear.
+	return (await reveal(ctx, entry, [created]))[0] ?? created
 }
 
 export async function opUpdate(
@@ -1475,12 +1548,17 @@ export async function opUpdate(
 	const stripped = new Set(
 		[tenant?.field, softField].filter((f): f is string => f != null),
 	)
+	// A masked column the caller is handing straight back is dropped before
+	// anything else looks at it: the admin form renders `••••1234`
+	// and submits every field, so without this the platform's own form overwrites
+	// the value with the mask it was shown.
+	const unechoed = await stripEchoedMasks(entry, user, existing, data)
 	const input =
 		stripped.size > 0
 			? Object.fromEntries(
-					Object.entries(data).filter(([key]) => !stripped.has(key)),
+					Object.entries(unechoed).filter(([key]) => !stripped.has(key)),
 				)
-			: data
+			: unechoed
 	const validated = validateData(entry.resource, input, 'update')
 	if (!validated.success)
 		throw new ValidationError(validated.fieldErrors ?? {}, {
@@ -1499,7 +1577,11 @@ export async function opUpdate(
 		tenant,
 		softField,
 	)
-	const updated = await store.update(resource, id, validated.data as Row)
+	const updated = await store.update(
+		resource,
+		id,
+		await sealRow(entry, validated.data as Row),
+	)
 	if (!updated) throw new NotFoundError(resource, id)
 	// Record the fields the update actually changed — the diff a history feed shows.
 	await record(ctx, {
@@ -1509,7 +1591,7 @@ export async function opUpdate(
 		metadata: { fields: Object.keys(validated.data as Row) },
 	})
 	await publish(ctx, resource, id)
-	return updated
+	return (await reveal(ctx, entry, [updated]))[0] ?? updated
 }
 
 export async function opDelete(
@@ -1607,5 +1689,5 @@ export async function opRestore(
 	// so without this the row would stay gone from every open board until
 	// somebody reloaded.
 	await publish(ctx, resource, id)
-	return updated
+	return (await reveal(ctx, entry, [updated]))[0] ?? updated
 }

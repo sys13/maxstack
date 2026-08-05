@@ -55,6 +55,13 @@ export function groundedEntityShapes(spec: SpecSystem): SpecEntityShape[] {
 			// maintains, not one anybody is invited to write.
 			rank: field.rank,
 			limits: field.limits,
+			// Encryption and masking ground like every other *data*
+			// declaration, and dropping either here would be the worst failure this
+			// fold has: the column would be registered as ordinary text, so the write
+			// path would store the value in plaintext under a field the spec says is
+			// sealed, and every read would hand it out in full.
+			encrypted: field.encrypted,
+			mask: field.mask,
 			reference: field.reference ? target(field.reference) : undefined,
 		})),
 	}))

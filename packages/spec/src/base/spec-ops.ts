@@ -211,10 +211,13 @@ import {
 	type FieldSpec,
 	isAcceptPattern,
 	isImageAcceptPattern,
+	MASK_STYLES,
 	MAX_COMPUTED_DEPTH,
 	MAX_ROLLUP_HOPS,
 	MAX_ROLLUP_LIMIT,
 	MAX_VALUE_LIMIT,
+	type MaskSpec,
+	type MaskStyle,
 	NUMERIC_AGG_FNS,
 	type PageSpec,
 	type PricingTier,
@@ -643,6 +646,32 @@ export type SpecOp =
 				entityId: EntityId
 				fieldId: FieldId
 				limits: Record<string, number>
+			}
+	  }
+	| {
+			/**
+			 * Set (or clear) a field's display mask.
+			 *
+			 * Last-wins like `data.setFieldLimits`, and for a sharper version of the
+			 * same reason: the edit people actually make is *changing* who may read a
+			 * value ("support can see the last four now"), and an append-only
+			 * vocabulary would make the commonest change the one thing you cannot
+			 * say. `mask: null` clears it.
+			 *
+			 * **There is deliberately no `data.setFieldEncrypted`.** A mask is a
+			 * rendering, so declaring one changes no stored byte and needs no
+			 * migration. Turning *encryption* on for a column that already holds rows
+			 * is a backfill — read, seal and rewrite every value, under a lock, in a
+			 * window somebody chose — and an op that quietly did none of that would
+			 * leave a table half sealed with no way to tell which half. So encryption
+			 * is declared when the field is added, and changing it is a migration
+			 * somebody performs rather than an op somebody types.
+			 */
+			op: 'data.setFieldMask'
+			args: {
+				entityId: EntityId
+				fieldId: FieldId
+				mask: MaskSpec | null
 			}
 	  }
 	| {
@@ -1098,7 +1127,7 @@ export type SpecOp =
 			 * token-scoped, and a token always expires.
 			 *
 			 * Enforcement of every one of those lives in the permission layer and in
-			 * the read/write ops — never in a route. Issue #186's finding was that
+			 * the read/write ops — never in a route. The finding behind that was that
 			 * `/mcp` and the admin loaders reach the data layer without passing a
 			 * route-level gate, so a route-level projection would be a gate two of
 			 * the three callers skip.
@@ -1271,6 +1300,7 @@ export const SPEC_OP_NAMES = [
 	'data.setFieldReference',
 	'data.setFieldOpenReference',
 	'data.setFieldLimits',
+	'data.setFieldMask',
 	'data.addComputed',
 	'data.addRollup',
 	'page.addPage',
@@ -1377,6 +1407,31 @@ const PROVENANCE_PROP: OpArgProperty = {
 		'suggestedDescription',
 		'priority',
 	],
+}
+
+/**
+ * A field's declared mask — the arg shape shared by `data.addField`
+ * and `data.setFieldMask`, so the two cannot describe it differently.
+ */
+const MASK_PROP: OpArgProperty = {
+	type: 'object',
+	description:
+		'type:"string" only — how the value renders to a caller who may not see it. Enforced in the shared op layer, so one declaration binds the REST response, the MCP tool result, the admin table, a rendered document and a live push at once.',
+	properties: {
+		style: {
+			type: 'string',
+			enum: [...MASK_STYLES],
+			description:
+				'"redact" (there is a value), "last4" (the shape support verifies against), or "hash" (a keyed HMAC token, so two records can be compared without either being read).',
+		},
+		unmaskRoles: {
+			type: 'array',
+			description:
+				'roles that read the raw value. OMITTED OR EMPTY MEANS NOBODY — the platform masks it for every caller, and the plaintext is reachable only by owned code holding the key.',
+			items: { type: 'string' },
+		},
+	},
+	required: ['style'],
 }
 
 const RATIONALE_PROP: OpArgProperty = {
@@ -1523,6 +1578,12 @@ const FIELD_INPUT_PROP: OpArgProperty = {
 			description:
 				'type:"enum" only — per-value row caps ({"doing":3} = a WIP limit of 3). Enforced on every create/update, not just in the UI. Keys must be declared option values.',
 		},
+		encrypted: {
+			type: 'boolean',
+			description:
+				'type:"string" only — encrypt the column at rest (AES-256-GCM). The key comes from the deployment env (MAXSTACK_FIELD_ENCRYPTION_KEY), never from the spec; an app declaring this with no key configured refuses to start rather than storing plaintext. Requires "mask". Declare it when you add the field: turning it on later is a backfill, and no op does one.',
+		},
+		mask: MASK_PROP,
 		provenance: PROVENANCE_PROP,
 	},
 	required: ['id', 'name', 'type', 'required'],
@@ -2440,6 +2501,27 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['entityId', 'fieldId', 'limits'],
+		},
+	},
+	'data.setFieldMask': {
+		name: 'data.setFieldMask',
+		layer: 'data',
+		summary:
+			'Set (or clear, with null) a string field\u2019s display mask \u2014 how the value renders to a caller who may not see it, and which roles read it raw. Enforced in the shared op layer, so it binds REST, MCP, the admin UI and every export at once. Last-wins. An encrypted field\u2019s mask cannot be cleared.',
+		args: {
+			type: 'object',
+			properties: {
+				entityId: {
+					type: 'string',
+					description: 'entity that owns the field, prefix "e-".',
+				},
+				fieldId: {
+					type: 'string',
+					description: 'the string field to mask, prefix "fld-".',
+				},
+				mask: MASK_PROP,
+			},
+			required: ['entityId', 'fieldId', 'mask'],
 		},
 	},
 	'data.addComputed': {
@@ -4655,6 +4737,99 @@ function fieldLimitsErrors(
 	return errors
 }
 
+/**
+ * Encryption at rest and display masking.
+ *
+ * Strict in the same both-directions way `fieldFileErrors` is, and for the same
+ * reason: the declaration is where the security posture lives, so a declaration
+ * that cannot be enforced has to be refused rather than stored.
+ *
+ *  - **`string` only.** An envelope is a string; a mask renders one. Sealing a
+ *    `number` would silently change the column's type, and `last4` over a
+ *    boolean is not a thing anybody meant.
+ *  - **Never a reference, a rank key, an enum's option list or a file.** Each of
+ *    those is a value the platform itself reads back — an FK it joins on, a sort
+ *    key it compares, a storage key it re-signs. Encrypting one breaks the
+ *    machinery that owns it, and masking one hides a value that is not a secret.
+ *  - **`encrypted` requires a `mask`.** A field worth encrypting at rest is a
+ *    field worth not printing into a REST payload, and without a mask there is
+ *    no declared answer to "who may read it" — the pair is what makes the
+ *    question answerable.
+ */
+function fieldPrivacyErrors(
+	field: {
+		id: string
+		type: string
+		encrypted?: unknown
+		mask?: unknown
+		reference?: unknown
+		rank?: unknown
+		options?: unknown
+	},
+	opName: SpecOpName,
+): string[] {
+	const where = `${opName}: field "${field.id}"`
+	const errors: string[] = []
+	const declaresEncrypted = field.encrypted !== undefined
+	const declaresMask = field.mask !== undefined
+	if (!declaresEncrypted && !declaresMask) return errors
+
+	if (declaresEncrypted && typeof field.encrypted !== 'boolean')
+		errors.push(`${where} -> "encrypted" must be a boolean`)
+	const encrypted = field.encrypted === true
+
+	let mask: { style?: unknown; unmaskRoles?: unknown } | undefined
+	if (declaresMask && field.mask !== null) {
+		if (
+			typeof field.mask !== 'object' ||
+			Array.isArray(field.mask) ||
+			field.mask === null
+		) {
+			errors.push(`${where} -> "mask" must be an object with a "style"`)
+		} else {
+			mask = field.mask as { style?: unknown; unmaskRoles?: unknown }
+			if (
+				typeof mask.style !== 'string' ||
+				!MASK_STYLES.includes(mask.style as MaskStyle)
+			)
+				errors.push(
+					`${where} -> "mask.style" must be one of ${MASK_STYLES.join(', ')}`,
+				)
+			if (mask.unmaskRoles !== undefined) {
+				if (
+					!Array.isArray(mask.unmaskRoles) ||
+					mask.unmaskRoles.some((r) => typeof r !== 'string' || r === '')
+				)
+					errors.push(
+						`${where} -> "mask.unmaskRoles" must be an array of role names`,
+					)
+			}
+		}
+	}
+
+	if (field.type !== 'string')
+		errors.push(
+			`${where} -> only a "string" field may be encrypted or masked (got "${field.type}") — an envelope is a string, and a mask renders one`,
+		)
+	if (field.reference !== undefined)
+		errors.push(
+			`${where} -> a reference cannot be encrypted or masked — the platform joins on that value`,
+		)
+	if (field.rank === true)
+		errors.push(
+			`${where} -> a rank key cannot be encrypted or masked — it is an ordering position the platform compares, and it is not a secret`,
+		)
+	if (Array.isArray(field.options) && field.options.length > 0)
+		errors.push(
+			`${where} -> a field with declared options cannot be encrypted or masked — the option list would publish every value the mask hides`,
+		)
+	if (encrypted && !mask)
+		errors.push(
+			`${where} -> an encrypted field must declare a "mask" — encryption protects the value at rest, and without a mask the REST and MCP payloads still print it in full`,
+		)
+	return errors
+}
+
 /** The values an enum field's options declare, or `undefined` when it has none
  * (a permissive text column — there is nothing to check a limit against). */
 function optionValuesOf(field: {
@@ -5138,6 +5313,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				errors.push(...fieldTypeErrors(f, op.op))
 				errors.push(...fieldOptionErrors(f, op.op))
 				errors.push(...fieldFileErrors(f, op.op))
+				errors.push(...fieldPrivacyErrors(f, op.op))
 			}
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -5166,6 +5342,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(...fieldTypeErrors(op.args.field, op.op))
 			errors.push(...fieldOptionErrors(op.args.field, op.op))
 			errors.push(...fieldFileErrors(op.args.field, op.op))
+			errors.push(...fieldPrivacyErrors(op.args.field, op.op))
 			errors.push(...fieldRankErrors(op.args.field, op.op))
 			errors.push(
 				...fieldLimitsErrors(
@@ -5239,6 +5416,47 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 					values,
 				),
 			)
+			break
+		}
+		case 'data.setFieldMask': {
+			const entity = system.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			if (!entity) {
+				errors.push(`${op.op}: unknown entity "${op.args.entityId}"`)
+				break
+			}
+			if (!field) {
+				errors.push(
+					`${op.op}: unknown field "${op.args.fieldId}" on ${op.args.entityId}`,
+				)
+				break
+			}
+			// Clearing the mask on an ENCRYPTED field is refused, and this is the one
+			// rule in this case worth arguing for: the pair is what makes "who may
+			// read this" answerable, so dropping half of it silently turns a sealed
+			// column into one every REST and MCP payload prints in full \u2014 a
+			// disclosure produced by an op whose summary reads like a tidy-up.
+			if (op.args.mask === null && field.encrypted === true) {
+				errors.push(
+					`${op.op}: field "${op.args.fieldId}" is encrypted, so its mask cannot be cleared \u2014 without one the value goes out in full through REST and MCP. Replace it with a different mask instead.`,
+				)
+				break
+			}
+			if (op.args.mask !== null)
+				errors.push(
+					...fieldPrivacyErrors(
+						{
+							id: op.args.fieldId,
+							type: field.type,
+							encrypted: field.encrypted,
+							mask: op.args.mask,
+							reference: field.reference,
+							rank: field.rank,
+							options: field.options,
+						},
+						op.op,
+					),
+				)
 			break
 		}
 		case 'data.setFieldReference': {
@@ -6527,6 +6745,22 @@ export function diffOp(op: SpecOp): SpecDiff {
 								.join(', ')}`,
 			}
 		}
+		case 'data.setFieldMask':
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.fieldId,
+				parentId: op.args.entityId,
+				summary:
+					op.args.mask === null
+						? `Clear the mask on field "${op.args.fieldId}"`
+						: `Mask field "${op.args.fieldId}" as ${op.args.mask.style}, raw for ${
+								op.args.mask.unmaskRoles?.length
+									? op.args.mask.unmaskRoles.join(', ')
+									: 'nobody'
+							}`,
+			}
 		case 'data.addComputed':
 			return add(
 				op.args.computed.id,
@@ -7104,6 +7338,18 @@ export function applyOp(
 			if (field) {
 				if (Object.keys(op.args.limits).length === 0) delete field.limits
 				else field.limits = { ...op.args.limits }
+			}
+			break
+		}
+		case 'data.setFieldMask': {
+			const entity = next.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			// Last-wins, and the key is deleted rather than set to null when cleared,
+			// so a field with no mask encodes exactly as it did before one was
+			// declared \u2014 the upgrade gate compares bytes.
+			if (field) {
+				if (op.args.mask === null) delete field.mask
+				else field.mask = { ...op.args.mask }
 			}
 			break
 		}

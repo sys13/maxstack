@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 61 typed operations that can change a project spec — the whole
+The 62 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -46,6 +46,7 @@ keys or nothing.
 | [`data.setFieldReference`](#datasetfieldreference) | `data` | Declare that an existing string field is a foreign key to another entity. The one op that changes a shipped column’s type; the migration reconciles it behind a guard and fails loudly on a value that is not an id. |
 | [`data.setFieldOpenReference`](#datasetfieldopenreference) | `data` | Declare that a string field holds an id of one of several entities, and that the PROJECT decides which (billing’s "subject" is a user in a per-seat app and an organization in a per-workspace one). Declares the ambiguity; data.setFieldReference resolves it and refuses anything off the list. Emits the same text column, so it is additive on an installed bundle. |
 | [`data.setFieldLimits`](#datasetfieldlimits) | `data` | Set per-value row caps on an enum field — a Kanban WIP limit ({"doing": 3}). Enforced on every create/update (REST, MCP, forms and board drags alike), never only in the UI. Last-wins; {} clears every cap. |
+| [`data.setFieldMask`](#datasetfieldmask) | `data` | Set (or clear, with null) a string field’s display mask — how the value renders to a caller who may not see it, and which roles read it raw. Enforced in the shared op layer, so it binds REST, MCP, the admin UI and every export at once. Last-wins. An encrypted field’s mask cannot be cleared. |
 | [`data.addComputed`](#dataaddcomputed) | `data` | Add a value computed from a row's own numeric fields (never stored; evaluated on read). |
 | [`data.addRollup`](#dataaddrollup) | `data` | Add an aggregate over a related entity's rows. With groupBy it yields a series (chart/list); without, a scalar. |
 | [`page.addPage`](#pageaddpage) | `page` | Add a page. |
@@ -228,6 +229,10 @@ Add a data entity.
         - `fit` — `string` · one of `cover`, `contain`
     - `rank` — `boolean` · type:"string" only — marks the field a manual-ordering key: never null (database default), hidden and read-only in forms, and the column a board orders cards by.
     - `limits` — `object` · type:"enum" only — per-value row caps ({"doing":3} = a WIP limit of 3). Enforced on every create/update, not just in the UI. Keys must be declared option values.
+    - `encrypted` — `boolean` · type:"string" only — encrypt the column at rest (AES-256-GCM). The key comes from the deployment env (MAXSTACK_FIELD_ENCRYPTION_KEY), never from the spec; an app declaring this with no key configured refuses to start rather than storing plaintext. Requires "mask". Declare it when you add the field: turning it on later is a backfill, and no op does one.
+    - `mask` — `object` · type:"string" only — how the value renders to a caller who may not see it. Enforced in the shared op layer, so one declaration binds the REST response, the MCP tool result, the admin table, a rendered document and a live push at once.
+      - `style` — `string` · **required** · one of `redact`, `last4`, `hash` · "redact" (there is a value), "last4" (the shape support verifies against), or "hash" (a keyed HMAC token, so two records can be compared without either being read).
+      - `unmaskRoles` — `array` · roles that read the raw value. OMITTED OR EMPTY MEANS NOBODY — the platform masks it for every caller, and the plaintext is reachable only by owned code holding the key.
     - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
       - `isSuggested` — `boolean` · **required**
       - `isAccepted` — `boolean | null` · **required** · null = undecided.
@@ -267,6 +272,10 @@ Add a field to an entity.
       - `fit` — `string` · one of `cover`, `contain`
   - `rank` — `boolean` · type:"string" only — marks the field a manual-ordering key: never null (database default), hidden and read-only in forms, and the column a board orders cards by.
   - `limits` — `object` · type:"enum" only — per-value row caps ({"doing":3} = a WIP limit of 3). Enforced on every create/update, not just in the UI. Keys must be declared option values.
+  - `encrypted` — `boolean` · type:"string" only — encrypt the column at rest (AES-256-GCM). The key comes from the deployment env (MAXSTACK_FIELD_ENCRYPTION_KEY), never from the spec; an app declaring this with no key configured refuses to start rather than storing plaintext. Requires "mask". Declare it when you add the field: turning it on later is a backfill, and no op does one.
+  - `mask` — `object` · type:"string" only — how the value renders to a caller who may not see it. Enforced in the shared op layer, so one declaration binds the REST response, the MCP tool result, the admin table, a rendered document and a live push at once.
+    - `style` — `string` · **required** · one of `redact`, `last4`, `hash` · "redact" (there is a value), "last4" (the shape support verifies against), or "hash" (a keyed HMAC token, so two records can be compared without either being read).
+    - `unmaskRoles` — `array` · roles that read the raw value. OMITTED OR EMPTY MEANS NOBODY — the platform masks it for every caller, and the plaintext is reachable only by owned code holding the key.
   - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
     - `isSuggested` — `boolean` · **required**
     - `isAccepted` — `boolean | null` · **required** · null = undecided.
@@ -303,6 +312,18 @@ Set per-value row caps on an enum field — a Kanban WIP limit ({"doing": 3}). E
 - `entityId` — `string` · **required** · entity that owns the field, prefix "e-".
 - `fieldId` — `string` · **required** · the enum field to cap, prefix "fld-". It must carry declared options.
 - `limits` — `object` · **required** · map of option VALUE -> cap, e.g. {"doing": 3}. Each cap is a positive integer ≤ 10000. An option with no entry is uncapped. Pass {} to clear.
+
+### `data.setFieldMask`
+
+Set (or clear, with null) a string field’s display mask — how the value renders to a caller who may not see it, and which roles read it raw. Enforced in the shared op layer, so it binds REST, MCP, the admin UI and every export at once. Last-wins. An encrypted field’s mask cannot be cleared.
+
+**Arguments**
+
+- `entityId` — `string` · **required** · entity that owns the field, prefix "e-".
+- `fieldId` — `string` · **required** · the string field to mask, prefix "fld-".
+- `mask` — `object` · **required** · type:"string" only — how the value renders to a caller who may not see it. Enforced in the shared op layer, so one declaration binds the REST response, the MCP tool result, the admin table, a rendered document and a live push at once.
+  - `style` — `string` · **required** · one of `redact`, `last4`, `hash` · "redact" (there is a value), "last4" (the shape support verifies against), or "hash" (a keyed HMAC token, so two records can be compared without either being read).
+  - `unmaskRoles` — `array` · roles that read the raw value. OMITTED OR EMPTY MEANS NOBODY — the platform masks it for every caller, and the plaintext is reachable only by owned code holding the key.
 
 ### `data.addComputed`
 

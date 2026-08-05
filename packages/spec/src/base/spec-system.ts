@@ -291,6 +291,79 @@ export interface FieldSpec extends Provenanced {
 	 * see `docs/board-views.md`.
 	 */
 	limits?: Record<string, number>
+	/**
+	 * Encrypted at rest — the column holds an AES-256-GCM envelope,
+	 * never the value. `string` fields only.
+	 *
+	 * **The key is never here.** This is a boolean in a file in the repository;
+	 * the key material comes from the deployment's environment
+	 * (`MAXSTACK_FIELD_ENCRYPTION_KEY`) and from nowhere else, and an app that
+	 * declares this with no key configured **refuses to start** rather than
+	 * writing plaintext into a column everybody now believes is sealed. A silent
+	 * downgrade is the worst failure available here: it is indistinguishable from
+	 * working, right up until somebody reads the backup.
+	 *
+	 * It is declared **when the field is added and cannot be flipped afterwards**,
+	 * and that is a deliberate absence rather than a missing op. Turning encryption
+	 * on for a column that already holds rows is a backfill — every existing value
+	 * has to be read, sealed and rewritten, under a lock, by somebody who chose the
+	 * window — and an op that quietly did none of that would leave a table half
+	 * sealed with no way to tell which half.
+	 *
+	 * Requires {@link mask}: a value worth encrypting is a value worth not printing
+	 * into a REST payload, and the two together are what make "who may read this"
+	 * an answerable question rather than "anyone who can reach the row".
+	 */
+	encrypted?: boolean
+	/**
+	 * How the field renders to a caller who may not see its value.
+	 *
+	 * **Distinct from removing the field**, which is the whole point: "this record
+	 * has a tax id on file" is often exactly what a support user needs to know
+	 * while the value itself is what they must not see. A mask keeps the shape and
+	 * drops the secret.
+	 *
+	 * **Not a substitute for {@link encrypted}.** A masked plaintext column is
+	 * still plaintext in the database, the dump and the replica — masking defends
+	 * the screen and the payload, encryption defends the disk. Declaring one is
+	 * never a reason to skip the other.
+	 *
+	 * Enforced in the runtime's shared op layer, so one declaration binds the REST
+	 * response, the MCP tool result, the admin table, a rendered document, an
+	 * import preview and a live push at once. A mask applied per surface is a mask
+	 * whichever surface was written next does not have.
+	 */
+	mask?: MaskSpec
+}
+
+/** How a masked value is rendered to a caller without the unmask capability. */
+export type MaskStyle = 'redact' | 'last4' | 'hash'
+
+/** Runtime guard for {@link MaskStyle} — same rationale as {@link FIELD_TYPES}. */
+export const MASK_STYLES: readonly MaskStyle[] = ['redact', 'last4', 'hash']
+
+/**
+ * A field's declared mask.
+ *
+ * The three styles are the three questions people actually ask of a value they
+ * may not read: *is there one* (`redact`), *is it the one I'm holding* (`last4`,
+ * the shape a support agent verifies a card against), and *is this record's the
+ * same as that record's* (`hash`, a keyed HMAC — a bare digest of a nine-digit
+ * number is a lookup table, not a mask).
+ */
+export interface MaskSpec {
+	style: MaskStyle
+	/**
+	 * Roles whose reads are **not** masked. Omitted or empty means *nobody*: the
+	 * platform masks the value for every caller it has, and the plaintext is
+	 * reachable only by owned code holding the key.
+	 *
+	 * Closed by default on purpose. An omitted allowlist reading as "everyone"
+	 * would make the least-considered declaration the most permissive one, which
+	 * is exactly backwards for the one field vocabulary whose mistakes are
+	 * disclosures.
+	 */
+	unmaskRoles?: string[]
 }
 
 /**

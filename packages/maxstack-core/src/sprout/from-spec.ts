@@ -39,6 +39,8 @@ import { createDrizzleStore } from '../demo/store.ts'
 import type { StoreBackend } from './backend.ts'
 import type { ComputedShape, RollupShape } from './derived.ts'
 import type { DocumentPlan } from './documents.ts'
+import type { MaskMeta } from './field-crypto.ts'
+import { assertFieldKeyForSpec } from './field-privacy.ts'
 import type { ImportPlanShape } from './imports.ts'
 import type { LivePlan } from './live.ts'
 import {
@@ -115,6 +117,18 @@ export interface SpecFieldShape {
 	 * binds REST and MCP callers exactly as it binds the UI.
 	 */
 	limits?: Record<string, number>
+	/**
+	 * Encrypted at rest. The column stays `text` — an envelope is a
+	 * string — and everything that makes it *encrypted* travels as metadata, so
+	 * the seal-on-write and the open-on-read read the same declaration the
+	 * validator approved. A spec that declares one with no key configured refuses
+	 * to boot; see `assertFieldKeyForSpec`.
+	 */
+	encrypted?: boolean
+	/** How the column renders to a caller without the unmask capability.
+	 * Carried into `meta.mask`, which `operations.ts` applies on the way
+	 * out of every read op. */
+	mask?: MaskMeta
 }
 
 /**
@@ -239,6 +253,19 @@ function columnFor(
 	// one declaration rather than two that agree today.
 	if (field.limits && Object.keys(field.limits).length > 0)
 		meta.valueLimits = { ...field.limits }
+	// Encryption and masking. Both are metadata rather than a column
+	// type: an envelope is a string and a mask is a rendering, so the DDL is
+	// unchanged and a field that gains a mask needs no migration at all.
+	if (field.mask) meta.mask = { ...field.mask }
+	if (field.encrypted) {
+		meta.encrypted = true
+		// An encrypted column cannot be ordered or filtered by, and saying so here
+		// keeps the UI from offering an affordance the read path refuses: every row
+		// carries a fresh IV, so equality never matches and an ordering is over
+		// random bytes. `assertNoMaskedProbe` is the enforcement; this is the label.
+		meta.sortable = false
+		meta.filterable = false
+	}
 	// A rank key is a text column with a database default, hidden and
 	// read-only in the UI: it is written by moving a row, never by typing.
 	// `readOnly` is a rendering hint only — the validation schema still accepts the
@@ -623,6 +650,12 @@ export function registerSpecEntities(
 	entities: readonly SpecEntityShape[],
 	config: { group?: string; access?: ResourceAccess } = {},
 ): RegisteredResource[] {
+	// Before anything is registered: a spec that declares an
+	// encrypted field on a deployment with no key configured refuses to come up.
+	// Here rather than at the first write, because a write-time failure is a
+	// failure some path swallows — and the thing it swallows into is a plaintext
+	// secret in a column everybody believes is sealed.
+	assertFieldKeyForSpec(entities)
 	return entities.map((entity) =>
 		registry.register(tableFromSpecEntity(entity), {
 			group: config.group ?? 'App',
