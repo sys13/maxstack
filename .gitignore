@@ -1,0 +1,44 @@
+node_modules
+dist
+dist-npm
+build
+lib
+.turbo
+.react-router
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+*.local.db
+*.local.db-*
+
+# maxstack CLI local, per-machine state (see apps/maxstack)
+maxstack.config.local.json
+apps/maxstack/registry.json
+
+# per-project durable platform state (spec.json + telemetry.jsonl; see
+# apps/web/app/data-dir.server.ts) and generated demo output
+.maxstack/
+
+# the Phase 2.5 dogfood project (generated + personal rows) and its change log
+# (personal data; see docs/dogfood-plan.md)
+dogfood/change-log.jsonl
+
+# `maxstack build` now vendors the whole runtime (incl. the project's owned app/)
+# into <project>/.maxstack/runtime/ (covered by .maxstack/ above), so the maxstack
+# apps/web is left untouched. This legacy ignore stays as a safety net for any
+# stray in-tree mirror from an older build.
+apps/web/app/project/
+
+# the bare `lib` build-output ignore above also matches the CLI's src/lib
+# source dir — re-include it (its parent, src/, is not ignored).
+!apps/maxstack/src/lib/
+
+# ...and @maxstack/ui's src/lib (its `cn` helper — the same blanket-`lib`
+# footgun silently dropped `cn.ts` from every commit since issue #12's port,
+# breaking `@maxstack/ui`'s build/typecheck for everyone; re-include it too).
+!packages/ui/src/lib/

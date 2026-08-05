@@ -1,0 +1,26 @@
+packages:
+  - packages/*
+  - apps/*
+  - examples
+
+overrides:
+  # GHSA-rgw5-rvv9-x895 — DoS via unbounded intermediate arrays, reachable only
+  # through ts-morph > @ts-morph/common > minimatch, which has no release on the
+  # patched line yet. The override is transitive-only; nothing here depends on
+  # brace-expansion directly.
+  brace-expansion@>=4.0.0 <5.0.9: '>=5.0.9'
+
+allowBuilds:
+  esbuild: true
+  # sharp ships prebuilt platform binaries as optional @img/sharp-* packages,
+  # so its install script is unnecessary — and declining it keeps an
+  # optional, native, image-decoding dependency from executing anything at
+  # install time. Verified: resize works with the script not run.
+  sharp: false
+
+onlyBuiltDependencies:
+  - '@biomejs/biome'
+  - '@tailwindcss/oxide'
+  - better-sqlite3
+  - esbuild
+  - msw

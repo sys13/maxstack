@@ -1,0 +1,107 @@
+{
+	"name": "@maxstack/features",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "L5 — feature bundles (auth, billing, content, email, ...): runtime + artifacts + prerequisites + DI",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./api-keys": {
+			"types": "./src/api-keys/index.ts",
+			"default": "./src/api-keys/index.ts"
+		},
+		"./audit": {
+			"types": "./src/audit/index.ts",
+			"default": "./src/audit/index.ts"
+		},
+		"./auth": {
+			"types": "./src/auth/index.ts",
+			"default": "./src/auth/index.ts"
+		},
+		"./billing": {
+			"types": "./src/billing/index.ts",
+			"default": "./src/billing/index.ts"
+		},
+		"./compliance": {
+			"types": "./src/compliance/index.ts",
+			"default": "./src/compliance/index.ts"
+		},
+		"./demo-mode": {
+			"types": "./src/demo-mode/index.ts",
+			"default": "./src/demo-mode/index.ts"
+		},
+		"./bundle": {
+			"types": "./src/bundle/index.ts",
+			"default": "./src/bundle/index.ts"
+		},
+		"./documents": {
+			"types": "./src/documents/index.ts",
+			"default": "./src/documents/index.ts"
+		},
+		"./email": {
+			"types": "./src/email/index.ts",
+			"default": "./src/email/index.ts"
+		},
+		"./flags": {
+			"types": "./src/flags/index.ts",
+			"default": "./src/flags/index.ts"
+		},
+		"./jobs": {
+			"types": "./src/jobs/index.ts",
+			"default": "./src/jobs/index.ts"
+		},
+		"./members": {
+			"types": "./src/members/index.ts",
+			"default": "./src/members/index.ts"
+		},
+		"./notifications": {
+			"types": "./src/notifications/index.ts",
+			"default": "./src/notifications/index.ts"
+		},
+		"./observability": {
+			"types": "./src/observability/index.ts",
+			"default": "./src/observability/index.ts"
+		},
+		"./metrics": {
+			"types": "./src/metrics/index.ts",
+			"default": "./src/metrics/index.ts"
+		},
+		"./preferences": {
+			"types": "./src/preferences/index.ts",
+			"default": "./src/preferences/index.ts"
+		},
+		"./sources": {
+			"types": "./src/sources/index.ts",
+			"default": "./src/sources/index.ts"
+		},
+		"./storage": {
+			"types": "./src/storage/index.ts",
+			"default": "./src/storage/index.ts"
+		},
+		"./webhooks": {
+			"types": "./src/webhooks/index.ts",
+			"default": "./src/webhooks/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"optionalDependencies": {
+		"sharp": "^0.35.3"
+	},
+	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1095.0",
+		"@aws-sdk/s3-request-presigner": "^3.1095.0",
+		"@electric-sql/pglite": "^0.5.4",
+		"@maxstack/core": "workspace:*",
+		"@maxstack/spec": "workspace:*",
+		"better-auth": "^1.6.25",
+		"drizzle-orm": "1.0.0-rc.4",
+		"postgres": "^3.4.9"
+	}
+}

@@ -1,0 +1,25 @@
+{
+	"name": "@maxstack/spec",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "L1 — product+system spec types, provenance, decision ledger, typed spec-ops",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./fixtures": {
+			"types": "./src/fixtures/index.ts",
+			"default": "./src/fixtures/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"zod": "^4.4.3"
+	}
+}

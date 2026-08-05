@@ -1,0 +1,179 @@
+/**
+ * The Land step — an accepted Issue's candidate change
+ * routed through the existing `apply_spec_change` MCP write-back, exactly the
+ * path `apps/web/app/mcp.server.ts` drives for every other agent-facing spec
+ * mutation. Nothing new is written to the spec here: `executePlatformTool`
+ * validates the op, appends it to `opLog` with provenance, and persists —
+ * this module only decides *which* candidate is eligible and records why.
+ *
+ * Only `kind: 'spec-op', via: 'apply-op'` candidates are landable this way —
+ * the only `BenchmarkChange` kind that carries an actual typed `SpecOp`.
+ * `regen-diff`/`slot-fill`/`eject`/`off-surface` candidates don't have one (by
+ * design — see `issues.server.ts`'s `heuristicPropose`), so landing is a no-op
+ * for those today; a maintainer resolves them outside the spec for now.
+ */
+
+import { executePlatformTool, type PlatformContext } from '@maxstack/mcp'
+import type { Issue } from '@maxstack/spec-derive/clustering'
+import {
+	issueKey as computeIssueKey,
+	issueState,
+	landableCandidates,
+} from '@maxstack/spec-derive/clustering'
+import { resolveDataDir } from '~/data-dir.server'
+import { getPlatform } from '~/sprout.server'
+import { deriveIssues } from './issues.server'
+
+// ===========================================================================
+// The landed-issue store — which issue keys have already been landed, so the
+// UI can badge them and never offer a double-land. Same host split as
+// `issue-review.server`/`feedback.server`: append-only JSONL under a data
+// dir, in-memory `globalThis` fallback under tests.
+// ===========================================================================
+
+export interface LandedRecord {
+	issueKey: string
+	opId: string
+	at: string
+}
+
+const scope = globalThis as typeof globalThis & {
+	__maxstackLanded?: LandedRecord[]
+}
+
+function memoryLog(): LandedRecord[] {
+	scope.__maxstackLanded ??= []
+	return scope.__maxstackLanded
+}
+
+async function landedPath(): Promise<string | null> {
+	const dir = resolveDataDir()
+	if (!dir) return null
+	const { join } = await import('node:path')
+	return join(dir, 'landed-issues.jsonl')
+}
+
+async function recordLanded(issueKey: string, opId: string): Promise<void> {
+	const record: LandedRecord = { issueKey, opId, at: new Date().toISOString() }
+	const path = await landedPath()
+	if (!path) {
+		memoryLog().push(record)
+		return
+	}
+	const { appendFile, mkdir } = await import('node:fs/promises')
+	const { dirname } = await import('node:path')
+	await mkdir(dirname(path), { recursive: true })
+	await appendFile(path, `${JSON.stringify(record)}\n`)
+}
+
+async function allLanded(): Promise<LandedRecord[]> {
+	const path = await landedPath()
+	if (!path) return memoryLog()
+	const { readFile } = await import('node:fs/promises')
+	try {
+		return (await readFile(path, 'utf8'))
+			.split('\n')
+			.map((l) => l.trim())
+			.filter((l) => l.length > 0)
+			.map((l) => JSON.parse(l) as LandedRecord)
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+		throw err
+	}
+}
+
+/** The set of issue keys already landed — for the queue's "Landed" badge and
+ *  to keep `landIssueCandidate` idempotent. */
+export async function allLandedKeys(): Promise<Set<string>> {
+	return new Set((await allLanded()).map((r) => r.issueKey))
+}
+
+// ===========================================================================
+// Land — accepted candidate → apply_spec_change → opLog + decision ledger
+// ===========================================================================
+
+export interface LandResult {
+	landed: boolean
+	reason?: string
+	opId?: string
+}
+
+/** A short, safe decision-ledger id suffix derived from the issue's stable
+ *  coordinate key (which can contain `:`/`/`/`|`). */
+function slug(key: string): string {
+	return key.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'issue'
+}
+
+function firstText(result: { content: { text: string }[] }): string {
+	return result.content.map((c) => c.text).join(' ')
+}
+
+/**
+ * Land the first landable spec-op candidate of an accepted Issue (identified
+ * by its stable {@link computeIssueKey}, not the positional id — the same
+ * identity `issue-review.server`'s triage decisions are keyed by). Re-derives
+ * Issues fresh (via `issues.server`'s `deriveIssues`, the same fold the queue
+ * itself renders) rather than trusting a client-submitted candidate, so a
+ * stale or tampered post can't land something a maintainer never actually saw
+ * accepted.
+ */
+export async function landIssueCandidate(
+	issueKeyToLand: string,
+	platform: PlatformContext = getPlatform(),
+): Promise<LandResult> {
+	if ((await allLandedKeys()).has(issueKeyToLand)) {
+		return { landed: false, reason: 'already landed' }
+	}
+
+	const issues = await deriveIssues()
+	const issue = issues.find((i: Issue) => computeIssueKey(i) === issueKeyToLand)
+	if (!issue) return { landed: false, reason: 'issue not found' }
+	if (issueState(issue) !== 'accepted') {
+		return { landed: false, reason: 'issue is not accepted' }
+	}
+
+	const landable = landableCandidates([issue]).find(
+		(c) => c.change.kind === 'spec-op' && c.change.via === 'apply-op',
+	)
+	if (
+		landable?.change.kind !== 'spec-op' ||
+		landable.change.via !== 'apply-op'
+	) {
+		return {
+			landed: false,
+			reason:
+				'no landable spec-op candidate yet (only spec-op/apply-op changes can land directly)',
+		}
+	}
+	const { op } = landable.change
+
+	const applied = await executePlatformTool(platform, 'apply_spec_change', {
+		op: op.op,
+		args: op.args,
+	})
+	if (applied.isError) {
+		return {
+			landed: false,
+			reason: firstText(applied) || 'apply_spec_change failed',
+		}
+	}
+	const parsed = JSON.parse(firstText(applied)) as {
+		applied?: { id?: string }
+	}
+	const opId = parsed.applied?.id ?? 'unknown'
+
+	// Record the rationale in the decision ledger via the existing
+	// `record_decision` convenience (wraps `prd.recordDecision`) — the same
+	// path `mcp.server.ts` exposes to any agent, reused rather than writing
+	// the ledger entry by hand.
+	await executePlatformTool(platform, 'record_decision', {
+		id: `d-land-${slug(issueKeyToLand)}`,
+		question: issue.question,
+		options: [{ id: 'land', description: issue.title, pros: [], cons: [] }],
+		chosenOptionId: 'land',
+		rationale: issue.rationale,
+	})
+
+	await recordLanded(issueKeyToLand, opId)
+	return { landed: true, opId }
+}

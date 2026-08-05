@@ -1,0 +1,67 @@
+{
+	"name": "maxstack",
+	"version": "0.11.11",
+	"type": "module",
+	"description": "The maxstack CLI: new/list/task today; init/gen/add/eject/op/eval/upgrade across the phases",
+	"license": "MIT",
+	"homepage": "https://github.com/sys13/maxstack#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sys13/maxstack.git"
+	},
+	"bugs": {
+		"url": "https://github.com/sys13/maxstack/issues"
+	},
+	"keywords": [
+		"maxstack",
+		"cli",
+		"scaffold",
+		"react",
+		"full-stack",
+		"framework"
+	],
+	"bin": {
+		"maxstack": "./dist/lib/cli.js"
+	},
+	"files": [
+		"dist",
+		"templates",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.115.0",
+		"@electric-sql/pglite": "^0.5.4",
+		"better-auth": "^1.6.25",
+		"commander": "^15.0.0",
+		"diff": "^9.0.0",
+		"drizzle-orm": "1.0.0-rc.4",
+		"postgres": "^3.4.9",
+		"ts-morph": "^28.0.0",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@maxstack/examples": "workspace:*",
+		"@maxstack/core": "workspace:*",
+		"@maxstack/features": "workspace:*",
+		"@maxstack/spec-derive": "workspace:*",
+		"@maxstack/mcp": "workspace:*",
+		"@maxstack/spec": "workspace:*",
+		"esbuild": "0.28.1"
+	},
+	"scripts": {
+		"build": "node build.mjs",
+		"prepublishOnly": "node build.mjs",
+		"release": "node --experimental-transform-types scripts/publish.ts",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"cli": "node --experimental-strip-types src/cli.ts",
+		"docs:reference": "node --experimental-transform-types scripts/gen-reference-docs.ts",
+		"docs:reference:check": "node --experimental-transform-types scripts/gen-reference-docs.ts --check"
+	}
+}

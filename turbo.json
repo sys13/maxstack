@@ -1,0 +1,30 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"globalPassThroughEnv": ["GITHUB_STEP_SUMMARY"],
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**", "build/**", "lib/**"]
+		},
+		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"typecheck": {
+			"dependsOn": []
+		},
+		"test": {
+			"dependsOn": [],
+			// Declared as `env`, not `passThroughEnv`, so it is part of the cache
+			// key: this variable changes which tests RUN (the shared-coordinator
+			// suite is gated on it), and a cached green result from a run without a
+			// database must not satisfy a run with one.
+			//
+			// `globalPassThroughEnv` above puts turbo in strict env mode, which is
+			// why this is needed at all — the variable was set by the workflow,
+			// reached the shell, and was stripped before vitest saw it. Every
+			// Postgres-gated test skipped, and skipped tests report as passing.
+			"env": ["MAXSTACK_TEST_POSTGRES_URL", "CI"]
+		}
+	}
+}

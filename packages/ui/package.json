@@ -1,0 +1,36 @@
+{
+	"name": "@maxstack/ui",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "L2 — UI: shadcn-on-Base UI widgets + the Zod-schema-driven DynamicForm (Sprout's form renderer)",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@base-ui/react": "^1.6.0",
+		"@conform-to/react": "^1.20.0",
+		"@conform-to/zod": "^1.20.0",
+		"clsx": "^2.1.1",
+		"react": "^19.2.8",
+		"react-dom": "^19.2.8",
+		"tailwind-merge": "^3.6.0",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@testing-library/dom": "^10.4.1",
+		"@testing-library/jest-dom": "^7.0.0",
+		"@testing-library/react": "^16.3.2",
+		"@types/react": "^19.2.17",
+		"@types/react-dom": "^19.2.3",
+		"jsdom": "^29.1.1"
+	}
+}

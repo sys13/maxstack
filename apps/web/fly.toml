@@ -1,0 +1,37 @@
+# Fly.io deploy template for a maxstack app (the spec-interpreter runtime with a
+# project's spec baked in). Copy this next to your project, set `app`, and run
+# `fly deploy` from the WORKSPACE ROOT (the Docker build context — see the
+# `dockerfile`/`SPEC_FILE` build args below). Full runbook: docs/deploy.md.
+
+app = "CHANGE-ME-your-app-name"
+primary_region = "iad"
+
+[build]
+  dockerfile = "apps/web/Dockerfile"
+  # Which project spec to bake into the image (relative to the build context).
+  [build.args]
+    SPEC_FILE = "CHANGE-ME/path/to/your-project/spec.json"
+
+[env]
+  PORT = "3000"
+  # Auth is enforced from the session role in strict mode. Leave unset in a
+  # first deploy to keep the dev-admin fallback; set to "1" once real users +
+  # DATABASE_URL are in place.
+  # MAXSTACK_AUTH_STRICT = "1"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Postgres (recommended for anything real — pglite state is lost when a machine
+# recycles). Attach a Fly Postgres app and it injects DATABASE_URL as a secret:
+#   fly postgres create --name <db-app>
+#   fly postgres attach <db-app>
+# The runtime then selects postgres.js over pglite automatically (task 22).

@@ -1,0 +1,449 @@
+/**
+ * The generator registry + the built-in generators the platform ships with.
+ *
+ * A generator is a function of the `SpecSystem` → artifacts (`{ path, content }`).
+ * The MCP `run_generator` tool exposes them by name; the in-memory runner returns
+ * the artifacts as data (so tests can assert on them and an agent can review a
+ * diff), while a disk-backed host wraps the same generators to land the files.
+ *
+ * The three built-ins:
+ *   - `page`      — the **real Phase 2 code generator**: drives
+ *                   `generateResourcePage` (ts-morph emission + never-clobber +
+ *                   cross-file slots + `routes.ts` AST insertion) from the spec's
+ *                   pages, so `run_generator` emits actual app code, not stubs;
+ *   - `docs`      — **project-tailored docs** (Phase 3 scope): a Markdown
+ *                   overview derived from the live spec, so it can't drift from it;
+ *   - `e2e-tests` — Playwright test stubs, one `test()` per `page.e2eTests`
+ *                   string (the mxscratchpad convention, §3-L4B).
+ */
+
+import {
+	introspectTable,
+	type SproutColumn,
+	type SproutResource,
+	tableFromSpecEntity,
+} from '@maxstack/core'
+import {
+	createMemFs,
+	generateResourcePage,
+	isSlotBlockType,
+	type PageDescriptor,
+	slotBlockName,
+} from '@maxstack/core/ownership'
+import type { PageSpec, SpecSystem } from '@maxstack/spec'
+import type {
+	GeneratorInfo,
+	GeneratorResult,
+	GeneratorRunner,
+	RegisteredGenerator,
+} from './context.ts'
+import { groundedEntityShapes } from './grounding.ts'
+
+/** Build a runner over a fixed set of generators. */
+export function createGeneratorRegistry(
+	generators: RegisteredGenerator[],
+): GeneratorRunner {
+	const byName = new Map(generators.map((g) => [g.name, g]))
+	return {
+		list(): GeneratorInfo[] {
+			return generators.map(({ name, summary }) => ({ name, summary }))
+		},
+		async run(name, spec, args): Promise<GeneratorResult> {
+			const gen = byName.get(name)
+			if (!gen)
+				throw new Error(
+					`Unknown generator "${name}". Available: ${[...byName.keys()].join(', ') || '(none)'}`,
+				)
+			return gen.run(spec, args)
+		},
+	}
+}
+
+// ===========================================================================
+// docs — project-tailored Markdown, derived from the spec
+// ===========================================================================
+
+function docsOverview(spec: SpecSystem): string {
+	const { product, data, pages, pricing } = spec
+	const lines: string[] = []
+	lines.push(`# ${product.meta.title}`, '')
+	if (product.context.tldr) lines.push(product.context.tldr, '')
+
+	lines.push('## Problem', '', product.problem.statement, '')
+
+	lines.push('## North-star metric', '')
+	const ns = product.goals.northStarMetric
+	lines.push(`- **${ns.name}** — ${ns.definition}`, '')
+
+	lines.push(`## Requirements (${product.requirements.length})`, '')
+	for (const r of product.requirements) {
+		lines.push(`### ${r.id} · ${r.priority}`, '', r.userStory, '')
+		if (r.acceptanceCriteria.length) {
+			lines.push('Acceptance criteria:')
+			for (const c of r.acceptanceCriteria) lines.push(`- ${c}`)
+			lines.push('')
+		}
+	}
+
+	lines.push(`## Data model (${data.entities.length} entities)`, '')
+	for (const e of data.entities) {
+		const fields = e.fields
+			.map((f) => `${f.name}: ${f.type}${f.required ? '' : '?'}`)
+			.join(', ')
+		lines.push(`- **${e.name}** (${e.id})${fields ? ` — ${fields}` : ''}`)
+	}
+	lines.push('')
+
+	lines.push(`## Pages (${pages.pages.length})`, '')
+	for (const p of pages.pages) {
+		lines.push(`- **${p.name}** \`${p.route}\` (${p.blocks.length} blocks)`)
+	}
+	lines.push('')
+
+	if (pricing.tiers.length) {
+		lines.push(`## Pricing`, '')
+		for (const t of pricing.tiers)
+			lines.push(`- **${t.name}** — $${t.priceMonthly}/mo`)
+		lines.push('')
+	}
+
+	lines.push('---', '', '_Generated from the spec by `run_generator docs`._')
+	return lines.join('\n')
+}
+
+export const docsGenerator: RegisteredGenerator = {
+	name: 'docs',
+	summary: 'Project-tailored Markdown docs derived from the live spec.',
+	run(spec): GeneratorResult {
+		return {
+			generator: 'docs',
+			artifacts: [{ path: 'docs/OVERVIEW.md', content: docsOverview(spec) }],
+			notes: [
+				`Generated docs/OVERVIEW.md from ${spec.product.requirements.length} requirements.`,
+			],
+		}
+	},
+}
+
+// ===========================================================================
+// e2e-tests — one Playwright test() per page.e2eTests string
+// ===========================================================================
+
+function e2eSpecFor(pageName: string, route: string, tests: string[]): string {
+	const body = tests
+		.map(
+			(t) =>
+				`\ttest(${JSON.stringify(t)}, async ({ page }) => {\n` +
+				`\t\tawait page.goto(${JSON.stringify(route)})\n` +
+				`\t\t// TODO(agent): implement — ${t}\n` +
+				`\t})`,
+		)
+		.join('\n\n')
+	return (
+		`import { expect, test } from '@playwright/test'\n\n` +
+		`// Generated stubs for "${pageName}" (${route}). Fill each body in.\n` +
+		`test.describe(${JSON.stringify(pageName)}, () => {\n${body}\n})\n`
+	)
+}
+
+function slug(route: string): string {
+	return route.replace(/^\//, '').replace(/[^a-z0-9]+/gi, '-') || 'index'
+}
+
+export const e2eTestsGenerator: RegisteredGenerator = {
+	name: 'e2e-tests',
+	summary:
+		'Playwright test stubs, one test() per page.e2eTests string (agent fills bodies).',
+	run(spec): GeneratorResult {
+		const artifacts = spec.pages.pages
+			.filter((p) => (p.e2eTests?.length ?? 0) > 0)
+			.map((p) => ({
+				path: `e2e/${slug(p.route)}.spec.ts`,
+				content: e2eSpecFor(p.name, p.route, p.e2eTests ?? []),
+			}))
+		return {
+			generator: 'e2e-tests',
+			artifacts,
+			notes: artifacts.length
+				? [`Scaffolded ${artifacts.length} e2e spec file(s).`]
+				: ['No pages declare e2eTests — nothing to scaffold.'],
+		}
+	},
+}
+
+// ===========================================================================
+// page — the real ts-morph code generator (ownership/), driven through MCP
+// ===========================================================================
+
+/**
+ * Map a spec page to the code generator's descriptor — the ONE fold from the
+ * page layer into `generateResourcePage` input. Exported so a disk-backed host
+ * (the demo script, later the CLI) lands the same code this generator previews.
+ *
+ * Only `slot:<name>` blocks become declared slots, named from their type
+ * suffix via `slotBlockName` — the same derivation the live runtime uses
+ * (`project-routes.ts`'s `getRoutes`) — so a generated route's `<Slot>` and its
+ * scaffolded render-fn stub always agree with what `OWNED_SLOTS` is keyed by
+ * at request time. Other block types (`table`, `form`, …) have no
+ * runtime slot seam and no longer get dead-code stubs scaffolded for them.
+ */
+export function pageDescriptor(page: PageSpec): PageDescriptor {
+	const resource = (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
+	return {
+		resource,
+		title: page.name,
+		routePath: page.route,
+		slots: page.blocks
+			.filter((b) => isSlotBlockType(b.type))
+			.map((b) => slotBlockName(b.type)),
+	}
+}
+
+/**
+ * The `page` generator — for each spec page (or one named `pageId`), run the
+ * ownership code generator into a fresh in-memory FS and return the emitted
+ * files as artifacts. This drives the real Phase 2 ts-morph emission +
+ * never-clobber + slot machinery (`generateResourcePage`) through the MCP
+ * surface, so `run_generator` produces actual app route/slot/manifest code, not
+ * just spec-derived docs. A disk-backed host swaps the memfs for a real FS to
+ * land the files (with eject-safety intact); here we return them for review.
+ */
+export const pageGenerator: RegisteredGenerator = {
+	name: 'page',
+	summary:
+		'Emit route/slot/manifest code for the spec pages via the ownership ts-morph generator.',
+	async run(spec, args): Promise<GeneratorResult> {
+		const targetId = typeof args.pageId === 'string' ? args.pageId : undefined
+		const pages = targetId
+			? spec.pages.pages.filter((p) => p.id === targetId)
+			: spec.pages.pages
+		if (targetId && pages.length === 0)
+			throw new Error(`Unknown page "${targetId}"`)
+
+		const fs = createMemFs()
+		const notes: string[] = []
+		for (const page of pages) {
+			const { results } = await generateResourcePage(fs, pageDescriptor(page))
+			for (const r of results) notes.push(`${r.action}: ${r.file}`)
+		}
+		const artifacts = [...fs.snapshot()].map(([path, content]) => ({
+			path,
+			content,
+		}))
+		if (pages.length === 0)
+			notes.push('No pages in the spec — nothing to emit.')
+		return { generator: 'page', artifacts, notes }
+	},
+}
+
+// ===========================================================================
+// types — per-entity TypeScript for owned code
+// ===========================================================================
+
+/**
+ * Every line this emits was hand-written, per app, in the dogfood session that
+ * motivated it:
+ *
+ *   type Book = { id: string; title: string; status: Status; … }
+ *   type Status = 'want to read' | 'reading' | 'finished' | 'abandoned'
+ *   function fromDraft(d: Draft) { … }
+ *
+ * Each one is derivable from the entity, and each hand-written copy is a place
+ * to be wrong. The status union silently drifts the moment somebody adds an enum
+ * member through a spec op. The resource is addressed by magic string with the
+ * type parameter supplied by hand and checked against nothing. And the payload
+ * shaper — the function that gets the empty-string-versus-null question wrong
+ * — is written from scratch in every app.
+ *
+ * Generating them converts that knowledge into compile errors: the union is
+ * pinned to the spec, the resource name is a constant, and `toPatch` makes the
+ * null bug unreachable from app code.
+ *
+ * This only pays off paired with a typecheck the project can actually run
+ * — types nothing compiles are decoration, which is why the two
+ * landed together.
+ */
+
+/** A single-quoted TS string literal — the convention the emitted file uses. */
+function q(value: string): string {
+	return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+}
+
+/** `reading-item` → `ReadingItem`. */
+function pascal(name: string): string {
+	return name
+		.split(/[_\-\s]+/)
+		.filter(Boolean)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+		.join('')
+}
+
+/** The TypeScript for one column's value, ignoring nullability. */
+function tsTypeOf(column: SproutColumn, enumName: string): string {
+	if (column.meta.arrayReference) return 'string[]'
+	switch (column.type) {
+		case 'string':
+		case 'uuid':
+			return 'string'
+		case 'number':
+			return 'number'
+		case 'boolean':
+			return 'boolean'
+		// A spec `date` crosses the wire as a string, always. Typing it `Date`
+		// would be a lie that only shows up at runtime.
+		case 'date':
+			return 'string'
+		case 'enum':
+			return (column.enumValues?.length ?? 0) > 0 ? enumName : 'string'
+		default:
+			return 'unknown'
+	}
+}
+
+function entityTypes(resource: SproutResource): string {
+	const name = pascal(resource.name)
+	const lines: string[] = []
+	const writable = resource.columns.filter((c) => !c.isPrimaryKey)
+
+	// The enum unions first — they are what drifts.
+	for (const column of writable) {
+		if (column.type !== 'enum' || !column.enumValues?.length) continue
+		lines.push(
+			`/** The declared members of ${resource.name}.${column.name}. Pinned to the spec: add one with a spec op and this union changes with it. */`,
+			`export type ${name}${pascal(column.name)} =`,
+			...column.enumValues.map((v) => `\t| ${q(v)}`),
+			'',
+		)
+	}
+
+	const member = (column: SproutColumn, mode: 'row' | 'patch'): string => {
+		const base = tsTypeOf(column, `${name}${pascal(column.name)}`)
+		const nullable = column.nullable && column.meta.required !== true
+		const optional = mode === 'patch' ? '?' : ''
+		return `\t${column.name}${optional}: ${base}${nullable ? ' | null' : ''}`
+	}
+
+	lines.push(
+		`/** A ${resource.name} row as the API returns it. */`,
+		`export interface ${name} {`,
+		`\t${resource.primaryKey}: string`,
+		...writable.map((c) => member(c, 'row')),
+		'}',
+		'',
+		`/** A PATCH body for ${resource.name}: every field optional, null clears a nullable one. */`,
+		`export interface ${name}Patch {`,
+		...writable.map((c) => member(c, 'patch')),
+		'}',
+		'',
+	)
+
+	// The payload shaper. Named per entity so the nullable set is baked in
+	// rather than passed, which is the part app code kept getting wrong.
+	const nullable = writable
+		.filter((c) => c.nullable && c.meta.required !== true)
+		.map((c) => q(c.name))
+	lines.push(
+		`/** Fields of ${resource.name} that accept null, i.e. can be cleared. */`,
+		`const ${resource.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_NULLABLE = new Set<string>([${nullable.join(', ')}])`,
+		'',
+		`/**`,
+		` * Form draft -> PATCH body for ${resource.name}.`,
+		` *`,
+		` * A form's "empty" is \`""\`; the API's "empty" is \`null\`, and sending \`""\``,
+		` * for a date or a number is a 422. This turns one into the other for exactly`,
+		` * the fields that accept null, and drops blanks for the ones that do not —`,
+		` * because omitting a key leaves it unchanged, which is what a blank input on`,
+		` * a non-nullable field actually means.`,
+		` */`,
+		`export function to${name}Patch(draft: Record<string, unknown>): ${name}Patch {`,
+		`\tconst patch: Record<string, unknown> = {}`,
+		`\tfor (const [key, value] of Object.entries(draft)) {`,
+		`\t\tif (value === '' || value === undefined) {`,
+		`\t\t\tif (${resource.name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_NULLABLE.has(key)) patch[key] = null`,
+		`\t\t\tcontinue`,
+		`\t\t}`,
+		`\t\tpatch[key] = value`,
+		`\t}`,
+		`\treturn patch as ${name}Patch`,
+		`}`,
+		'',
+	)
+	return lines.join('\n')
+}
+
+/** The whole generated module for a set of introspected resources. */
+export function entityTypesModule(resources: SproutResource[]): string {
+	const header = [
+		'// GENERATED by `maxstack gen` / run_generator {generator:"types"}. Do not edit.',
+		'//',
+		'// Every type here is derived from the spec, so it cannot drift from the API:',
+		'// add an enum member or a field with a spec op and this file changes with it.',
+		'// Import from owned code instead of hand-writing the shapes.',
+		'',
+	]
+	if (resources.length === 0)
+		return [
+			...header,
+			'// No entities in the spec yet — add one and regenerate.',
+			'export {}',
+			'',
+		].join('\n')
+
+	const names = resources.map((r) => r.name)
+	return [
+		...header,
+		...resources.map(entityTypes),
+		'/** Every resource name, pinned to the spec — no magic strings in app code. */',
+		`export const RESOURCES = {`,
+		...names.map((n) => `\t${q(n)}: ${q(n)},`),
+		`} as const`,
+		'',
+		'export type ResourceName = (typeof RESOURCES)[keyof typeof RESOURCES]',
+		'',
+		'/** Resource name -> its row type, for `useList<RecordOf<"book">>(RESOURCES.book)`. */',
+		'export interface ResourceRecords {',
+		...resources.map((r) => `\t${q(r.name)}: ${pascal(r.name)}`),
+		'}',
+		'',
+		'export type RecordOf<K extends ResourceName> = ResourceRecords[K]',
+		'',
+	].join('\n')
+}
+
+export const typesGenerator: RegisteredGenerator = {
+	name: 'types',
+	summary:
+		'Per-entity TypeScript for owned code: row + patch types, enum unions pinned to the spec, resource-name constants, and a toPatch() that gets empty-vs-null right.',
+	run(spec): GeneratorResult {
+		const resources = groundedEntityShapes(spec).map((shape) =>
+			introspectTable(tableFromSpecEntity(shape)),
+		)
+		return {
+			generator: 'types',
+			artifacts: [
+				{
+					// Relative to the app directory, like every other artifact here —
+					// a disk host writes these through an fs rooted at `appPath`.
+					path: 'generated/types.ts',
+					content: entityTypesModule(resources),
+				},
+			],
+			notes: [
+				`Generated types for ${resources.length} resource(s): ${resources.map((r) => r.name).join(', ') || '(none)'}.`,
+			],
+		}
+	},
+}
+
+/** The generators the platform ships with by default. */
+export const BUILT_IN_GENERATORS: RegisteredGenerator[] = [
+	pageGenerator,
+	docsGenerator,
+	e2eTestsGenerator,
+	typesGenerator,
+]
+
+/** A runner over the built-in generators. */
+export function defaultGeneratorRunner(): GeneratorRunner {
+	return createGeneratorRegistry(BUILT_IN_GENERATORS)
+}

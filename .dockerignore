@@ -1,0 +1,14 @@
+# Build context is the workspace root (needed: pnpm manifests + packages/ +
+# apps/web + benchmarks). Everything below is regenerated in the image or
+# irrelevant to the runtime build, so keep it out of the context to keep the
+# build fast and deterministic.
+**/node_modules
+**/build
+**/dist
+**/.maxstack
+**/.turbo
+**/.react-router
+.git
+docs
+dogfood/change-log*.jsonl
+*.log

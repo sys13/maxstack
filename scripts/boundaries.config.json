@@ -1,0 +1,21 @@
+{
+	"$comment": "Architecture boundary policy. Keys are workspace package names; values are the workspace packages that package may import. Apps may import any package but never another app; packages may never import apps. Enforced by scripts/check-boundaries.mjs — see CONTRIBUTING.md for remediation guidance.",
+	"packages": {
+		"@maxstack/spec": [],
+		"@maxstack/core": [],
+		"@maxstack/ui": [],
+		"@maxstack/features": ["@maxstack/core", "@maxstack/spec"],
+		"@maxstack/mcp": ["@maxstack/core", "@maxstack/spec"],
+		"@maxstack/spec-derive": [
+			"@maxstack/core",
+			"@maxstack/features",
+			"@maxstack/spec"
+		],
+		"@maxstack/examples": [
+			"@maxstack/features",
+			"@maxstack/spec",
+			"@maxstack/spec-derive"
+		]
+	},
+	"apps": ["maxstack", "@maxstack/web"]
+}

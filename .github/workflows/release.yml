@@ -1,0 +1,397 @@
+# Release: publish the two lockstep npm packages from CI, with no npm login.
+#
+# Why this exists (issue #292): releases were cut by hand — `npm login`, a
+# browser approval per package, `npm publish` twice from whatever happened to be
+# on the operator's disk. That made a release depend on one human being at one
+# machine, and made the artifact only as reproducible as that checkout.
+#
+# The mechanism that removes the login is npm **trusted publishing**: npm trusts
+# a named workflow in a named repo via GitHub's OIDC token, so there is no
+# NPM_TOKEN, no --otp, and no `npm login` step anywhere below. It also stamps
+# provenance on both packages for free. This file must stay named `release.yml`
+# and live on the default branch — the npm-side trusted-publisher config names
+# it, and renaming it silently breaks publishing. See
+# `docs/development.md` → "Cutting a release" for the one-time npm
+# setup a package admin has to click.
+#
+# The two packages ship in LOCKSTEP at one version, and `maxstack-runtime` MUST
+# publish before `maxstack`: the CLI pins the runtime at an exact version, so a
+# CLI on the registry without its runtime is uninstallable. That ordering is a
+# job dependency here rather than two lines in a script, so a half-release is
+# visible in the job graph.
+#
+# Half-release recovery: every publish job re-reads the registry immediately
+# before publishing and SKIPS what is already there at this exact version. So
+# after a failed CLI publish you hit "Re-run failed jobs" (or re-run the whole
+# workflow) — the runtime step no-ops, the CLI publishes, and nothing has to be
+# pasted into a terminal. The `state` job at the bottom fails loudly if the run
+# ends with the runtime published and the CLI not, so a half-release can never
+# end in a green check.
+name: release
+
+on:
+  # The one-command path: `pnpm release patch` bumps both version sites, commits
+  # `chore(release): maxstack@X.Y.Z`, tags `vX.Y.Z` and pushes. The tag push is
+  # what lands here; the developer's machine never talks to npm.
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  # The from-anywhere path (including a phone):
+  #   gh workflow run release.yml --ref main
+  # The version is read from the checked-out `package.json`; pass `version` to
+  # assert which release you think you are cutting.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Expected version (x.y.z). Optional; asserted against package.json.'
+        required: false
+        type: string
+
+# Read-only by default; the two publish jobs opt into `id-token: write` (the
+# OIDC token npm exchanges for publish rights) and the release job into
+# `contents: write`. Nothing here ever needs a registry token.
+permissions:
+  contents: read
+
+
+# Never cut the same version twice concurrently, and never cancel a release
+# mid-publish — a cancelled run between the two packages is exactly the
+# half-release this workflow exists to make impossible.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ── guard ──────────────────────────────────────────────────────────────────
+  # Resolve the one version this whole run is about, and refuse to go further if
+  # the repo disagrees with itself. `package.json`, `src/program.ts`'s
+  # CLI_VERSION and the tag must all say the same thing; `build.mjs` asserts the
+  # first two as well, but by then we would already have built.
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        name: Resolve and cross-check the version
+        run: |
+          set -euo pipefail
+          pkg=$(node -p "require('./apps/maxstack/package.json').version")
+          cli=$(node -p "/CLI_VERSION = '([^']+)'/.exec(require('node:fs').readFileSync('apps/maxstack/src/program.ts','utf8'))[1]")
+          if [ "$pkg" != "$cli" ]; then
+            echo "::error::version mismatch: package.json is $pkg but src/program.ts declares $cli"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            tagv="${GITHUB_REF_NAME#v}"
+            if [ "$tagv" != "$pkg" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match the committed version $pkg"
+              exit 1
+            fi
+          fi
+          want="${{ inputs.version }}"
+          if [ -n "$want" ] && [ "$want" != "$pkg" ]; then
+            echo "::error::requested version $want but this ref is at $pkg"
+            exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+          echo "tag=v$pkg" >> "$GITHUB_OUTPUT"
+          {
+            echo "## maxstack $pkg"
+            echo ""
+            echo "- ref: \`$GITHUB_REF\` @ \`$GITHUB_SHA\`"
+            echo "- packages: \`maxstack-runtime\` then \`maxstack\`, both at \`$pkg\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Report what is already on the registry
+        run: |
+          set -uo pipefail
+          for p in maxstack-runtime maxstack; do
+            if npm view "$p@${{ steps.resolve.outputs.version }}" version >/dev/null 2>&1; then
+              echo "- \`$p@${{ steps.resolve.outputs.version }}\` is ALREADY published — its publish step will be skipped" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- \`$p@${{ steps.resolve.outputs.version }}\` is not on the registry yet" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+  # ── stage ──────────────────────────────────────────────────────────────────
+  # Build and pack both packages from a clean clone at a known SHA. This is the
+  # reason publishing moved to a runner at all: the tarballs stop being a
+  # snapshot of somebody's laptop.
+  stage:
+    name: stage (build + pack)
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      # `scripts/changelog.ts` derives CHANGELOG.md from the `chore(release):`
+      # commit history, so the release needs the whole history, not a shallow
+      # clone.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Stage both packages
+        working-directory: apps/maxstack
+        run: node --experimental-transform-types scripts/stage-npm.ts
+      - name: Check the CLI pins this exact runtime version
+        run: |
+          set -euo pipefail
+          pin=$(node -p "require('./dist-npm/maxstack/package.json').dependencies['maxstack-runtime']")
+          if [ "$pin" != "${{ needs.guard.outputs.version }}" ]; then
+            echo "::error::staged CLI pins maxstack-runtime@$pin, not ${{ needs.guard.outputs.version }}"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarballs
+          path: |
+            dist-npm/*.tgz
+            CHANGELOG.md
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── smoke ──────────────────────────────────────────────────────────────────
+  # Install both tarballs into a clean dir with only the declared deps. This is
+  # the only thing that catches a missing DEEP transitive dependency (esbuild's
+  # metafile reports direct imports only — see docs/development.md), so it is
+  # mandatory here and has no skip flag.
+  smoke:
+    name: smoke (clean install)
+    needs: [guard, stage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarballs
+          path: tarballs
+      - name: Install the tarballs and run the CLI
+        working-directory: .
+        run: |
+          set -euo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          T=$(mktemp -d); cd "$T"; npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/tarballs/dist-npm/maxstack-runtime-$V.tgz" \
+                      "$GITHUB_WORKSPACE/tarballs/dist-npm/maxstack-$V.tgz" >/dev/null
+          got=$(./node_modules/.bin/maxstack --version)
+          [ "$got" = "$V" ] || { echo "::error::installed CLI reports $got, expected $V"; exit 1; }
+          ./node_modules/.bin/maxstack init demo >/dev/null
+          cd demo && ../node_modules/.bin/maxstack build --vendor-only >/dev/null
+          echo "✓ clean-dir install, --version, init and vendor-only build all pass"
+
+  # ── publish 1/2: the runtime, FIRST ────────────────────────────────────────
+  # The CLI pins this at an exact version, so it has to exist on the registry
+  # before the CLI does. No token: `id-token: write` + npm >= 11.5.1 + a trusted
+  # publisher configured on npmjs.com is the whole auth story.
+  publish-runtime:
+    name: publish maxstack-runtime
+    needs: [guard, stage, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+      # Trusted publishing (OIDC) landed in npm 11.5.1; the bundled npm on the
+      # runner may be older, and an older npm silently falls back to looking for
+      # a token it will never find.
+      - run: npm install -g npm@^11.5.1
+        working-directory: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarballs
+          path: tarballs
+      - name: Publish (skip if this exact version is already on the registry)
+        working-directory: .
+        run: |
+          set -euo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          if npm view "maxstack-runtime@$V" version >/dev/null 2>&1; then
+            echo "maxstack-runtime@$V is already published — nothing to do."
+            echo "- \`maxstack-runtime@$V\`: already on the registry, skipped" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npm publish "tarballs/dist-npm/maxstack-runtime-$V.tgz" --access public --provenance
+          echo "- \`maxstack-runtime@$V\`: published" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── publish 2/2: the CLI ───────────────────────────────────────────────────
+  # Runs only after the runtime is on the registry. It re-checks that, because
+  # `needs` proves the job succeeded, not that the registry has caught up.
+  publish-cli:
+    name: publish maxstack
+    needs: [guard, stage, smoke, publish-runtime]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm install -g npm@^11.5.1
+        working-directory: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarballs
+          path: tarballs
+      - name: Wait for the runtime to be resolvable
+        working-directory: .
+        run: |
+          set -uo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          for i in 1 2 3 4 5 6; do
+            if npm view "maxstack-runtime@$V" version >/dev/null 2>&1; then
+              echo "maxstack-runtime@$V is resolvable."; exit 0
+            fi
+            echo "not visible yet (attempt $i) — the registry lags a few seconds; waiting…"
+            sleep 10
+          done
+          echo "::error::maxstack-runtime@$V never became resolvable — refusing to publish a CLI whose pinned runtime is missing"
+          exit 1
+      - name: Publish (skip if this exact version is already on the registry)
+        working-directory: .
+        run: |
+          set -euo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          if npm view "maxstack@$V" version >/dev/null 2>&1; then
+            echo "maxstack@$V is already published — nothing to do."
+            echo "- \`maxstack@$V\`: already on the registry, skipped" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npm publish "tarballs/dist-npm/maxstack-$V.tgz" --access public --provenance
+          echo "- \`maxstack@$V\`: published" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── verify ─────────────────────────────────────────────────────────────────
+  # What the registry actually serves, including the pin — the failure this
+  # catches is a CLI whose published manifest points at a runtime version that
+  # is not the one we just shipped.
+  verify:
+    name: verify on the registry
+    needs: [guard, publish-runtime, publish-cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: npm view both packages
+        working-directory: .
+        run: |
+          set -euo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          rt=$(npm view "maxstack-runtime@$V" version)
+          cli=$(npm view "maxstack@$V" version)
+          pin=$(npm view "maxstack@$V" dependencies.maxstack-runtime)
+          echo "maxstack-runtime=$rt maxstack=$cli pin=$pin"
+          [ "$rt" = "$V" ] && [ "$cli" = "$V" ] && [ "$pin" = "$V" ] || {
+            echo "::error::registry disagrees: runtime=$rt cli=$cli pin=$pin (expected $V)"; exit 1; }
+          echo "- verified: both packages at \`$V\`, CLI pins \`maxstack-runtime@$V\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── github release ─────────────────────────────────────────────────────────
+  # Last, and deliberately so: the GitHub release is a record of something that
+  # already happened on npm, not part of making it happen. `gh release create`
+  # creates the tag when the run came from `workflow_dispatch`.
+  github-release:
+    name: github release
+    needs: [guard, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarballs
+          path: tarballs
+      - name: Create the release (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          TAG="${{ needs.guard.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — nothing to do."
+            exit 0
+          fi
+          # This version's section of the generated changelog, as the notes.
+          node -e "
+            const fs=require('node:fs');
+            const cl=fs.readFileSync('$GITHUB_WORKSPACE/tarballs/CHANGELOG.md','utf8');
+            const sec=cl.split(/\n(?=## )/).find(s=>s.startsWith('## $V'))||'';
+            fs.writeFileSync('$GITHUB_WORKSPACE/notes.md', sec.trim()+'\n');
+          "
+          notes=(--notes-file "$GITHUB_WORKSPACE/notes.md")
+          [ -s "$GITHUB_WORKSPACE/notes.md" ] || notes=(--generate-notes)
+          gh release create "$TAG" --title "maxstack $V" --target "$GITHUB_SHA" "${notes[@]}" \
+            "$GITHUB_WORKSPACE"/tarballs/dist-npm/*.tgz
+
+  # ── state ──────────────────────────────────────────────────────────────────
+  # The half-release alarm. Runs whatever happened above and asks the registry
+  # the only question that matters after a failure: is one package out there
+  # without the other? A CLI published without its runtime is INSTALLABLE-BROKEN
+  # for every user, so that state must never end in a green run.
+  state:
+    name: release state
+    needs: [guard, publish-runtime, publish-cli]
+    # Runs whether the publishes passed, failed or were skipped — but not when
+    # `guard` itself failed: with no resolved version there is no question to
+    # ask the registry, and `npm view pkg@` would answer about `latest`.
+    if: always() && needs.guard.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Report the registry state and how to recover
+        working-directory: .
+        run: |
+          set -uo pipefail
+          V="${{ needs.guard.outputs.version }}"
+          rt=no; cli=no
+          npm view "maxstack-runtime@$V" version >/dev/null 2>&1 && rt=yes
+          npm view "maxstack@$V" version >/dev/null 2>&1 && cli=yes
+          echo "### Registry state for $V" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| package | on registry |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| maxstack-runtime | $rt |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| maxstack | $cli |" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rt" = yes ] && [ "$cli" = yes ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Both packages are published at \`$V\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$rt" = no ] && [ "$cli" = no ]; then
+            # Nothing shipped. Whatever failed, failed before the outside world
+            # was touched — its own job is already red; don't add a second alarm.
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Nothing was published. The registry is untouched; fix the failing job and re-run." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo ""
+            echo "> [!CAUTION]"
+            echo "> **HALF-RELEASE at \`$V\`** — runtime published: \`$rt\`, CLI published: \`$cli\`."
+            echo "> npm does not allow republishing a version, so the fix is to publish only the missing half:"
+            echo "> **Re-run failed jobs on this run.** Each publish job re-checks the registry and skips"
+            echo "> whatever is already there, so a re-run publishes exactly the missing package."
+            echo "> If the CLI shipped without the runtime, \`npm i maxstack@$V\` is broken for everyone"
+            echo "> until the runtime lands — treat it as an incident, not a retry."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::half-release at $V (runtime=$rt cli=$cli) — re-run failed jobs to publish the missing package"
+          exit 1

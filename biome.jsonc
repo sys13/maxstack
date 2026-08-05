@@ -1,0 +1,88 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"vcs": {
+		"clientKind": "git",
+		"defaultBranch": "main",
+		"enabled": true,
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": false,
+		"includes": [
+			"**",
+			"!**/node_modules",
+			"!**/dist",
+			"!**/build",
+			"!**/lib",
+			"!**/.turbo",
+			"!**/.react-router",
+			"!**/coverage",
+			"!**/test-results",
+			"!**/playwright-report",
+			"!**/pnpm-lock.yaml",
+			"!**/apps/maxstack/templates",
+			// Pinned upgrade fixtures (issue #195): committed project trees at old
+			// bundle versions, compared byte-for-byte by the upgrade-safety gate.
+			// Formatting them would rewrite the artifact the gate is reading — the
+			// bytes are the evidence, not a style surface.
+			// Generated, and compared byte-for-byte by the published-stats gate
+			// (issue #205) against `JSON.stringify(…, '\t')`. Biome collapses short
+			// arrays, which is a perfectly good style and makes every `--check` run
+			// fail. Same rule as the fixtures above: the bytes are the artifact.
+			"!**/docs/published-stats.json",
+			// The committed slice of the metrics DB. JSONL — one run per line — so
+			// any reformatting destroys the format outright.
+			"!**/metrics/*.jsonl",
+			// Tailwind v4 at-rules (`@source`, `@theme inline`, `@custom-variant`)
+			// are not parseable by biome 2.3.x — it aborts CSS formatting/linting
+			// on them. Tailwind owns the CSS; exclude it from biome entirely.
+			"!**/*.css"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"indentWidth": 2,
+		"lineEnding": "lf",
+		"lineWidth": 80,
+		"attributePosition": "auto",
+		"bracketSpacing": true
+	},
+	"html": {
+		"parser": {
+			// `index.html` and `src/og.html` carry `{{stat:…}}` tokens that the site
+			// build resolves out of the generated published-stats artifact (issue
+			// #205). Without this, biome reads every one of them as a parse error and
+			// the lint step goes red on a page that renders perfectly.
+			"interpolation": true
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "single",
+			"semicolons": "asNeeded",
+			"trailingCommas": "all"
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				// Parameter properties are rejected by Node's strip-only type
+				// stripping, which runs the CLI's .ts sources directly (#30).
+				"noParameterProperties": "error"
+			},
+			"suspicious": {
+				"noExplicitAny": "off"
+			}
+		}
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}

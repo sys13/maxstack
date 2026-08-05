@@ -1,0 +1,128 @@
+/**
+ * {{PROJECT_NAME}} — Product Requirements Document.
+ *
+ * This is the single source of truth for scope, requirements, and roadmap —
+ * it replaces SCOPE.md / SUCCESS_CRITERIA.md. It is typed by
+ * prd/prd.types.ts and runtime-validated for referential integrity by
+ * prd/prd.schema.ts (run `tsx prd/validate.ts`, wired into `ship-check`).
+ *
+ * Fill this in during Phase 0 — Scoping (see TASKS.md). See
+ * examples/cardstack.prd.ts in the maxstack hub for a fully worked example.
+ */
+import type { PRD } from "./prd/prd.types";
+import { validatePRD } from "./prd/prd.schema";
+
+export const prd: PRD = {
+  schemaVersion: "3.0.0",
+  estimateUnit: "person-days",
+
+  meta: {
+    title: "{{PROJECT_NAME}}",
+    author: "{{AUTHOR}}",
+    status: "draft",
+    version: "0.1",
+    lastUpdated: "{{DATE}}",
+    approvers: [],
+  },
+
+  context: {
+    tldr: "{{DESCRIPTION}}",
+    background: "",
+  },
+
+  problem: {
+    statement: "",
+    costOfInaction: "",
+    painkillerOrVitamin: "painkiller",
+  },
+
+  discovery: { activities: [] },
+
+  audience: {
+    personas: [],
+    jobsToBeDone: [],
+    currentWorkarounds: [],
+  },
+
+  market: { competitors: [], differentiation: "" },
+
+  goals: {
+    northStarMetric: {
+      id: "m-northstar",
+      name: "",
+      definition: "",
+    },
+    businessGoals: [],
+    userGoals: [],
+    goalAlignment: [],
+    supportingMetrics: [],
+  },
+
+  scope: {
+    mustHave: [],
+    shouldHave: [],
+    couldHave: [],
+    wontHave: [],
+    nonGoals: [],
+  },
+
+  requirements: [],
+
+  experience: {
+    criticalUserFlows: [],
+    firstRunExperience: "",
+    accessibility: { considerations: [] },
+  },
+
+  technical: {
+    platforms: ["web"],
+    dataModel: "",
+    integrations: [],
+  },
+
+  nonFunctional: {
+    performanceTargets: [],
+    scalability: "",
+    security: [],
+  },
+
+  constraints: {},
+
+  assumptions: [],
+  risks: [],
+
+  validation: {
+    isGate: true,
+    goCriteria: "",
+    experiments: [],
+  },
+
+  roadmap: { phases: [] },
+
+  execution: {
+    milestones: [],
+    launchPlan: { generalAvailability: { criteria: "" } },
+    analyticsEvents: [],
+    qualityBar: "",
+    userCommunicationPlan: "",
+  },
+
+  coexistence: {
+    permissionsAndRoles: [],
+    featureInteractions: [],
+    dependencies: [],
+    vendorRisks: [],
+  },
+
+  postLaunch: {
+    ownership: "",
+    killCriteria: [],
+    rollbackPlan: "",
+  },
+
+  openQuestions: [],
+};
+
+// Skip until requirements/roadmap exist — an empty skeleton has nothing to
+// referentially validate yet. Uncomment once Phase 0 — Scoping is filled in.
+// validatePRD(prd);

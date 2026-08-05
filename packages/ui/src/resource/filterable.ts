@@ -1,0 +1,186 @@
+/**
+ * The list-filter derivation — the tier-2 inference module for filtering, the
+ * dual of `fields/field-semantics.ts` for display (Plan v5 task 34). Given an
+ * introspected resource it decides, with zero spec vocabulary, which columns a
+ * `<FilterForm>` should surface and how:
+ *
+ *   - **search** scans the text columns (`searchableFields`), feeding Sprout's
+ *     `?search=` + repeatable `?searchField=`;
+ *   - **facets** are the columns worth a structured control: enums (an equality
+ *     dropdown, options from the column itself), references (a dropdown of the
+ *     referenced records — injected by the caller, since they require a fetch),
+ *     booleans (yes/no), and `number`/`date` columns (a `>=`/`<=` range pair,
+ *     `?filter.<col>.gte=`/`.lte=`).
+ *
+ * The already-declared-but-unused `ColumnMetadata.filterable` is the override
+ * seam: `filterable === false` excludes a column from both search and facets;
+ * `filterable === true` force-includes an otherwise-non-facetable column as a
+ * free-text equality input. Absent, the type-based defaults above apply — so an
+ * app gets sensible filters for free, exactly like it gets sensible field
+ * widgets for free, without adding presentation keys to the central spec.
+ */
+
+import {
+	humanizeLabel,
+	type IntrospectedColumn,
+} from '../fields/field-semantics.ts'
+import type { IntrospectedResource } from './resource-types.ts'
+
+/** One column's inclusive `>=`/`<=` bounds — the controlled value of a range
+ * facet. Bounds are strings (raw `<input>` values); an empty/absent bound is an
+ * open end. Maps onto `GetListParams.range` / Sprout's `filter.<col>.gte|lte`. */
+export interface RangeValue {
+	gte?: string
+	lte?: string
+}
+
+/** The controlled value of a `<FilterForm>`: a free-text search, per-column
+ * equality selections, and per-column numeric/date ranges. Maps 1:1 onto
+ * `GetListParams` (`search` + `filter` + `range`). */
+export interface FilterValues {
+	search?: string
+	/** `columnName → selected value` (equality). Absent key = no constraint. */
+	filter: Record<string, string>
+	/** `columnName → { gte, lte }` (inclusive range). Absent key = no constraint. */
+	range?: Record<string, RangeValue>
+}
+
+/** A filters value with nothing selected. */
+export const EMPTY_FILTERS: FilterValues = { filter: {} }
+
+export type FacetKind = 'enum' | 'reference' | 'boolean' | 'range' | 'text'
+
+export interface FacetOption {
+	label: string
+	value: string
+}
+
+/** One derived facet — a column rendered as an equality dropdown. */
+export interface Facet {
+	column: IntrospectedColumn
+	/** The column name (the `filter.<name>` key). */
+	name: string
+	label: string
+	kind: FacetKind
+	/** Selectable values. Empty for `text` facets (a free input) and for a
+	 * `reference` facet whose options the caller hasn't supplied yet. */
+	options: FacetOption[]
+}
+
+const isReference = (c: IntrospectedColumn): boolean => c.references != null
+
+const isEnum = (c: IntrospectedColumn): boolean =>
+	c.type === 'enum' ||
+	(c.enumValues?.length ?? 0) > 0 ||
+	(c.meta?.options?.length ?? 0) > 0
+
+/** True for the string-ish columns a text search should scan. */
+const isTextColumn = (c: IntrospectedColumn): boolean =>
+	c.type === 'string' || c.type === 'text'
+
+/** True for the ordered scalar columns a range facet (`>=`/`<=`) applies to. */
+const isRangeColumn = (c: IntrospectedColumn): boolean =>
+	c.type === 'number' || c.type === 'date'
+
+/** Columns the caller opted out of (`filterable === false`) are invisible to
+ * both search and facets. */
+const optedOut = (c: IntrospectedColumn): boolean =>
+	c.meta?.filterable === false || c.meta?.hidden === true
+
+/**
+ * The text columns a `<FilterForm>`'s search box scans — handed to the data
+ * provider as `searchFields` so the route and the form agree on the target set
+ * (the same "shared derivation" discipline as `field-semantics`). A reference
+ * column is excluded (its text lives in another table); `filterable === false`
+ * excludes a column explicitly.
+ */
+export function searchableFields(resource: IntrospectedResource): string[] {
+	return resource.columns
+		.filter(
+			(c) =>
+				!optedOut(c) &&
+				c.name !== resource.primaryKey &&
+				!isReference(c) &&
+				isTextColumn(c) &&
+				!isEnum(c),
+		)
+		.map((c) => c.name)
+}
+
+const BOOLEAN_OPTIONS: FacetOption[] = [
+	{ label: 'Yes', value: 'true' },
+	{ label: 'No', value: 'false' },
+]
+
+/** Static options for an enum facet, from `meta.options` (labelled) or the bare
+ * introspected `enumValues`. */
+function enumOptions(column: IntrospectedColumn): FacetOption[] {
+	const opts = column.meta?.options
+	if (opts?.length) return opts.map((o) => ({ label: o.label, value: o.value }))
+	return (column.enumValues ?? []).map((v) => ({ label: v, value: v }))
+}
+
+/**
+ * Derive the facets for a resource. `referenceOptions` supplies the choice list
+ * for FK columns (keyed by column name) — the referenced records, which the
+ * caller resolves server-side (e.g. via `referenceFieldOptions`). A reference
+ * column with no supplied options is still emitted, just with an empty list, so
+ * the form can show it as (temporarily) disabled rather than dropping it.
+ */
+export function deriveFacets(
+	resource: IntrospectedResource,
+	referenceOptions: Record<string, FacetOption[]> = {},
+): Facet[] {
+	const out: Facet[] = []
+	for (const column of resource.columns) {
+		if (optedOut(column) || column.name === resource.primaryKey) continue
+		const label = column.meta?.label ?? humanizeLabel(column.name)
+		if (isReference(column)) {
+			out.push({
+				column,
+				name: column.name,
+				label,
+				kind: 'reference',
+				options: referenceOptions[column.name] ?? [],
+			})
+		} else if (isEnum(column)) {
+			out.push({
+				column,
+				name: column.name,
+				label,
+				kind: 'enum',
+				options: enumOptions(column),
+			})
+		} else if (column.type === 'boolean') {
+			out.push({
+				column,
+				name: column.name,
+				label,
+				kind: 'boolean',
+				options: BOOLEAN_OPTIONS,
+			})
+		} else if (isRangeColumn(column)) {
+			// A numeric/date column gets a `>=`/`<=` range pair for free — the dual
+			// of an enum's dropdown. `options` stays empty; the two bounds are inputs.
+			out.push({ column, name: column.name, label, kind: 'range', options: [] })
+		} else if (column.meta?.filterable === true) {
+			// Explicit opt-in on a column with no natural option set → free input.
+			out.push({ column, name: column.name, label, kind: 'text', options: [] })
+		}
+	}
+	return out
+}
+
+/** How many constraints are active — drives the "Clear" affordance. Each range
+ * bound counts once, so a `costMonthly` with both a min and a max reads as two. */
+export function activeFilterCount(values: FilterValues): number {
+	const search = values.search?.trim() ? 1 : 0
+	const facets = Object.values(values.filter).filter(
+		(v) => v != null && v !== '',
+	).length
+	const ranges = Object.values(values.range ?? {}).reduce(
+		(n, r) => n + (r.gte?.trim() ? 1 : 0) + (r.lte?.trim() ? 1 : 0),
+		0,
+	)
+	return search + facets + ranges
+}

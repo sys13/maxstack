@@ -1,0 +1,58 @@
+{
+	"name": "@maxstack/core",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "L2 \u2014 runtime: routes, template registry, DI, the Sprout engine",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./backend": {
+			"types": "./src/sprout/backend.ts",
+			"default": "./src/sprout/backend.ts"
+		},
+		"./ownership": {
+			"types": "./src/ownership/index.ts",
+			"default": "./src/ownership/index.ts"
+		},
+		"./ownership/block-slots": {
+			"types": "./src/ownership/block-slots.ts",
+			"default": "./src/ownership/block-slots.ts"
+		},
+		"./review": {
+			"types": "./src/review/index.ts",
+			"default": "./src/review/index.ts"
+		},
+		"./regen": {
+			"types": "./src/regen/index.ts",
+			"default": "./src/regen/index.ts"
+		},
+		"./demo": {
+			"types": "./src/demo/index.ts",
+			"default": "./src/demo/index.ts"
+		},
+		"./demo/schema": {
+			"types": "./src/demo/schema.ts",
+			"default": "./src/demo/schema.ts"
+		},
+		"./testing": {
+			"types": "./src/testing/pglite-snapshot.ts",
+			"default": "./src/testing/pglite-snapshot.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@electric-sql/pglite": "^0.5.4",
+		"diff": "^9.0.0",
+		"drizzle-orm": "1.0.0-rc.4",
+		"postgres": "^3.4.9",
+		"ts-morph": "^28.0.0",
+		"zod": "^4.4.3"
+	}
+}

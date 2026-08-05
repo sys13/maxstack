@@ -1,0 +1,35 @@
+{
+	"name": "@maxstack/spec-derive",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "Spec-to-generator-input derivations, the AI port behind `maxstack start`, and feedback clustering/ranking",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./priority": {
+			"types": "./src/priority.ts",
+			"default": "./src/priority.ts"
+		},
+		"./clustering": {
+			"types": "./src/clustering.ts",
+			"default": "./src/clustering.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.115.0",
+		"@maxstack/core": "workspace:*",
+		"@maxstack/examples": "workspace:*",
+		"@maxstack/spec": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^26.1.1"
+	}
+}

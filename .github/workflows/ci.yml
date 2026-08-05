@@ -1,0 +1,205 @@
+# PR gate.
+#
+# `validate` is the same gate contributors run locally (`pnpm validate`), split
+# across runners here and reassembled into a single required check. `boundaries`
+# also runs standalone so an architecture violation shows up as its own failed
+# check rather than buried in the validate log.
+#
+# Why it is split: `pnpm test` is `turbo run test --concurrency=50%`, the runner
+# has 2 vCPUs, and 50% of 2 is **1** — so the test tasks ran strictly one at a
+# time and the test phase alone was the long pole of the whole gate. Larger
+# runners are an organization-level setting, so the parallelism has to be bought
+# in runners rather than cores: `validate-checks` keeps everything up to and
+# including typecheck, `validate-test` is a matrix of four balanced shards, and
+# `validate` is a no-op aggregator so branch protection has exactly one thing to
+# gate on. Roughly 4x the Actions minutes for roughly 3x less wall clock.
+#
+# The shard table lives in `scripts/test-shards.mjs`, not in this file, because
+# it is checked rather than trusted: every package with a `test` task must be
+# named by exactly one shard, and no shard may resolve to zero test files. A
+# shard that covers nothing must go red, not green — `vitest run
+# --passWithNoTests` means "the shard ran" and "the shard tested something" are
+# different claims.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Everything in the local `pnpm validate` chain except the tests: lint,
+  # boundaries, write-paths, guarded-statements, client-safe-imports,
+  # test-integrity, docs-reference, the shard-coverage check, typecheck. All of
+  # it fits in about a hundred seconds, so it is not worth sharding and it is
+  # worth keeping together — a contributor reading this job is reading the same
+  # sequence they ran locally.
+  validate-checks:
+    name: validate (checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm validate --skip=test
+
+  # The test phase, one shard per runner. `fail-fast: false` so a single red
+  # shard does not hide the state of the other three — triage wants the whole
+  # picture, and the shards are independent by construction.
+  #
+  # The shard names must match the table in `scripts/test-shards.mjs`; a name
+  # that does not is a hard failure there, not a job that quietly runs nothing.
+  validate-test:
+    name: validate (test / ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [web, core, cli, features]
+    # A throwaway Postgres, so the Postgres-gated tests actually run. They were
+    # written against `MAXSTACK_TEST_POSTGRES_URL` and that variable was set
+    # nowhere, in any workflow — so every test guarded by it skipped on every
+    # run, and a green board said nothing about the backend a real deployment
+    # uses. The shared coordinator makes that unaffordable: its whole subject is
+    # behaviour across two connections, and pglite cannot have two.
+    #
+    # Every shard gets one, not just the shards that need one today. Making the
+    # service a property of the shard rather than of a particular package means
+    # rebalancing the table cannot silently un-gate a suite. A container nothing
+    # connects to costs about six seconds, in parallel with checkout.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: maxstack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MAXSTACK_TEST_POSTGRES_URL: postgres://postgres:postgres@127.0.0.1:5432/maxstack_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Fails fast if the service is unreachable — before the tests rather than
+      # after them.
+      #
+      # It is NOT the guard that matters, and the first version of this shipped
+      # believing it was. It passed while every Postgres-gated test skipped
+      # anyway: `turbo.json` declares `globalPassThroughEnv`, which puts turbo in
+      # strict env mode, so the variable reached this shell and was stripped
+      # before vitest saw it. Checking the service proves the service; the thing
+      # that has to be true is that the *suite* can see it.
+      - name: Postgres service is reachable
+        run: node -e "require('net').connect(5432,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',e=>{console.error('MAXSTACK_TEST_POSTGRES_URL is set but nothing is listening on 5432.',e.message);process.exit(1)})"
+      # The Postgres-gated suites, run DIRECTLY through vitest — outside turbo,
+      # with the URL set. This is the step that makes the coverage real, and it
+      # is a positive check ("these ran here and passed") rather than an
+      # inference from something else being true.
+      - name: Postgres-gated suites (direct, outside turbo)
+        if: matrix.shard == 'core'
+        run: >-
+          pnpm --filter @maxstack/core exec vitest run
+          src/sprout/coordination.test.ts src/sprout/backend.test.ts
+      # Prints the shard's package list and its test-file count before running
+      # anything, and refuses to run at all if the table has drifted from what
+      # turbo would execute.
+      - name: Run shard
+        run: node scripts/test-shards.mjs run ${{ matrix.shard }}
+
+  # The single required status. Branch protection gates on this one name, so the
+  # matrix can be rebalanced without anybody touching repository settings.
+  #
+  # `if: always()` plus an explicit result comparison, because the default
+  # `needs` semantics would *skip* this job when a dependency fails, and a
+  # skipped required check is not a failed one.
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    needs: [validate-checks, validate-test]
+    if: always()
+    steps:
+      - name: Require every part of validate to have passed
+        run: |
+          checks='${{ needs.validate-checks.result }}'
+          tests='${{ needs.validate-test.result }}'
+          echo "checks: $checks"
+          echo "test shards: $tests"
+          if [ "$checks" != success ] || [ "$tests" != success ]; then
+            echo "::error::validate did not pass (checks=$checks, test shards=$tests)"
+            exit 1
+          fi
+
+  boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No install needed — the checkers are dependency-free Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/check-boundaries.mjs
+      # Nothing a browser loads may reach a compiler. Same job because it is the
+      # same kind of rule and the same dependency-free Node — an import-graph
+      # fact, checked in milliseconds, that would otherwise only show up as a
+      # console error in a dev browser nobody automated.
+      - run: node scripts/check-client-safe-imports.mjs
+      # No gate may be disarmed in silence. This matters more on a public repo
+      # than a private one: a pull request that quietly adds `continue-on-error`
+      # or skips a test looks, in a diff, a great deal like a passing change.
+      - run: node scripts/check-test-integrity.mjs
+
+  # Dependency audit: blocks merges on high+ advisories in production deps.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Dependency vulnerability scan (prod, high+)
+        run: pnpm audit --prod --audit-level=high
+
+  # Browser smoke over the critical flows: the production build
+  # (react-router build + serve) driven by Playwright — liveness, auth entry,
+  # and the two baseline authz paths. Report uploads on failure.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @maxstack/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @maxstack/web build
+      - run: pnpm --filter @maxstack/web test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore

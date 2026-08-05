@@ -1,0 +1,23 @@
+{
+	"name": "@maxstack/examples",
+	"version": "0.0.0",
+	"type": "module",
+	"private": true,
+	"description": "Worked example apps \u2014 complete validated SpecSystems with e2eTests and change sets, used both as readable documentation and as fixtures for the CLI's derivation tests",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run --passWithNoTests"
+	},
+	"dependencies": {
+		"@maxstack/features": "workspace:*",
+		"@maxstack/spec": "workspace:*",
+		"@maxstack/spec-derive": "workspace:*"
+	}
+}
