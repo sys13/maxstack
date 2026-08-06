@@ -441,7 +441,7 @@ Always pass it as an **absolute path** (see §3a).
 
 - The no-`MAXSTACK_DATA_DIR` tour state lives in `apps/web/.maxstack/` —
   delete it and the next boot re-seeds the demo fresh.
-- Technews demo: rerun with `--fresh`.
+- Demo data: `maxstack demo <dir> --clear` removes just the rows it created.
 - A project dir is disposable the same way: delete `<data-dir>` (or just its
   `db/`) and the next boot starts it over.
 
