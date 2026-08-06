@@ -8,6 +8,21 @@
  */
 
 import { spawn } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+
+/** Sections this repository's commit graph cannot produce, appended verbatim.
+ * The public repo starts at a fresh root commit, so every release before it
+ * exists only here — regenerating without this would silently delete them. */
+const ARCHIVE = 'CHANGELOG.archive.md'
+
+async function readArchive(cwd: string): Promise<string> {
+	try {
+		return (await readFile(resolve(cwd, ARCHIVE), 'utf8')).trim()
+	} catch {
+		return ''
+	}
+}
 
 /** Run a command and capture its stdout (trimmed); '' on any failure. */
 export function capture(
@@ -36,6 +51,11 @@ const SECTIONS: [type: string, heading: string][] = [
 	['other', 'Other changes'],
 ]
 const HIDDEN = new Set(['chore', 'docs', 'test', 'style', 'ci', 'build'])
+/** Every type that lands somewhere. A subject like `maxstack: a framework…`
+ * parses as conventional with type `maxstack`, which is in neither set — it used
+ * to match no section and no hidden count, and vanish. Unknown types are treated
+ * as prose instead (see `classify`). */
+const KNOWN = new Set([...SECTIONS.map(([type]) => type), ...HIDDEN])
 
 export interface Change {
 	type: string
@@ -49,7 +69,7 @@ export interface Change {
  * bucketed by leading verb (so nothing a release shipped is silently dropped). */
 export function classify(subject: string, hash: string): Change {
 	const m = subject.match(/^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$/)
-	if (m) {
+	if (m && KNOWN.has(m[1].toLowerCase())) {
 		const [, type, scope, bang, desc] = m
 		return {
 			type: type.toLowerCase(),
@@ -168,18 +188,23 @@ export async function buildChangelog(
 		})
 	}
 
+	const archive = await readArchive(cwd)
+
 	const sections: string[] = []
 	for (const b of bounds) {
-		if (!b.from) {
-			// Oldest release: don't dump pre-history, just mark it.
+		if (!b.from && !archive) {
+			// Oldest release with nothing behind it: don't dump pre-history, mark it.
 			sections.push(
 				`## ${b.version}${b.date ? ` — ${b.date}` : ''}\n\n- Initial release.`,
 			)
 			continue
 		}
+		// No predecessor, but the archive covers everything older — so this
+		// section is the whole graph, which is exactly this repository's history.
+		const range = b.from ? `${b.from}..${b.to}` : b.to
 		const log = await capture(
 			'git',
-			['log', `${b.from}..${b.to}`, '--no-merges', '--format=%s%x1f%h'],
+			['log', range, '--no-merges', '--format=%s%x1f%h'],
 			cwd,
 		)
 		const changes = log
@@ -202,5 +227,5 @@ All notable changes to \`maxstack\` and \`maxstack-runtime\` (they ship in
 lockstep). Generated from the commit history at release time by
 \`scripts/stage-npm.ts\`.
 
-${sections.join('\n\n')}\n`
+${[...sections, archive].filter(Boolean).join('\n\n')}\n`
 }

@@ -54,6 +54,14 @@ describe('classify', () => {
 		expect(classify('Add a thing', 'd').type).toBe('feat')
 		expect(classify('revamp spec format', 'e').type).toBe('other')
 	})
+
+	it('treats an unknown conventional type as prose, keeping the whole subject', () => {
+		// `maxstack: a framework…` parses as type `maxstack`, which belongs to no
+		// section and no hidden bucket — it used to vanish from the changelog.
+		const c = classify('maxstack: a TypeScript app framework', 'f')
+		expect(c.type).toBe('other')
+		expect(c.desc).toBe('maxstack: a TypeScript app framework')
+	})
 })
 
 describe('webRepo', () => {
@@ -126,5 +134,26 @@ describe('buildChangelog', () => {
 		// 0.3.0 has no release commit yet — it captures commits since 0.2.0.
 		expect(out.indexOf('## 0.3.0')).toBeLessThan(out.indexOf('## 0.2.0'))
 		expect(out).toContain('**api:** new endpoint')
+	})
+
+	it('appends CHANGELOG.archive.md, and stops calling the oldest section "initial"', async () => {
+		// The public repo starts at a fresh root commit: everything released before
+		// it exists only in the archive, so regenerating must not delete it — and
+		// the oldest generated section is no longer this project's beginning.
+		await writeFile(
+			join(dir, 'CHANGELOG.archive.md'),
+			'## 0.0.9 — 2025-12-01\n\n- Shipped before this repository existed.\n',
+		)
+		try {
+			const out = await buildChangelog('0.2.0', repo, dir)
+			expect(out).toContain('- Shipped before this repository existed.')
+			expect(out).not.toContain('- Initial release.')
+			// The archive is last: generated sections stay newest-first above it.
+			expect(out.indexOf('## 0.2.0')).toBeLessThan(out.indexOf('## 0.0.9'))
+			// With nothing behind it, the oldest section lists its real commits.
+			expect(out).toContain('initial engine')
+		} finally {
+			await rm(join(dir, 'CHANGELOG.archive.md'), { force: true })
+		}
 	})
 })

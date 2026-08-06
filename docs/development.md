@@ -302,3 +302,15 @@ PORT=3457 ../node_modules/.bin/maxstack dev &    # prebuilt server; curl /admin 
 `dist/` and `dist-npm/` are gitignored (build artifacts); the only files a
 release commit touches are the two version sites, and `pnpm release` writes and
 commits both.
+
+#### The changelog
+
+`CHANGELOG.md` is **generated**, not edited: `stage-npm.ts` rebuilds it from the
+`chore(release):` commits at release time and ships it inside both packages.
+Editing it by hand is pointless — the next release overwrites your edit.
+
+Everything released before this repository was made public (≤ `0.11.11`) was cut
+from a different repo, so those commits are not in this graph and cannot be
+regenerated. They are frozen in **`CHANGELOG.archive.md`**, which the generator
+appends verbatim below the sections it produces. That file is append-nothing,
+edit-never; it exists so that regenerating cannot silently delete history.

@@ -23,10 +23,16 @@ import { spawn } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { webRepo } from './changelog.ts'
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Every git command below runs here: the root of the repository that
+// `release.yml` lives in and that npm's trusted publisher names. This used to
+// point one level higher, back when this tree was a subdirectory of the private
+// repo — after the split that aimed the whole release at the wrong repository,
+// which is why the preconditions below now check `origin` rather than trusting
+// this path arithmetic.
 const maxstackRoot = resolve(appDir, '../..')
-const repoRoot = resolve(maxstackRoot, '..')
 
 const argv = process.argv.slice(2)
 const dryRun = argv.includes('--dry-run')
@@ -44,7 +50,7 @@ function abort(msg: string): never {
 	process.exit(1)
 }
 
-function run(cmd: string, args: string[], cwd = repoRoot): Promise<void> {
+function run(cmd: string, args: string[], cwd = maxstackRoot): Promise<void> {
 	console.log(C.dim(`  $ ${cmd} ${args.join(' ')}`))
 	if (dryRun) return Promise.resolve()
 	return new Promise((res, reject) => {
@@ -59,7 +65,11 @@ function run(cmd: string, args: string[], cwd = repoRoot): Promise<void> {
 }
 
 /** Capture stdout (trimmed). Never throws — a failed command reads as ''. */
-function capture(cmd: string, args: string[], cwd = repoRoot): Promise<string> {
+function capture(
+	cmd: string,
+	args: string[],
+	cwd = maxstackRoot,
+): Promise<string> {
 	return new Promise((res) => {
 		const child = spawn(cmd, args, { cwd })
 		let out = ''
@@ -69,6 +79,19 @@ function capture(cmd: string, args: string[], cwd = repoRoot): Promise<string> {
 		child.on('close', () => res(out.trim()))
 		child.on('error', () => res(''))
 	})
+}
+
+/** `git@github.com:x/y.git`, `https://github.com/x/y` → `github.com/x/y`. */
+function normalizeRepo(url: string): string {
+	return url
+		.trim()
+		.replace(/^git\+/, '')
+		.replace(/^\w+:\/\//, '')
+		.replace(/^git@/, '')
+		.replace(/^([^/:]+):/, '$1/')
+		.replace(/\.git$/, '')
+		.replace(/\/$/, '')
+		.toLowerCase()
 }
 
 function bump(v: string, kind: 'major' | 'minor' | 'patch'): string {
@@ -113,6 +136,21 @@ if (version === current)
 const tag = `v${version}`
 
 // ── preconditions: every one of these used to be a y/N prompt ────────────────
+// Which repository are we about to tag? `release.yml` only exists in the public
+// repo, and npm's trusted publisher names that repo specifically — so a tag
+// pushed anywhere else publishes nothing and looks like a successful release.
+// This tree has been a subdirectory of another repo before; assert, don't infer.
+const originUrl = await capture('git', ['remote', 'get-url', 'origin'])
+const expected = webRepo(pkg.repository)
+if (!originUrl) abort('no `origin` remote here — nothing to push a tag to.')
+if (expected && normalizeRepo(originUrl) !== normalizeRepo(expected))
+	abort(
+		`origin is ${originUrl}\n` +
+			`  but package.json says this ships from ${expected}.\n` +
+			'  Only the repo holding .github/workflows/release.yml can publish — a tag\n' +
+			'  pushed anywhere else does nothing at all.',
+	)
+
 const branch = await capture('git', ['rev-parse', '--abbrev-ref', 'HEAD'])
 if (branch !== 'main')
 	abort(
@@ -173,8 +211,8 @@ console.log(`${C.green('✓')} bumped both version sites to ${C.bold(version)}`)
 
 await run('git', [
 	'add',
-	'maxstack/apps/maxstack/package.json',
-	'maxstack/apps/maxstack/src/program.ts',
+	'apps/maxstack/package.json',
+	'apps/maxstack/src/program.ts',
 ])
 await run('git', ['commit', '-m', `chore(release): maxstack@${version}`])
 await run('git', ['tag', tag])

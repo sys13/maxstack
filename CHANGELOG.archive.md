@@ -1,8 +1,10 @@
-# Changelog
-
-All notable changes to `maxstack` and `maxstack-runtime` (they ship in
-lockstep). Generated from the commit history at release time by
-`scripts/stage-npm.ts`.
+<!--
+Frozen history. Releases up to and including 0.11.11 were cut before this
+repository was made public, so their commits are not in this repository's graph
+and `scripts/changelog.ts` cannot regenerate them — it appends this file
+verbatim below the sections it generates. Nothing here is ever rewritten; add
+new entries by cutting a release, not by editing CHANGELOG.md.
+-->
 
 _Releases up to and including 0.11.11 were cut before this repository was made
 public, so their entries carry no commit links — the commits they describe are
