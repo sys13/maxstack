@@ -14,6 +14,11 @@
 import { chmodSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import {
+	BUNDLE_OPTIONS,
+	collectExternals,
+	externalsDrift,
+} from './scripts/bundle-externals.mjs'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url)))
@@ -30,62 +35,24 @@ if (cliVersion !== pkg.version) {
 	)
 }
 
-/** Externalize anything that isn't first-party (@maxstack/*) or relative. */
-const externalizeThirdParty = {
-	name: 'externalize-third-party',
-	setup(b) {
-		b.onResolve({ filter: /.*/ }, (args) => {
-			if (args.kind === 'entry-point') return null
-			const p = args.path
-			if (p.startsWith('.') || p.startsWith('/')) return null // relative → bundle
-			if (p.startsWith('@maxstack/')) return null // first-party → bundle
-			return { path: p, external: true } // third-party + node: builtins → external
-		})
-	},
-}
-
 const outfile = 'dist/lib/cli.js'
 
 const result = await build({
+	...BUNDLE_OPTIONS,
 	absWorkingDir: root,
-	entryPoints: ['src/cli.ts'],
 	outfile,
-	bundle: true,
-	platform: 'node',
-	format: 'esm',
-	target: 'node22',
 	// esbuild preserves the entry file's `#!/usr/bin/env node` shebang; no banner needed.
-	plugins: [externalizeThirdParty],
-	metafile: true,
 	logLevel: 'info',
 })
 
 chmodSync(new URL(`./${outfile}`, import.meta.url), 0o755)
 
 // Report the external bare imports so package.json deps can be kept in sync.
-const externals = new Set()
-for (const out of Object.values(result.metafile.outputs)) {
-	for (const imp of out.imports ?? []) {
-		if (
-			imp.external &&
-			!imp.path.startsWith('node:') &&
-			!imp.path.startsWith('.')
-		) {
-			// strip subpath (e.g. @maxstack/features/bundle → not external; drizzle-orm/pg-core → drizzle-orm)
-			const parts = imp.path.split('/')
-			externals.add(
-				imp.path.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0],
-			)
-		}
-	}
-}
+const externals = collectExternals(result.metafile)
 const declared = new Set(Object.keys(pkg.dependencies ?? {}))
-const missing = [...externals].filter((e) => !declared.has(e)).sort()
-const unused = [...declared].filter((d) => !externals.has(d)).sort()
-console.log(
-	'\nexternal runtime imports:',
-	[...externals].sort().join(', ') || '(none)',
-)
+const missing = externals.filter((e) => !declared.has(e))
+const unused = [...declared].filter((d) => !externals.includes(d)).sort()
+console.log('\nexternal runtime imports:', externals.join(', ') || '(none)')
 // A missing dep is a broken tarball, not a note: the bundle imports it at the
 // top of `cli.js`, so *every* command in the published CLI dies on
 // ERR_MODULE_NOT_FOUND. This was a warning once and shipped exactly that.
@@ -99,3 +66,22 @@ if (missing.length) {
 }
 if (unused.length)
 	console.log('ℹ️  declared but not imported:', unused.join(', '))
+
+// The external set is a ratchet, not a report — see scripts/bundle-externals.mjs
+// for why each name is an install-surface decision. `pnpm test` checks this too,
+// so a regression is caught on the PR rather than at `prepublishOnly`.
+const drift = externalsDrift(externals)
+if (drift) {
+	console.error(
+		`\n✗ the CLI bundle's external imports moved:\n` +
+			(drift.added.length
+				? `    now imported: ${drift.added.join(', ')}\n`
+				: '') +
+			(drift.gone.length
+				? `    no longer imported: ${drift.gone.join(', ')}\n`
+				: '') +
+			`  Each one ships in the published tarball's install tree. If that is\n` +
+			`  intended, update EXPECTED_EXTERNALS in scripts/bundle-externals.mjs.`,
+	)
+	process.exit(1)
+}

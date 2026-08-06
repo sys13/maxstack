@@ -23,7 +23,14 @@
 
 import { USER_ENTITY_ID } from '@maxstack/spec'
 import { API_KEYS_DDL, PORTAL_TOKENS_DDL } from '../api-keys/index.ts'
-import { AUTH_DDL } from '../auth/index.ts'
+// Deliberately the leaf module, not `../auth/index.ts`: the barrel also
+// re-exports `auth.ts`, which imports `better-auth` and its drizzle adapter. The
+// catalog is pure data and is reached from `maxstack add`, so going through the
+// barrel puts the whole better-auth runtime into the published CLI bundle — an
+// import the CLI never calls, whose peer `drizzle-orm` npm can only satisfy by
+// auto-installing a second copy that a later install prunes (#348). The catalog
+// needs one DDL string; take it from where it is defined.
+import { AUTH_DDL } from '../auth/schema.ts'
 import { CONSENT_DDL } from '../compliance/index.ts'
 import { FLAGS_DDL } from '../flags/index.ts'
 import { JOBS_DDL } from '../jobs/index.ts'

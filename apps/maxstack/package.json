@@ -37,7 +37,6 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.115.0",
 		"@electric-sql/pglite": "^0.5.4",
-		"better-auth": "^1.6.25",
 		"commander": "^15.0.0",
 		"diff": "^9.0.0",
 		"drizzle-orm": "1.0.0-rc.4",
