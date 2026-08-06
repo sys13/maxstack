@@ -195,6 +195,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @maxstack/web exec playwright install --with-deps chromium
       - run: pnpm --filter @maxstack/web build
+
+      # Runs here because this is the only job that produces chunks. A cycle
+      # between them makes chunk initialization order decide whether a
+      # module-level binding is defined when another chunk reads it — the boot
+      # crash that `validate` structurally cannot see, since typecheck, lint and
+      # unit tests never emit a bundle. Before the e2e run, so a cycle reports as
+      # itself rather than as a mystery timeout waiting for a server that died.
+      - name: Chunk graph is acyclic
+        run: node scripts/check-chunk-cycles.mjs
+
       - run: pnpm --filter @maxstack/web test:e2e
       - name: Upload Playwright report
         if: failure()

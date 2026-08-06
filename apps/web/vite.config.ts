@@ -35,6 +35,37 @@ export default defineConfig({
 		// is worth more than the megabytes. `MAXSTACK_NO_SOURCEMAP=1` opts out
 		// for a size-sensitive build.
 		sourcemap: !process.env.MAXSTACK_NO_SOURCEMAP,
+		// Keep each workspace package's modules together in one chunk.
+		//
+		// Without this, rolldown places a module in whichever chunk its only
+		// consumer landed in — so `features/bundle/seed.ts` was pulled into the
+		// `sprout.server` chunk (its sole caller) while the barrel that
+		// `export *`s it stayed in the `bundle` chunk. The barrel then imports the
+		// symbol back across the boundary, and the two chunks form a cycle.
+		//
+		// A chunk cycle is not a tidiness problem. Chunks initialize in one order,
+		// and a module-level `const` reading a binding from the other side of the
+		// cycle can evaluate before that binding exists — reading `undefined` for
+		// something the type system guarantees is an array. That is exactly how a
+		// spread of `SPEC_OP_NAMES` in `@maxstack/mcp` took the production server
+		// down at boot with "is not iterable" while typecheck, lint and every unit
+		// test stayed green: none of them build chunks, so only the e2e smoke job
+		// could see it.
+		//
+		// Grouping by package makes that cycle structurally impossible rather than
+		// relying on nobody writing such a `const` again.
+		rollupOptions: {
+			output: {
+				advancedChunks: {
+					groups: [
+						{
+							name: 'maxstack-packages',
+							test: /[\\/]packages[\\/][^\\/]+[\\/]src[\\/]/,
+						},
+					],
+				},
+			},
+		},
 	},
 	// Under `maxstack dev` (which sets MAXSTACK_DATA_DIR) the app and the MCP
 	// endpoint share one canonical host:port that `.mcp.json` points at:
