@@ -10,8 +10,7 @@
  * typed contract, inject concrete values at the composition root, and fail loud
  * on a missing required binding. This core is that contract without React, so
  * it lives in L5 with no UI dependency; the React `<Provider>`/`useBindings`
- * wiring is captured in the reference spec (`docs/reference-specs/di.md`) for
- * the app/UI layer to implement.
+ * wiring is left to the app/UI layer to implement.
  */
 
 /** Thrown when a required binding was never provided at the composition root. */

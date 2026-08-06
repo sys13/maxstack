@@ -135,7 +135,7 @@ export type Access = AccessShortcut | AccessRule
 
 export type ResourceAccess = Partial<Record<SproutAction, Access>>
 
-/** Conventional owner columns, in priority order (sprout.md §7.7). Exported so
+/** Conventional owner columns, in priority order. Exported so
  * anything that needs to find "this user's rows" on an arbitrary resource
  * can reuse the exact convention `owner`
  * access checks use, instead of re-declaring it. */

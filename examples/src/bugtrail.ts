@@ -34,7 +34,6 @@ const entities = [
 		// and the issue carries a manual-ordering key. Both are properties of the
 		// tracker itself — an issue tracker whose workflow states are undeclared is
 		// under-specified — and both are prerequisites the board ask presupposed.
-		// See docs/corpus/bugtrail-workflow-columns.md.
 		enumField(
 			'fld-issue-status',
 			'status',
@@ -185,7 +184,7 @@ export const bugtrailExample = crudExample({
 			// The ask is two sentences and both are now ops: this one is the board
 			// (columns = the status values, order within a column = the rank key,
 			// drag and keyboard both writing status), and `ch-wip-limits` below is
-			// the per-column limit. See docs/corpus/bugtrail-kanban-board.md.
+			// the per-column limit.
 			'ch-kanban-board',
 			'A Kanban board of issues with drag-between-columns (spec op).',
 			'pg-issues',
@@ -211,8 +210,7 @@ export const bugtrailExample = crudExample({
 		),
 		offSurface(
 			// CORPUS HARDENING 2026-07-28 — the board shape the
-			// primitive explicitly does not reach. See
-			// docs/corpus/bugtrail-swimlane-policy.md.
+			// primitive explicitly does not reach.
 			'ch-swimlane-policy',
 			'Split the board into per-assignee swimlanes with a WIP limit on each (assignee, column) pair, and block a drop that would break someone else’s limit with a reason naming the card that has to move first — no op models a limit scoped to anything narrower than the table (off-surface, unexpressible).',
 			'issue',

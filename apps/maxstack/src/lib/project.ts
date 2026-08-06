@@ -62,7 +62,6 @@ export interface ProjectConfig {
 	 * never come to mean "uploaded".
 	 *
 	 * Overridable per session with `MAXSTACK_REVIEW_METRICS=local|off`.
-	 * See docs/review-cost.md.
 	 */
 	reviewMetrics?: 'off' | 'local'
 	/** Feature bundles installed into this project (`maxstack add`). */

@@ -1,6 +1,6 @@
 /**
  * @maxstack/ui — shadcn-on-Base UI widgets + the Zod-schema-driven DynamicForm
- * (Sprout's form renderer). See docs/reference-specs/dynamic-form.md.
+ * (Sprout's form renderer).
  */
 
 export {

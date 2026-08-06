@@ -54,7 +54,7 @@ function extractInlineForeignKeys(table: PgTable): FkMap {
 	for (const fk of fks) {
 		const ref = fk.reference()
 		// Only the first column pair is modeled; composite FKs collapse (matches
-		// the specbase original — see sprout.md §7.3).
+		// the specbase original).
 		const src = ref.columns[0]
 		const foreign = ref.foreignColumns[0]
 		if (!src || !foreign) continue
@@ -81,7 +81,7 @@ function inferColumnType(column: unknown, hasEnum: boolean): SproutColumnType {
 		is(column, PgBigSerial53)
 	) {
 		// NOTE: numeric/decimal collapses to `number` — precision is not modeled
-		// here (sprout.md §7.5).
+		// here.
 		return 'number'
 	}
 	return 'string'

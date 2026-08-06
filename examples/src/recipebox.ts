@@ -28,8 +28,7 @@ import {
 
 // SPEC EDIT 2026-07-28: the relations this product always had and
 // this spec never wrote down — a recipe is planned into a week, an ingredient
-// line belongs to a recipe and states how much. The backlog is untouched; see
-// docs/corpus/recipebox-planned-recipe-relations.md.
+// line belongs to a recipe and states how much. The backlog is untouched.
 const entities = [
 	entity('e-recipe', 'Recipe', 'A dish with ingredients and steps.', [
 		field('fld-recipe-name', 'name', 'string', true),
@@ -39,7 +38,7 @@ const entities = [
 		// SPEC EDIT 2026-07-28: the model already says a recipe is
 		// planned into a *week*; which day of that week it is cooked was never
 		// written down, and the planner ask presupposes it. Same argument as the
-		// #170 relations above. See docs/corpus/recipebox-planned-day.md.
+		// #170 relations above.
 		field('fld-recipe-planned', 'plannedFor', 'date'),
 	]),
 	entity('e-mealplan', 'MealPlan', 'A week of planned meals.', [
@@ -183,7 +182,7 @@ export const recipeboxExample = crudExample({
 			// RECLASSIFIED 2026-07-28 by issue #170, from off-surface/unexpressible.
 			// `data.addRollup` is the op: a two-hop path (ingredient → recipe →
 			// meal plan) summing quantities per ingredient name, with the group cap
-			// stated. See docs/corpus/recipebox-shopping-list-rollup.md.
+			// stated.
 			'ch-shopping-aggregate',
 			'Auto-build a week’s shopping list by aggregating ingredients across every planned recipe (spec op).',
 			'e-mealplan',
@@ -205,8 +204,7 @@ export const recipeboxExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and, deliberately, in the same *shape*: it is the half of the
-			// shopping-list problem a `sum` cannot do. See
-			// docs/corpus/recipebox-unit-merge.md.
+			// shopping-list problem a `sum` cannot do.
 			'ch-shopping-unit-merge',
 			'Merge the shopping list across incompatible units and scale it to the plan’s servings — 2 tbsp + ¼ cup is one line, and doubling a recipe doubles only its own lines — no op models unit-aware aggregation (off-surface, unexpressible).',
 			'mealplan',
@@ -216,7 +214,7 @@ export const recipeboxExample = crudExample({
 			// RECLASSIFIED 2026-07-28 by issue #171, from off-surface/eject. The
 			// planner is a week grid of the planned recipes with drag (and keyboard)
 			// rescheduling, so the meal-plans surface no longer has to be ejected for
-			// it. See docs/corpus/recipebox-calendar-planner.md.
+			// it.
 			'ch-calendar-planner',
 			'A drag-and-drop weekly calendar planner (spec op).',
 			'pg-recipes',
@@ -233,7 +231,7 @@ export const recipeboxExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product area
 			// and in the shape a *view* is not: a series of occurrences with an
-			// identity of its own. See docs/corpus/recipebox-repeating-meals.md.
+			// identity of its own.
 			'ch-repeating-meals',
 			'Repeating meals: “taco Tuesday every week until the end of term” is planned once and edited as a series, but a single week can be moved or skipped without detaching the rest, and the shopping list counts the occurrences rather than the rule — no op models a recurring occurrence set (off-surface, unexpressible).',
 			'mealplan',

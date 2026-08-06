@@ -1,8 +1,8 @@
 /**
  * Provenance base columns + the two invariants.
  *
- * Source: reference spec `docs/reference-specs/provenance.md` (from bbai_prd,
- * gen 6). The universal grammar of the platform (§4): everything AI produces
+ * Source: the provenance reference spec (from bbai_prd, gen 6).
+ * The universal grammar of the platform (§4): everything AI produces
  * lands as a *suggestion* with visible provenance; humans accept, reject, or
  * edit. These flags + the two invariants are settled decisions (§0 rule 2) and
  * live in the base spec types from day one (§3-L1) — mixed into every entity of

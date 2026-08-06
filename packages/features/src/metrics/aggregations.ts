@@ -1,7 +1,6 @@
 /**
- * Admin metrics aggregations — the slice `metrics.ts` deferred to a reference
- * spec (`docs/reference-specs/metrics.md`) in task 5, now reimplemented against
- * the canonical stack. The original was sqlite-specific and hard-wired to a
+ * Admin metrics aggregations — the slice `metrics.ts` deferred in task 5, now
+ * reimplemented against the canonical stack. The original was sqlite-specific and hard-wired to a
  * `~/utils/db.server` singleton; this is a db-agnostic set of count/trend queries
  * over the tables the auth + audit bundles materialize:
  *

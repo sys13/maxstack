@@ -195,8 +195,7 @@ export const blogExample = crudExample({
 			// RECLASSIFIED 2026-07-29 by issue #177, from off-surface/eject.
 			// `portals.declare` is the op: a public audience over the author surface
 			// with an opt-in field projection and a declared bound, themed by the
-			// app's own `theme.set` rather than by an ejected layout. See
-			// docs/corpus/blog-author-microsite.md.
+			// app's own `theme.set` rather than by an ejected layout.
 			'ch-author-microsite',
 			'A themed public micro-site per author (spec op).',
 			portal({
@@ -214,7 +213,7 @@ export const blogExample = crudExample({
 				// data model has no foreign key from a post back to an author, so the
 				// micro-site cannot list that author's posts — deliberately, because
 				// inventing that relation to give the shipped op more surface to sit
-				// on is the corpus edit `docs/corpus-integrity.md` exists to prevent.
+				// on is the kind of corpus edit the integrity policy exists to prevent.
 				filter: { fieldId: 'fld-author-name', equals: 'Ann Rivers' },
 				writes: [],
 				layout: 'cards',
@@ -225,8 +224,7 @@ export const blogExample = crudExample({
 			// CORPUS HARDENING 2026-07-29 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area, and sourced from how publishing platforms actually serve a
-			// public page rather than from this vocabulary. See
-			// docs/corpus/blog-negotiated-public-page.md.
+			// public page rather than from this vocabulary.
 			'ch-negotiated-public-page',
 			'Serve one public URL as several negotiated documents — a regional variant, a consent-tier variant with third-party embeds stripped, and a signed-in variant — cached at the edge and provably invalidated on publish, unpublish and takedown — no op models a response whose CONTENT is negotiated or a cache that must be proven coherent (off-surface, unexpressible).',
 			'author',

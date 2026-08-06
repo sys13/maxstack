@@ -2,8 +2,7 @@
  * DB seed-plugin registry — reimplemented core of mxscratchpad's
  * `database/plugins/index.ts`. The archived plugin *bodies* (blog,
  * saas-marketing) are self-described placeholders coupled to a `faker` seeder
- * and app schema that don't exist here, so they are captured as a reference
- * spec (`docs/reference-specs/db-plugins.md`), not lifted.
+ * and app schema that don't exist here, so they are not lifted.
  *
  * The salvaged decisions are the ones that survive the placeholders:
  *   - a name-keyed registry of seed plugins (`register`/`get`/`getAll`/`load`),

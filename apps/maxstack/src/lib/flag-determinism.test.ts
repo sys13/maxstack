@@ -20,9 +20,9 @@
  * byte-identical files.
  *
  * The corpus app is cloned and flagged *here* rather than in `examples/src/`
- * on purpose. The frozen backlog is a measuring instrument (docs/corpus-integrity.md);
- * adding a flag to it would change what the eval scores. This test needs a
- * realistic spec, not a scored one.
+ * on purpose. The frozen backlog is a measuring instrument; adding a flag to
+ * it would change what the eval scores. This test needs a realistic spec, not
+ * a scored one.
  */
 
 import { invoicerExample } from '@maxstack/examples'

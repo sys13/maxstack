@@ -4,8 +4,6 @@
  * Only the four tables the member service touches are staged here (user,
  * organization, member, invitation); the original's better-auth tables
  * (session/account/verification/passkey/…) are out of scope for this feature.
- *
- * Reference spec: `docs/reference-specs/member-management.md`.
  */
 
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'

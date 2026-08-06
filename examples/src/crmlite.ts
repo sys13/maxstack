@@ -35,8 +35,7 @@ const entities = [
 		// SPEC EDIT 2026-07-28: the pipeline stages are now declared,
 		// and a deal carries a manual-ordering key. A CRM whose pipeline stages are
 		// undeclared is under-specified — the stage lifecycle is the product — and
-		// both were prerequisites the pipeline-board ask presupposed. See
-		// docs/corpus/crmlite-pipeline-stages.md.
+		// both were prerequisites the pipeline-board ask presupposed.
 		enumField(
 			'fld-deal-stage',
 			'stage',
@@ -60,7 +59,6 @@ const entities = [
 	// FK is the thing the ask calls *threading*; it is declared here and resolved
 	// in the refiner, because matching an address to a contact is a lookup against
 	// local rows and not a path into a response.
-	// See docs/corpus/crmlite-inbox-source.md.
 	entity('e-message', 'Message', 'An email message synced from the inbox.', [
 		field('fld-message-remote-id', 'remoteId', 'string', true),
 		field('fld-message-subject', 'subject', 'string', true),
@@ -76,7 +74,6 @@ const entities = [
  * Declared as part of what the app *is*, on the same terms schedules were in
  * #181: the backlog ask below is what is *asked of it*. The source declares
  * `refine: true` because the threading half of that ask genuinely is code.
- * See docs/corpus/crmlite-inbox-source.md.
  */
 const schedules = [
 	schedule({
@@ -256,8 +253,7 @@ export const crmliteExample = crudExample({
 		addBoard(
 			// RECLASSIFIED 2026-07-28 by issue #172, from off-surface/unexpressible.
 			// The stages are the columns, the rank key is the order within one, and
-			// a drop is an update of `stage` through the deal's own edit route. See
-			// docs/corpus/crmlite-kanban-pipeline.md.
+			// a drop is an update of `stage` through the deal's own edit route.
 			'ch-kanban-pipeline',
 			'Drag deals between pipeline stages on a Kanban board (spec op).',
 			'pg-deals',
@@ -272,8 +268,7 @@ export const crmliteExample = crudExample({
 		),
 		offSurface(
 			// CORPUS HARDENING 2026-07-28 — what a pipeline board is
-			// bought for and a view primitive is definitionally not. See
-			// docs/corpus/crmlite-stage-automation.md.
+			// bought for and a view primitive is definitionally not.
 			'ch-stage-automation',
 			'Make the pipeline stages themselves rows a founder can add, rename and reorder, and fire the work each one implies on entry — a proposal deal schedules a follow-up, a won deal creates an invoice and stops the follow-ups — no op models a column set that is data, nor anything happening *because* a value changed (off-surface, unexpressible).',
 			'deal',
@@ -285,7 +280,6 @@ export const crmliteExample = crudExample({
 			// half is the declaration; the threading half is fifteen lines in the
 			// refiner slot the source opened — no page is ejected, and the contacts
 			// surface keeps receiving regeneration.
-			// See docs/corpus/crmlite-inbox-sync.md.
 			'ch-inbox-sync',
 			'Sync an email inbox and thread messages per contact (slot fill).',
 			'message',
@@ -308,7 +302,6 @@ export const crmliteExample = crudExample({
 		offSurface(
 			// CORPUS HARDENING 2026-07-28 — the half of an inbox
 			// integration that a *read-only pull* is definitionally not.
-			// See docs/corpus/crmlite-inbox-writeback.md.
 			'ch-inbox-writeback',
 			'Reply to a synced message from inside the CRM and have the reply appear in the same thread, with the thread staying consistent when the same message is moved, read or deleted on the mail provider’s side between two polls — no op models a write back to a third party, a bidirectional reconciliation, or a remote deletion that must not delete the local row (off-surface, unexpressible).',
 			'message',

@@ -143,9 +143,9 @@ export function crudExample(input: {
 	pages: PageSpec[]
 	/**
 	 * Schedules the app has declared at generation time. Part of the
-	 * example's *spec*, not its backlog — declaring one is a `spec-edit` under
-	 * `docs/corpus/`, and it changes what the app is rather than what is asked of
-	 * it, so it does not touch the scored denominator.
+	 * example's *spec*, not its backlog — declaring one is a `spec-edit`, and it
+	 * changes what the app is rather than what is asked of it, so it does not
+	 * touch the scored denominator.
 	 */
 	schedules?: ScheduleSpec[]
 	/**
@@ -153,14 +153,14 @@ export function crudExample(input: {
 	 * Part of the example's *spec* on exactly the same terms as
 	 * {@link crudExample}'s schedules: declaring an integration changes what the
 	 * app **is**, and the backlog ask is what is *asked of it*. Adding one is a
-	 * `spec-edit` under `docs/corpus/` and does not touch the scored denominator.
+	 * `spec-edit` and does not touch the scored denominator.
 	 */
 	sources?: SourceSpec[]
 	/**
 	 * Importers the app has declared at generation time. Part of the
 	 * example's *spec* on the same terms as its schedules and sources: declaring
 	 * a way IN to the data changes what the app **is**, and the backlog ask is
-	 * what is *asked of it*. Adding one is a `spec-edit` under `docs/corpus/` and
+	 * what is *asked of it*. Adding one is a `spec-edit` and
 	 * does not touch the scored denominator.
 	 */
 	imports?: ImporterSpec[]
@@ -168,8 +168,8 @@ export function crudExample(input: {
 	 * Live channels the app has declared at generation time. Part of
 	 * the example's *spec* on the same terms as its schedules, sources and
 	 * importers: declaring that a surface moves changes what the app **is**, and
-	 * the backlog ask is what is *asked of it*. Adding one is a `spec-edit` under
-	 * `docs/corpus/` and does not touch the scored denominator.
+	 * the backlog ask is what is *asked of it*. Adding one is a `spec-edit` and
+	 * does not touch the scored denominator.
 	 */
 	live?: LiveSubscriptionSpec[]
 	changes: ExampleChange[]

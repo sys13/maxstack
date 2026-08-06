@@ -132,12 +132,13 @@ To see the whole loop run end-to-end reproducibly before trying your own
 (stop the tour's dev server first — the next step starts its own):
 
 ```sh
-MAXSTACK_DATA_DIR="$PWD/a generated project" pnpm --filter @maxstack/web dev
+maxstack demo <project-dir>            # load sample data
+maxstack demo <project-dir> --clear    # remove just the rows it created
+maxstack dev <project-dir>             # browse it
 ```
 
-That builds a sample app start to finish through the
-platform's own surfaces — agent spec-ops, human review ops, generators — and
-leaves you a browsable project. See `the sample app-demo.md`.
+That loads sample data through the platform's own surfaces — agent spec-ops,
+human review ops, generators — and leaves you a browsable project.
 
 ## 3. Starting a new project
 
@@ -561,4 +562,4 @@ unpublished code, and an image built from one contains it.
 
 **Further reading**: the full docs index is [`README.md`](README.md). Closest
 neighbors: [`workbench.md`](workbench.md) · [`ownership.md`](ownership.md) ·
-`the sample app-demo.md` · [`deploy.md`](deploy.md).
+[`deploy.md`](deploy.md).

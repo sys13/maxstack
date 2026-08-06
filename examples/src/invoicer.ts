@@ -170,8 +170,7 @@ export const invoicerExample = crudExample({
 			// RECLASSIFIED 2026-07-28 by issue #176, from off-surface/unexpressible.
 			// `documents.declare` is the op: a template bound to the invoice row,
 			// composed from the same typed field metadata the forms use, rendering to
-			// print-ready HTML and to PDF with no browser in the runtime image. See
-			// docs/corpus/invoicer-invoice-pdf.md.
+			// print-ready HTML and to PDF with no browser in the runtime image.
 			'ch-invoice-pdf',
 			'Render a branded, print-ready PDF of an invoice (spec op).',
 			documentTemplate({
@@ -183,8 +182,8 @@ export const invoicerExample = crudExample({
 				// The sections this example's own data model supports. It has no
 				// foreign key from a line item back to an invoice, so the template
 				// prints no line-item table — deliberately, because inventing that
-				// relation to give the shipped op more surface to sit on is the corpus
-				// edit `docs/corpus-integrity.md` exists to prevent.
+				// relation to give the shipped op more surface to sit on is the kind of
+				// corpus edit the integrity policy exists to prevent.
 				sections: [
 					{ kind: 'heading', level: 1, text: 'Invoice {number}' },
 					{
@@ -213,8 +212,7 @@ export const invoicerExample = crudExample({
 			// an expiring revocable link, and the read gate every other caller
 			// passes. The PAYING half does not reclassify and returns to the backlog
 			// at full weight as `ch-invoice-checkout` below — claiming it would be
-			// claiming work the platform did not do. See
-			// docs/corpus/invoicer-client-portal.md.
+			// claiming work the platform did not do.
 			'ch-client-portal',
 			'A client portal to view an invoice online, from a link only that client was sent (spec op).',
 			portal({
@@ -233,7 +231,7 @@ export const invoicerExample = crudExample({
 				// an invoice, so the portal shows the invoice and not its lines —
 				// exactly as `ch-invoice-pdf`'s template does, and for the same
 				// reason: adding that relation to give a shipped op more surface is
-				// the corpus edit `docs/corpus-integrity.md` exists to prevent.
+				// the kind of corpus edit the integrity policy exists to prevent.
 				readFields: [
 					'fld-invoice-number',
 					'fld-invoice-status',
@@ -249,8 +247,7 @@ export const invoicerExample = crudExample({
 		offSurface(
 			// CORPUS HARDENING 2026-07-29 — the un-absorbed half of
 			// `ch-client-portal`, returning at its full original weight, sourced from
-			// the hosted checkout flows real billing products ship. See
-			// docs/corpus/invoicer-invoice-checkout.md.
+			// the hosted checkout flows real billing products ship.
 			'ch-invoice-checkout',
 			'Let the client PAY from that link: a hosted checkout whose result arrives as an asynchronous webhook that must reconcile against the invoice under retry, out-of-order delivery, partial payment, overpayment and chargeback, idempotently and exactly once — no op models money moving through a third party and coming back as an event (off-surface, unexpressible).',
 			'invoice',
@@ -261,7 +258,7 @@ export const invoicerExample = crudExample({
 			// RECLASSIFIED 2026-07-27 by issue #181, from off-surface/unexpressible.
 			// `schedules.declare` is the op: a named recurrence with the timezone it
 			// is read in, a defined answer for "the 31st of a 30-day month", and the
-			// identity every run carries. See docs/corpus/invoicer-recurring-schedule.md.
+			// identity every run carries.
 			id: 'ch-recurring-invoices',
 			description:
 				'Recurring invoice schedules that auto-send monthly (spec op).',
@@ -293,7 +290,7 @@ export const invoicerExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the ch-invoice-pdf reclassification above removed, in the same
 			// product area, and sourced from a legal regime rather than from this
-			// vocabulary. See docs/corpus/invoicer-einvoice-compliance.md.
+			// vocabulary.
 			'ch-einvoice-compliance',
 			'Issue each invoice as a compliant e-invoice: a PDF/A-3 carrying an embedded EN 16931 XML payload, validated against the buyer country\u2019s scheme and refused before sending if it fails, under a gap-free statutory numbering sequence \u2014 no op models a document whose *data* is legally specified and externally validated (off-surface, unexpressible).',
 			'invoice',
@@ -303,8 +300,7 @@ export const invoicerExample = crudExample({
 		offSurface(
 			// CORPUS HARDENING 2026-07-27 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
-			// area and from a shipping product. See
-			// docs/corpus/invoicer-dunning-ladder.md.
+			// area and from a shipping product.
 			'ch-dunning-ladder',
 			'When a payment fails, escalate through a reminder sequence with per-step waits, and stop the instant the invoice is paid — no op models a multi-step stateful workflow with cancellation (off-surface, unexpressible).',
 			'invoice',

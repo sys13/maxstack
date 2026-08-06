@@ -240,8 +240,7 @@ export const todotrackerExample: ExampleApp = {
 			// `page.addCalendar` with display "heatmap" is the op: completions
 			// bucketed per day, on the Stats page `ch-add-stats-page` added earlier
 			// in this same backlog. The streak-freeze half of the original ask is
-			// NOT absorbed and is carried out as its own ask below — see
-			// docs/corpus/todotracker-completion-heatmap.md.
+			// NOT absorbed and is carried out as its own ask below.
 			'ch-streak-heatmap',
 			'A calendar heatmap of habit completions (spec op).',
 			'pg-stats',
@@ -255,7 +254,7 @@ export const todotrackerExample: ExampleApp = {
 		offSurface(
 			// CORPUS HARDENING 2026-07-28 — the half of the ask above
 			// that a view primitive explicitly does not do, split out rather than
-			// quietly dropped. See docs/corpus/todotracker-streak-freeze.md.
+			// quietly dropped.
 			'ch-streak-freeze',
 			'Forgiving streaks: a missed day spends a grace day instead of breaking the streak, graces accrue weekly up to a cap, and the heatmap shades a frozen day differently from a completed one — no op models a value whose answer for today depends on the whole ordered history before it (off-surface, unexpressible).',
 			'habit',
@@ -266,8 +265,7 @@ export const todotrackerExample: ExampleApp = {
 			// RECLASSIFIED 2026-07-28 by issue #178, from off-surface/eject. The
 			// widget stays hand-written — a platform that generated home-screen
 			// widgets would be the cage. What changed is that owning that one
-			// region no longer means owning the stats surface forever. See
-			// docs/corpus/todotracker-home-widget-slot.md.
+			// region no longer means owning the stats surface forever.
 			'ch-home-widget',
 			'A home-screen widget rendering today’s completions, in the completions list slot (slot fill).',
 			'completion',
@@ -287,7 +285,7 @@ export const todotrackerExample: ExampleApp = {
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and deliberately not a rendering ask: it is about a row
-			// generating its own successor. See docs/corpus/todotracker-recurrence.md.
+			// generating its own successor.
 			'ch-recurring-todos',
 			'Recurring todos: completing one closes today’s occurrence and creates the next by rule ("every 3rd Tuesday", "2 days after it was last done"), while history, notes and the streak stay attached to one logical task — no op models a row that spawns its successor and keeps a shared identity across the series (off-surface, unexpressible).',
 			'todo',

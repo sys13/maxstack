@@ -368,5 +368,4 @@ worst bug this feature could ship.
 - **Compliance formats.** A PDF/A-3 carrying an embedded EN 16931 XML payload,
   validated against a national scheme, under a gap-free statutory numbering
   sequence, is a legally-specified *data* problem rather than a layout one. It
-  is the corpus's remaining document-generation ask
-  (`docs/corpus/invoicer-einvoice-compliance.md`).
+  is the corpus's remaining document-generation ask.

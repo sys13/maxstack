@@ -90,7 +90,7 @@ export async function reviewCostCommand(
 			'  turn it on:  "reviewMetrics": "local"  in maxstack.json' +
 				'  (or MAXSTACK_REVIEW_METRICS=local for one session)',
 		)
-		console.log('  stays on this machine — see docs/review-cost.md.')
+		console.log('  stays on this machine.')
 		return
 	}
 

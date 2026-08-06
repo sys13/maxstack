@@ -1,7 +1,6 @@
 /**
  * Email feature — a name-keyed template registry (custom overrides default)
- * plus four default templates, staged from mxscratchpad. See
- * `docs/reference-specs/email-registry.md`.
+ * plus four default templates, staged from mxscratchpad.
  */
 
 export * from './mailer.ts'

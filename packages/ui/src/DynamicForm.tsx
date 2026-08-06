@@ -1,6 +1,6 @@
 /**
- * `<DynamicForm>` — reimplementation of the specbase original
- * (docs/reference-specs/dynamic-form.md). Pass a `z.ZodObject`; get a rendered,
+ * `<DynamicForm>` — reimplementation of the specbase original. Pass a
+ * `z.ZodObject`; get a rendered,
  * Conform-wired, server-validating form.
  *
  * What changed vs. the original (all its documented-but-unimplemented gaps):

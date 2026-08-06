@@ -904,7 +904,8 @@ function importPlanSummary(plan: ImportPlan): unknown {
  * so an agent driving MCP sees exactly what a REST caller sees — including the
  * derived values a host wired up. Anything reachable only by
  * hand-assembling a narrower context here is a surface the two layers disagree
- * about, which is the thing sprout.md §4 exists to prevent.
+ * about, which is the thing the enforce-at-every-layer invariant exists to
+ * prevent.
  */
 export async function executeMCPTool(
 	ctx: OpContext,

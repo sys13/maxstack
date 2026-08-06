@@ -82,7 +82,7 @@ spec.data.entities = [
 			// SPEC EDIT 2026-07-28: the two columns a shared task
 			// tracker's own e2e tests already presuppose and this spec never wrote
 			// down — when work starts, and which task it waits on. The backlog is
-			// untouched; see docs/corpus/taskly-scheduling-columns.md.
+			// untouched.
 			{
 				id: 'fld-task-start',
 				name: 'startDate',
@@ -187,8 +187,6 @@ spec.pages.pages = [projectsPage, tasksPage]
  *    of faces is a list of faces and needs no bespoke code; a drag-and-drop
  *    board is genuinely not a table, which is the whole reason the ask was
  *    frozen as an eject.
- *
- * See docs/corpus/taskly-realtime-board.md.
  */
 spec.live = {
 	subscriptions: [
@@ -337,8 +335,7 @@ export const tasklyExample: ExampleApp = {
 			// RECLASSIFIED 2026-07-28 by issue #171, from off-surface/unexpressible.
 			// `page.addTimeline` is the op: start → due as the bar, the declared
 			// self-reference as the arrow. `dueDate` is the column `ch-task-due`
-			// added earlier in this same backlog. See
-			// docs/corpus/taskly-gantt-timeline.md.
+			// added earlier in this same backlog.
 			'ch-gantt-timeline',
 			'A Gantt timeline with dependency arrows between tasks (spec op).',
 			'pg-tasks',
@@ -356,7 +353,7 @@ export const tasklyExample: ExampleApp = {
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and deliberately in the same shape: it is the half of a Gantt
-			// chart that a *view* cannot be. See docs/corpus/taskly-slip-cascade.md.
+			// chart that a *view* cannot be.
 			'ch-slip-cascade',
 			'When a task slips, move every task that waits on it and re-flag the ones that now miss the milestone — dependents reschedule themselves, the chain recomputes, and the change is reviewable before it lands — no op models scheduling as a rule rather than a drawing (off-surface, unexpressible).',
 			'task',
@@ -374,8 +371,7 @@ export const tasklyExample: ExampleApp = {
 			// per-pointer, per-frame ephemeral channel is exactly the free-form
 			// payload the presence primitive refuses to carry, by the same recorded
 			// decision (d-live-last-write-wins) that keeps co-editing out. That
-			// residue returns at full weight as `ch-offline-board-merge`. See
-			// docs/corpus/taskly-realtime-board.md.
+			// residue returns at full weight as `ch-offline-board-merge`.
 			'ch-realtime-board',
 			'A real-time collaborative board: cards move under you as teammates work, and a task shows who else is looking at it, in the live channel’s bespoke surface slot (slot fill).',
 			'task',
@@ -396,8 +392,7 @@ export const tasklyExample: ExampleApp = {
 			// scope: replication and convergent merge. What shipped is
 			// last-write-wins over a live connection; this is two divergent local
 			// histories that must reconcile without either losing work, plus the
-			// per-pointer channel presence definitionally is not. See
-			// docs/corpus/taskly-offline-board-merge.md.
+			// per-pointer channel presence definitionally is not.
 			'ch-offline-board-merge',
 			'Two people edit the same board while one is offline on a plane, and both reconcile on reconnect with neither losing work — every move, rename and reassignment replays against the other’s, conflicting edits to one field resolve by intention rather than by arrival time, and while both are online each sees the other’s cursor and the card they are mid-drag — no op models replication, convergent merge, or a per-pointer ephemeral channel (off-surface, unexpressible).',
 			'task',

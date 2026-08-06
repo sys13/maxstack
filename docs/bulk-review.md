@@ -1,7 +1,6 @@
 # Bulk review
 
-> Companion to [write-paths.md](write-paths.md) (who may
-> settle a review) and review-cost.md (what settling one costs).
+> Companion to [write-paths.md](write-paths.md) — who may settle a review.
 
 A bulk accept is the most dangerous control in this product. Everything else the
 platform offers makes *doing* something cheaper; this one makes **not looking**

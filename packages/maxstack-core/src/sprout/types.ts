@@ -1,5 +1,5 @@
 /**
- * Sprout core types. See docs/reference-specs/sprout.md.
+ * Sprout core types.
  *
  * `ColumnMetadata` is the full declared surface from the specbase reference.
  * Unlike the original — which introspected only ~10 keys and silently dropped

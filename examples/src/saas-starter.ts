@@ -99,10 +99,9 @@ export function assembleSaasStarterSpec(): SpecSystem {
 	// project), which is what this comment was describing by hand. The fixture is
 	// deliberately NOT rewired: how a corpus app is assembled is part of what the
 	// expressibility score measures, so it moves under a declared corpus version
-	// with the comparability break stated — see `docs/corpus-integrity.md`.
+	// with the comparability break stated.
 	//
-	// Additive: a new column, so no shipped column changes type. See
-	// docs/corpus/saas-starter-usage-tenant.md.
+	// Additive: a new column, so no shipped column changes type.
 	return applyOp(
 		spec,
 		{
@@ -225,7 +224,7 @@ const changes: ExampleChange[] = [
 		// RECLASSIFIED 2026-07-28 by issue #170, from off-surface/eject — the one
 		// ask in the cluster that was actually being *ejected* rather than left
 		// unbuilt. `data.addRollup` is the op: billed quantity per tenant, bucketed
-		// monthly. See docs/corpus/saas-starter-usage-metering.md.
+		// monthly.
 		'ch-usage-metering',
 		'A per-org usage-metering dashboard aggregating billed events (spec op).',
 		'e-organization',
@@ -247,7 +246,6 @@ const changes: ExampleChange[] = [
 		// and the same shape: what a `sum` of a ledger still cannot do. Resolved
 		// by ejecting, like the ask it replaces, so the assembled shell keeps
 		// landing every change.
-		// See docs/corpus/saas-starter-overage-billing.md.
 		'ch-usage-overage-billing',
 		'Bill the overage: compare each org’s metered usage against its plan allowance mid-period, warn at 80%, meter the excess in tiered blocks, and prorate all of it when the plan changes on the 14th — no op models an allowance, a tier ladder, or proration, so the billing surface is ejected to build it by hand (off-surface, eject).',
 		'organization',

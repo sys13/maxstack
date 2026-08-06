@@ -41,7 +41,7 @@ const entities = [
 		// or an equivalent, because it is what makes re-importing an updated deck
 		// an update rather than a second copy of everybody's collection. It is a
 		// property of the product, not a request somebody made, so it is spec and
-		// not backlog. See docs/corpus/cardstack-anki-import.md.
+		// not backlog.
 		field('fld-card-guid', 'guid', 'string'),
 		field('fld-card-front', 'front', 'string', true),
 		field('fld-card-back', 'back', 'string', true),
@@ -90,8 +90,7 @@ const reviewsPage = page({
 })
 
 /**
- * The nightly re-ordering of the due queue (a `spec-edit` under
- * docs/corpus/cardstack-due-queue-schedule.md).
+ * The nightly re-ordering of the due queue (a `spec-edit`).
  *
  * The platform declares *when* it runs, in which timezone, and as whom. It
  * deliberately does not declare *what* it computes: absorbing SM-2 into the op
@@ -130,8 +129,6 @@ const dueQueueSchedule = schedule({
  *    overwrite and much harder to notice. Anki keys on the GUID for exactly this
  *    reason. Declaring it makes "this can overwrite your cards" a reviewable
  *    line in the spec rather than a property of the parser.
- *
- * See docs/corpus/cardstack-anki-import.md.
  */
 const ankiImporter = importer({
 	id: 'imp-anki',
@@ -228,7 +225,7 @@ export const cardstackExample = crudExample({
 			// RECLASSIFIED 2026-07-27 by issue #181, from off-surface/unexpressible.
 			// The platform did not learn SM-2 — that would be the cage. It declared
 			// the schedule, generated a typed handler slot, and promised never to
-			// overwrite it. See docs/corpus/cardstack-sm2-slot.md.
+			// overwrite it.
 			'ch-sm2-scheduler',
 			'An SM-2 spaced-repetition scheduler that reorders the due queue by grade, in the schedule’s handler slot (slot fill).',
 			'card',
@@ -247,7 +244,7 @@ export const cardstackExample = crudExample({
 			// RECLASSIFIED 2026-07-28 by issue #178, from off-surface/eject. A study
 			// player is legitimately bespoke and should stay that way; what changed
 			// is that taking over the *list region* no longer costs the whole
-			// surface. See docs/corpus/cardstack-study-mode-slot.md.
+			// surface.
 			'ch-study-mode',
 			'An interactive study mode (card-flip animation, keyboard grading) in the decks list slot (slot fill).',
 			'deck',
@@ -278,7 +275,6 @@ export const cardstackExample = crudExample({
 			// generated a typed parser slot, and promised never to overwrite it. The
 			// parser yields records; the mapping, the per-row validation, the gated
 			// upsert lookup and the write are the platform's, identically to a CSV's.
-			// See docs/corpus/cardstack-anki-import.md.
 			'ch-anki-import',
 			'Read an Anki .apkg archive (a zip holding a SQLite collection) into card records, in the importer’s parser slot (slot fill).',
 			'card',
@@ -298,8 +294,7 @@ export const cardstackExample = crudExample({
 		offSurface(
 			// CORPUS HARDENING 2026-07-27 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
-			// area and from a shipping product. See
-			// docs/corpus/cardstack-cloze-deletion.md.
+			// area and from a shipping product.
 			'ch-cloze-deletion',
 			'Cloze cards: one authored note with several blanked spans, each span becoming its own independently scheduled card that edits to the note keep in sync — no op models one row generating and owning a set of sibling rows (off-surface, unexpressible).',
 			'card',
@@ -309,7 +304,7 @@ export const cardstackExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and deliberately in a shape a block slot cannot reach: it is
-			// about *writes*, not rendering. See docs/corpus/cardstack-session-undo.md.
+			// about *writes*, not rendering.
 			'ch-session-undo',
 			'Undo the last review inside a study session — reverse the scheduling write and the review row it created, repeatedly, back to the start of the session, with the affordance live only while that session is open — no op models a bounded, reversible write history scoped to something the spec cannot see (off-surface, unexpressible).',
 			'review',
@@ -321,7 +316,7 @@ export const cardstackExample = crudExample({
 			// and deliberately in a shape the shipped importer definitionally cannot
 			// reach: it is about writing a file OUT, repeatedly, preserving identity
 			// and state on both sides. An importer reads bytes once, in one
-			// direction, and writes rows. See docs/corpus/cardstack-apkg-roundtrip.md.
+			// direction, and writes rows.
 			'ch-apkg-roundtrip',
 			'Export back to .apkg and re-import repeatedly without duplicating or resetting anything: carry each card’s scheduling state and review history out with it, keep the note GUIDs and media stable across both directions, and reconcile edits made on either side since the last exchange — no op models a bidirectional, identity-preserving exchange of state with an external file (off-surface, unexpressible).',
 			'card',

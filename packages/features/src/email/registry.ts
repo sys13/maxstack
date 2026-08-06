@@ -3,7 +3,7 @@
  * `emails/registry.ts`: a name-keyed store where custom templates override
  * defaults of the same name.
  *
- * Reimplementation notes (reference spec: `docs/reference-specs/email-registry.md`):
+ * Reimplementation notes:
  * the original was a static-only class over two module-level record objects —
  * a shared global the original's own test had to `beforeEach`-reset by
  * reaching into private state. This staging keeps the exact API surface

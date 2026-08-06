@@ -1,6 +1,6 @@
 /**
  * React DI wiring — the app/UI half of the DI decision the framework-agnostic
- * core (`@maxstack/features/di`) deferred to a reference spec (`di.md`). The core
+ * core (`@maxstack/features/di`) deferred to this layer. The core
  * is `createBindings<T>(values) → { get, require, has, with }`; this wraps *that
  * container* in a React context so components read injected values via
  * `useBindings()`, with a clear error when no provider is present.

@@ -1,9 +1,8 @@
 /**
  * Email feature — types.
  *
- * Reimplemented from mxscratchpad's `emails/types.ts` (reference spec:
- * `docs/reference-specs/email-registry.md`). The salvaged decision is the
- * *registry* (a name-keyed template store with custom-over-default override);
+ * Reimplemented from mxscratchpad's `emails/types.ts`. The salvaged decision
+ * is the *registry* (a name-keyed template store with custom-over-default override);
  * the original coupled templates to `react-email` + a `~/lib/email.server`
  * transport. This staging keeps the registry decision and reimplements the
  * template contract as a dependency-free `render(props) => string` (HTML),

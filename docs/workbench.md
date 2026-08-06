@@ -7,8 +7,7 @@ dev — `data-dir.server.ts`; stores in `@maxstack/mcp` `createFileSpecStore` +
 the JSONL telemetry host), so the workbench, the MCP tools, and a headless
 script share one durable project. Accept/reject lands through the
 **`provenance.review` spec-op**, so every review is an op-log audit entry.
-The `the sample app-demo.md` run drives the whole loop through
-it reproducibly.
+`maxstack demo` drives the whole loop through it reproducibly.
 
 The agent is the primary interface, so the workbench stays a review surface —
 the place a human grounds truth — not a product of its own. That constraint

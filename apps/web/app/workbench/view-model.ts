@@ -4,7 +4,7 @@
  *
  * Phase 5 is entered under a hedge: the design decision #11 (is the workbench a
  * product, or is the agent the interface?) is not yet resolved — it closes on
- * the Phase 2.5 dogfood (docs/history/workbench-sufficiency-test.md). So this slice
+ * the Phase 2.5 dogfood. So this slice
  * builds *only* the intersection of both outcomes: the review-queue / spec-zoom
  * / decision surface that the plan says the workbench "shrinks to" even if H₀
  * (agent-is-sufficient) holds. No three-pane canvas on spec, no interaction

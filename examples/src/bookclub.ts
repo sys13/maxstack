@@ -38,7 +38,7 @@ const entities = [
 		// page count a lookup returns. All three are prerequisites the ISBN-lookup
 		// ask presupposed and the spec never modelled — a shelf whose books have no
 		// ISBN cannot look one up, which is a different failure from an
-		// expressibility gap. See docs/corpus/bookclub-book-metadata.md.
+		// expressibility gap.
 		field('fld-book-isbn', 'isbn', 'string'),
 		field('fld-book-cover', 'coverUrl', 'string'),
 		field('fld-book-pages', 'pageCount', 'number'),
@@ -66,7 +66,6 @@ const entities = [
 	// not an expressibility gap, exactly as bookclub's missing ISBN column was in
 	// #173. `parent` is the self-reference that makes it threaded; it is a
 	// property of the product, not a request somebody made.
-	// See docs/corpus/bookclub-threaded-discussion.md.
 	entity('e-post', 'Post', 'A message in a discussion thread.', [
 		field('fld-post-body', 'body', 'string', true),
 		belongsTo('fld-post-discussion', 'discussion', 'e-discussion'),
@@ -95,8 +94,6 @@ const entities = [
  *    threaded reader that appends in place and indents by `parent` is genuinely
  *    not a table, which is the whole reason the ask was frozen as an eject; a
  *    list of who is in the room is a list.
- *
- * See docs/corpus/bookclub-threaded-discussion.md.
  */
 const liveChannels = [
 	live({
@@ -265,8 +262,7 @@ export const bookclubExample = crudExample({
 			// RECLASSIFIED 2026-07-28 by issue #173, from off-surface/unexpressible.
 			// The endpoint, the credential (none — Open Library is public), the paths
 			// onto the three columns and the request budget are all declaration; the
-			// running app fetches, and generation never does. See
-			// docs/corpus/bookclub-isbn-lookup.md.
+			// running app fetches, and generation never does.
 			'ch-isbn-lookup',
 			'Fetch cover art and metadata from an ISBN lookup service (spec op).',
 			source({
@@ -293,8 +289,7 @@ export const bookclubExample = crudExample({
 		),
 		offSurface(
 			// CORPUS HARDENING 2026-07-28 — what a *declared* source is
-			// definitionally not: a merge policy with per-field memory. See
-			// docs/corpus/bookclub-metadata-reconciliation.md.
+			// definitionally not: a merge policy with per-field memory.
 			'ch-metadata-reconcile',
 			'Look a book up in two catalogues at once, keep per-field provenance of which one supplied each value, prefer the more complete answer field by field, and let a host correct one field by hand without the next lookup overwriting it again — no op models a merge policy, per-field provenance, or a hand edit that outranks a later fetch (off-surface, unexpressible).',
 			'book',
@@ -313,8 +308,7 @@ export const bookclubExample = crudExample({
 			// payload the presence primitive deliberately has nowhere to put, and the
 			// concurrent editing it implies is the co-editing this issue's own
 			// decision record (d-live-last-write-wins) excludes. That residue returns
-			// at full weight as `ch-post-coediting`. See
-			// docs/corpus/bookclub-threaded-discussion.md.
+			// at full weight as `ch-post-coediting`.
 			'ch-threaded-discussion',
 			'A threaded discussion thread that appends replies live: posts arrive as members write them, indent under what they answer, and the thread shows who else is in the room, in the live channel’s bespoke surface slot (slot fill).',
 			'post',
@@ -335,7 +329,7 @@ export const bookclubExample = crudExample({
 			// scope: intention-preserving concurrent editing of one value. What
 			// shipped pushes whole rows and resolves by last-write-wins; this is the
 			// OT/CRDT problem, plus the per-keystroke ephemeral channel presence
-			// definitionally is not. See docs/corpus/bookclub-post-coediting.md.
+			// definitionally is not.
 			'ch-post-coediting',
 			'Two members edit one post’s body at the same time and both sets of edits survive: each sees the other’s caret and typing indicator as they go, an insertion in the middle does not clobber a simultaneous deletion at the end, and a member who reconnects after a dropped connection has their offline edits woven in rather than discarded — no op models intention-preserving concurrent edits, a per-keystroke ephemeral channel, or any merge policy beyond last-write-wins (off-surface, unexpressible).',
 			'post',

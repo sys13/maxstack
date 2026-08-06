@@ -1,7 +1,6 @@
 /**
  * Member management feature — org/member schema + a `MemberService` that owns
- * the last-owner invariant, extracted from mxscratchpad's admin RR route. See
- * `docs/reference-specs/member-management.md`.
+ * the last-owner invariant, extracted from mxscratchpad's admin RR route.
  */
 
 export * from './schema.ts'

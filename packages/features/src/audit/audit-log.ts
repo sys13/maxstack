@@ -5,9 +5,8 @@
  * hard-wired to a `~/utils/db.server` singleton and the app's full schema
  * (user/session/project/task/auditLog) — glue that doesn't exist in this repo.
  *
- * Per the prime directive the metrics *aggregations* are captured as a
- * reference spec (`docs/reference-specs/metrics.md`); what reimplements cleanly
- * and is needed now is the audit sink, so the member service can record
+ * Per the prime directive the metrics *aggregations* are deferred; what
+ * reimplements cleanly and is needed now is the audit sink, so the member service can record
  * mutations without importing a mailer or a full app schema. `AuditSink` is the
  * narrow contract; `createDrizzleAuditSink` is the drizzle-backed core.
  */

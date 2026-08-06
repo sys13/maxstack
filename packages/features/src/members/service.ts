@@ -9,8 +9,6 @@
  *
  * Salvaged invariant: an organization can never lose its
  * last owner — demoting, removing, or leaving as the sole owner is rejected.
- *
- * Reference spec: `docs/reference-specs/member-management.md`.
  */
 
 import { and, eq } from 'drizzle-orm'

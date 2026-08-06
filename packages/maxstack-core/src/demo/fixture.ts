@@ -1,6 +1,6 @@
 /**
  * Fidelity fixture — a scaled-down stand-in for specbase's ~90-table stress set
- * (sprout.md §9). A CRM-shaped schema exercising every introspection path:
+ * A CRM-shaped schema exercising every introspection path:
  * enums, inline FKs across many tables, uuid/text/number/boolean/date/json
  * columns, defaults, and heavy `withMeta`. The gate: introspect ALL of these
  * without error and resolve every FK.

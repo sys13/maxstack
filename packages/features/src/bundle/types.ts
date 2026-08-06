@@ -149,8 +149,8 @@ export type BundleAskSource =
  *
  * These are *bundle-scoped* asks. They are not folded into the benchmark
  * backlogs in `benchmarks/src/`, so they never move the published
- * expressibility denominator — see `docs/corpus-integrity.md` for why that
- * number only moves with a justification note.
+ * expressibility denominator, which only moves under the corpus-integrity
+ * policy.
  */
 export interface BundleEvalAsk {
 	/** Unique across the catalog; conventionally `ask-<slug>-<topic>`. */

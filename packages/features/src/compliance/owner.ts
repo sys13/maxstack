@@ -3,7 +3,7 @@
  * export and erasure both need it, so it lives once here instead of twice.
  *
  * Reuses the exact owner-column convention `owner` access rules already use
- * (`OWNER_FIELDS`, sprout.md §7.7) — a resource opts into GDPR export/erasure
+ * (`OWNER_FIELDS`) — a resource opts into GDPR export/erasure
  * for free the moment it has a `userId`/`authorId`/`owner`/`ownerId` column,
  * no extra config. A resource with none of those columns (no per-row owner —
  * e.g. a global `tag` table) is silently skipped: there's no way to know

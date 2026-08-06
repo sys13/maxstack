@@ -345,7 +345,6 @@ Pulling a file from a third party on a timer is `sources` plus `schedules`, both
 of which already exist.
 
 **Export.** Reading a file and writing one are not the same feature, and the
-corpus carries the difference as a live gap: `ch-apkg-roundtrip` (see
-`docs/corpus/cardstack-apkg-roundtrip.md`)
-is a bidirectional, identity-preserving, stateful exchange, and no amount of
+corpus carries the difference as a live gap: `ch-apkg-roundtrip` is a
+bidirectional, identity-preserving, stateful exchange, and no amount of
 importer is one.

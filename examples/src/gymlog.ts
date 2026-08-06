@@ -65,8 +65,7 @@ const entities = [
 	]),
 	// SPEC EDIT 2026-07-28: a logged set says which exercise it was
 	// and when — the two things every lifting app stores on a set and this spec
-	// never wrote down — plus the Epley estimate above. The backlog is untouched;
-	// see docs/corpus/gymlog-set-relations.md.
+	// never wrote down — plus the Epley estimate above. The backlog is untouched.
 	entity(
 		'e-logentry',
 		'LogEntry',
@@ -202,7 +201,7 @@ export const gymlogExample = crudExample({
 		addRollup(
 			// RECLASSIFIED 2026-07-28 by issue #170, from off-surface/unexpressible.
 			// `data.addRollup` is the op: the weekly peak of a computed 1RM per
-			// exercise, bucketed and capped. See docs/corpus/gymlog-1rm-series.md.
+			// exercise, bucketed and capped.
 			'ch-1rm-charts',
 			'Progression charts of estimated 1-rep-max over time (spec op).',
 			'e-exercise',
@@ -226,7 +225,7 @@ export const gymlogExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and deliberately in the same shape: it is what a *series* still
-			// cannot do. See docs/corpus/gymlog-auto-deload.md.
+			// cannot do.
 			'ch-auto-deload',
 			'Detect a stalled lift and prescribe the next session — three failed attempts at a weight trigger a deload to 90% of the last success, and the program picks up from there — no op models a rule that reads a series and writes back a plan (off-surface, unexpressible).',
 			'exercise',
@@ -237,7 +236,7 @@ export const gymlogExample = crudExample({
 			// platform did not learn to render exercise demos — that would be the
 			// cage. It made the *row* a slot, so the bespoke media card replaces one
 			// block and the page, routing, ordering and field derivation around it
-			// keep regenerating. See docs/corpus/gymlog-exercise-demos-slot.md.
+			// keep regenerating.
 			'ch-exercise-demos',
 			'Animated exercise demos with form cues, as a bespoke exercise row (slot fill).',
 			'exercise',
@@ -268,7 +267,7 @@ export const gymlogExample = crudExample({
 			// CORPUS HARDENING 2026-07-28 — replaces the residual
 			// difficulty the reclassification above removed, in the same product
 			// area and deliberately in a shape block slots cannot reach: it is not
-			// a rendering ask at all. See docs/corpus/gymlog-supersets.md.
+			// a rendering ask at all.
 			'ch-supersets',
 			'Supersets: two exercises logged as an alternating pair under one shared rest timer, so a set of A and a set of B interleave as a single unit that reorders, edits and deletes together — no op models a grouping that owns the log form across two entities (off-surface, eject).',
 			'exercise',

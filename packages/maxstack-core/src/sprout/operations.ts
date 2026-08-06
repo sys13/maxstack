@@ -1,7 +1,7 @@
 /**
  * The single implementation of authorized, validated CRUD. REST handlers
  * (api.ts) and the MCP executor (mcp.ts) both wrap these — so the "enforce at
- * every layer" invariant (sprout.md §4) has exactly one implementation to keep
+ * every layer" invariant has exactly one implementation to keep
  * correct.
  *
  * Each op resolves the resource, authorizes (with the row for row-level owner

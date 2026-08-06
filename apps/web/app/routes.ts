@@ -18,7 +18,7 @@ export default [
 	route('workbench', 'routes/workbench.tsx'),
 
 	// JSON-RPC MCP transport — the same Sprout tools the admin UI drives, over
-	// the wire for agents (§3-L2, sprout.md §6).
+	// the wire for agents (§3-L2).
 	route('mcp', 'routes/mcp.ts'),
 
 	// Framework-agnostic REST handlers wrapped as RR7 resource routes.

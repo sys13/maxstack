@@ -1,7 +1,6 @@
 /**
  * Sprout — the maxstack kernel. Declare a Drizzle table enriched with
  * `withMeta`, register it, and derive validation, REST, and MCP tools from it.
- * See docs/reference-specs/sprout.md.
  */
 
 export * from './api.ts'
