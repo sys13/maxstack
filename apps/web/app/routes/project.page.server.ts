@@ -32,7 +32,6 @@ import {
 import {
 	anchorDay,
 	listControls,
-	tableColumns,
 	viewLimit,
 	viewListOptions,
 } from './project.page'
@@ -51,7 +50,18 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 	// a calendar is a window on a date column rather than the first page of one.
 	const view = resolved.page.view
 	const anchor = anchorDay(request, view)
-	const columns = tableColumns(resolved.introspection, resolved.page.fields)
+	// Search, facets, ordering **and the columns they are derived from**, all
+	// resolved together — see `listControls`, which is where the reasoning and
+	// the tests live. The columns come back rather than going in because which
+	// columns a page renders is itself a function of the request: a relation the
+	// URL filters by joins them, which is what makes a related-records "view all"
+	// link expressible without permitting a filter on an unrendered column.
+	const { columns, filters, sort, searchFields } = listControls(
+		new URL(request.url),
+		resolved.introspection,
+		resolved.page.fields,
+		view,
+	)
 	// The resource *as this page shows it* — the visible columns, not the whole
 	// table. Every list control below derives from this one object: which
 	// columns the search box scans, which facets the filter bar offers, which
@@ -65,13 +75,6 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 	// core, arriving through a different door). Deriving the allow-list from the
 	// rendered columns closes it without a declaration.
 	const shown: SproutResource = { ...resolved.introspection, columns }
-	// Search, facets and ordering, narrowed to the columns above — see
-	// `listControls`, which is where the reasoning and the tests live.
-	const { filters, sort, searchFields } = listControls(
-		new URL(request.url),
-		shown,
-		view,
-	)
 	const { registry } = await getSprout()
 	// A declared full-text index upgrades this exact search box in place: same
 	// URL, same `?search=`, same page underneath — the rows just come back

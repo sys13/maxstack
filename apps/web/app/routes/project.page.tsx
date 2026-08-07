@@ -38,6 +38,7 @@ import {
 	type HeaderSlotProps,
 	heatmapGrid,
 	isDayKey,
+	isRelationFilterColumn,
 	ListControls,
 	type ListSlotProps,
 	monthGrid,
@@ -80,15 +81,40 @@ import { useLiveRows } from '~/use-live-rows'
 export function tableColumns(
 	resource: { primaryKey: string; columns: SproutColumn[] },
 	fields?: string[] | null,
+	filtered: readonly string[] = [],
 ): SproutColumn[] {
 	const visible = resource.columns.filter(
 		(c) => c.name !== resource.primaryKey && c.meta.hidden !== true,
 	)
-	if (fields && fields.length > 0)
-		return fields
-			.map((name) => visible.find((c) => c.name === name))
-			.filter((c) => c !== undefined)
-	return visible.slice(0, 6)
+	const picked =
+		fields && fields.length > 0
+			? fields
+					.map((name) => visible.find((c) => c.name === name))
+					.filter((c) => c !== undefined)
+			: visible.slice(0, 6)
+	// A relation this request is *filtered by* is rendered even when the page's
+	// own picks would not have shown it — see `isRelationFilterColumn`. This is
+	// what makes a "view all" link off a related-records panel expressible
+	// (#362): the link is `?filter.<fk>=<parent id>`, the FK is the one column
+	// such a list is guaranteed not to pick (it holds the same value on every
+	// row), and honouring the filter without showing the column is precisely the
+	// oracle the narrowing exists to refuse. So the column joins the page
+	// instead, and the narrowing below then honours the filter for the ordinary
+	// reason: the page renders it.
+	//
+	// Appended, never reordered into the picks: a declared `fields` list is an
+	// order as much as a set, and this is a constraint the request added on top
+	// of it rather than a field the author asked to see first.
+	const shown = new Set(picked.map((c) => c.name))
+	return [
+		...picked,
+		...visible.filter(
+			(c) =>
+				!shown.has(c.name) &&
+				filtered.includes(c.name) &&
+				isRelationFilterColumn(c),
+		),
+	]
 }
 
 /**
@@ -107,29 +133,51 @@ export function tableColumns(
  * different door, for every identity.
  *
  * So the allow-list is derived, never declared: **a page controls exactly the
- * columns it renders**. `shown` is the page's visible columns
- * ({@link tableColumns}), so a `hidden` field, a field outside a declared
- * `fields` subset, and a column past the six-column cap are all equally
- * un-sortable and un-filterable, without anybody having to remember to say so.
+ * columns it renders**. That is why the columns are resolved *here* and handed
+ * back rather than passed in: which columns a page renders is itself a function
+ * of the request (a filtered relation joins them — {@link tableColumns}), and
+ * two callers deriving that separately is exactly how a control comes to be
+ * honoured for a column nobody rendered. One function answers both halves, so
+ * they cannot disagree.
+ *
+ * A `hidden` field, a field outside a declared `fields` subset, and a column
+ * past the six-column cap therefore stay equally un-sortable and un-filterable,
+ * without anybody having to remember to say so.
  *
  * A date- or board-arranged view resolves to nothing at all: its rows are a
  * window chosen by {@link viewListOptions}, and layering a search over that
- * would silently change which days the grid is even asking about.
+ * would silently change which days the grid is even asking about. It gets no
+ * relation promotion either — a filter it will not honour must not reshape the
+ * page as though it had.
  */
 export function listControls(
 	url: URL,
-	shown: { primaryKey: string; columns: SproutColumn[] },
+	resource: { primaryKey: string; columns: SproutColumn[] },
+	fields: string[] | null | undefined,
 	view: ProjectRoute['view'],
-): { filters: FilterValues; sort?: SortState; searchFields: string[] } {
-	if (view) return { filters: EMPTY_FILTERS, searchFields: [] }
-	const resource = { name: '', ...shown }
+): {
+	columns: SproutColumn[]
+	filters: FilterValues
+	sort?: SortState
+	searchFields: string[]
+} {
+	if (view)
+		return {
+			columns: tableColumns(resource, fields),
+			filters: EMPTY_FILTERS,
+			searchFields: [],
+		}
+	const requested = filtersFromSearchParams(url.searchParams)
+	const columns = tableColumns(resource, fields, Object.keys(requested.filter))
+	const shown = { name: '', primaryKey: resource.primaryKey, columns }
 	return {
+		columns,
 		filters: narrowFilters(
-			filtersFromSearchParams(url.searchParams),
-			shown.columns.map((c) => c.name),
+			requested,
+			columns.map((c) => c.name),
 		),
-		sort: sortFromSearchParams(url.searchParams, sortableFields(resource)),
-		searchFields: searchableFields(resource),
+		sort: sortFromSearchParams(url.searchParams, sortableFields(shown)),
+		searchFields: searchableFields(shown),
 	}
 }
 

@@ -133,6 +133,23 @@ The controls reach an *ejected* page too, on the same props contract as the
 rows: `toolbar` is one element the owned module places. Owning a page must not
 silently cost you its search box.
 
+That confinement is what made a related-records "view all" hard, and the way it
+is resolved is worth stating because it will come up again. A record page's
+related section links to the child's list filtered to this record
+(`?filter.<fk>=`), and a child list is the one list guaranteed *not* to render
+its own foreign key — it holds the same value on every row. Rather than exempt
+foreign keys from the rule, which would re-open the oracle for any value a
+caller cares to guess, **a filtered relation joins the columns the page
+renders**: the destination shows the column it was filtered by, so the filter is
+honoured for the ordinary reason and the invariant is preserved by construction
+rather than by exception. The promotion is confined to declared relations, and a
+column the spec marked `hidden` or `filterable: false` is never promoted — so
+the widening follows the relation graph the spec already declares rather than
+the query string. A section whose child page cannot honour the filter (no page,
+an arranged view, an opted-out FK) shows its count as plain text, as before: an
+absent link is a small loss, and a link that lies about which rows it shows is
+the failure the missing link was preferable to.
+
 The manifest records, per file, whether it is generated, ejected or user-written,
 plus a content hash. `maxstack drift` reports what you own and how far it has
 moved from what would be derived today.

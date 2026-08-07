@@ -19,6 +19,7 @@ import { hasLiveSurface, LiveSurface } from '~/live-surface'
 import { pageNoun } from '~/page-noun'
 import { pagePath } from '~/page-path'
 import { ProjectFrame } from '~/project-nav'
+import { relatedListHref } from '~/related-link'
 import { useLivePresence } from '~/use-live-presence'
 
 /**
@@ -184,10 +185,13 @@ export default function EditProjectRecord({
 				  A section links only when the referencing entity has a navigable
 				  page of its own: `nav` is the accepted, flag-visible page set, so a
 				  child entity with no page (or one this viewer cannot see) shows its
-				  rows without linking anywhere, instead of linking at a 404. There is
-				  no "view all" link at all, because this surface's list pages do not
-				  read a filter from the query string — a link that dropped the filter
-				  would show every row while claiming to show this record's.
+				  rows without linking anywhere, instead of linking at a 404.
+
+				  The count beside each heading is the section's "view all": it links
+				  to the child's own list, filtered to this record. Which sections get
+				  one is `relatedListHref`'s decision and is deliberately narrower
+				  than "all of them" — see it for why, and for why the filter is not
+				  merely permitted through the list page's column narrowing.
 				*/}
 				{related.length > 0 ? (
 					<div className="mt-10 border-t border-border pt-6">
@@ -195,6 +199,7 @@ export default function EditProjectRecord({
 							title="Related"
 							groups={related}
 							linkComponent={Link}
+							listHref={(group) => relatedListHref(nav, group, rowId)}
 							rowHref={(group, childRow) => {
 								const slug = nav.find(
 									(p) => p.resource === group.resource,

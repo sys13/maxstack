@@ -375,6 +375,7 @@ export {
 	type FacetKind,
 	type FacetOption,
 	type FilterValues,
+	isRelationFilterColumn,
 	isSortableColumn,
 	type RangeValue,
 	searchableFields,

@@ -154,6 +154,34 @@ export function sortableFields(resource: IntrospectedResource): string[] {
 		.map((c) => c.name)
 }
 
+/**
+ * Whether a `?filter.<col>=` naming this column may make the page **render**
+ * it — the one widening of "a page controls exactly the columns it renders"
+ * that does not weaken it.
+ *
+ * The rule a list page enforces is that a filter on a column the viewer was
+ * never shown is a comparison oracle over its values. The tempting fix for a
+ * related-records "view all" link (`?filter.<fk>=<parent id>`) is to allow the
+ * FK through the narrowing anyway; that is exactly the hole. The fix that is
+ * not a hole inverts it: **the filter target becomes a rendered column.** The
+ * caller then learns the value by reading it off every row, which is a
+ * disclosure the page was already willing to make, and the oracle buys them
+ * nothing over the plain unfiltered list. The invariant is preserved *by
+ * construction* rather than by exception — there is still no way to filter by
+ * a column the page will not show you.
+ *
+ * The promotion is confined to **declared relations** (`references`), because
+ * that is the only widening any surface needs: an inverse-reference panel
+ * addresses its children through the FK the spec already declares, and the
+ * relation graph is derived, not client-supplied. A column the schema opted out
+ * of filtering (`filterable === false`) or out of rendering (`hidden`) is not
+ * promoted — those are the two declarations that say "not this one", and a
+ * promotion that overrode them would make `hidden` mean nothing at all.
+ */
+export function isRelationFilterColumn(column: IntrospectedColumn): boolean {
+	return isReference(column) && !optedOut(column)
+}
+
 const BOOLEAN_OPTIONS: FacetOption[] = [
 	{ label: 'Yes', value: 'true' },
 	{ label: 'No', value: 'false' },
