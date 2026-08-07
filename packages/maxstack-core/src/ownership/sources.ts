@@ -176,6 +176,10 @@ async function loadManifest(fs: Fs): Promise<RouteManifest> {
  * registry, and not a `sources/` directory. The same absence rule the spec
  * layer uses, and here it carries a second meaning: an empty tree is the
  * platform saying the declarations were enough.
+ *
+ * Removing the last refining source is therefore `pruneSeams`' job, not this
+ * function's: an early return writes nothing, so the stale registry would
+ * survive every run (#355).
  */
 export async function generateSources(
 	fs: Fs,

@@ -50,6 +50,7 @@ import {
 	pageModuleKey,
 	type RegenTarget,
 	type ScheduleDescriptor,
+	type SeamFamily,
 	type SourceDescriptor,
 	scheduleFilePaths,
 	sourceFilePaths,
@@ -152,6 +153,99 @@ function pageTargets(spec: SpecSystem): RegenTarget[] {
 }
 
 /**
+ * Every non-page seam, with **which declarations actually open a slot** — the
+ * one place those filters live.
+ *
+ * `refine`, `format: 'custom'` and `slot` decide three separate things at once:
+ * what the generator emits, what the current derivation is for the drift report,
+ * and — since #355 — what regeneration prunes when the last declaration goes
+ * away. Three copies of a filter is three chances for the pruner to delete a
+ * registry the emitter would have written, so there is one copy and everything
+ * reads it.
+ *
+ * The `slot`-less half of each family is deliberately absent: a source that maps
+ * cleanly, a csv importer, a live channel with no bespoke surface. Their
+ * declaration *is* the implementation and no file exists to keep or remove.
+ */
+export function seamFamilies(spec: SpecSystem): SeamFamilyTarget[] {
+	const refining = sourceDescriptors(spec).filter((d) => d.refine)
+	const custom = importerDescriptors(spec).filter((d) => d.format === 'custom')
+	const slotted = liveDescriptors(spec).filter((d) => d.slot)
+	const schedules = scheduleDescriptors(spec)
+
+	const family = (
+		partial: Omit<SeamFamilyTarget, 'liveKeys' | 'registryContent'>,
+		descriptors: readonly { key: string }[],
+		emit: () => string,
+	): SeamFamilyTarget => ({
+		...partial,
+		liveKeys: descriptors.map((d) => d.key),
+		// `undefined`, not an empty registry: the absence rule is that a project
+		// declaring none of these never had the file at all.
+		registryContent: descriptors.length > 0 ? emit() : undefined,
+	})
+
+	return [
+		family(
+			{
+				noun: 'schedule',
+				stub: 'handler',
+				registryId: 'schedules:registry',
+				stubPrefix: 'schedule:',
+				registryFile: scheduleFilePaths('_').registryFile,
+			},
+			schedules,
+			() => emitScheduleRegistry(schedules),
+		),
+		family(
+			{
+				noun: 'source',
+				stub: 'refiner',
+				registryId: 'sources:registry',
+				stubPrefix: 'source:',
+				registryFile: sourceFilePaths('_').registryFile,
+			},
+			refining,
+			() => emitSourceRegistry(refining),
+		),
+		family(
+			{
+				noun: 'importer',
+				stub: 'parser',
+				registryId: 'imports:registry',
+				stubPrefix: 'import:',
+				registryFile: importerFilePaths('_').registryFile,
+			},
+			custom,
+			() => emitImportRegistry(custom),
+		),
+		family(
+			{
+				noun: 'live channel',
+				stub: 'surface',
+				registryId: 'live:registry',
+				stubPrefix: 'live:',
+				registryFile: liveFilePaths('_').registryFile,
+			},
+			slotted,
+			() => emitLiveRegistry(slotted),
+		),
+	]
+}
+
+/** A {@link SeamFamily} plus what its registry would contain right now. */
+export interface SeamFamilyTarget extends SeamFamily {
+	/** Where the framework-owned registry lives, relative to the app root. */
+	registryFile: string
+	/**
+	 * What the registry would contain today, or `undefined` when the family
+	 * declares nothing that opens a slot and the generator would therefore emit
+	 * no registry at all.
+	 */
+	registryContent: string | undefined
+}
+
+/**
  * The framework-owned registry each non-page seam emits, when it emits one.
  *
  * The absence rule is the generators' own and it is load-bearing here: a project
@@ -162,47 +256,15 @@ function pageTargets(spec: SpecSystem): RegenTarget[] {
  */
 function registryTargets(spec: SpecSystem): RegenTarget[] {
 	const targets: RegenTarget[] = []
-
-	const schedules = scheduleDescriptors(spec)
-	if (schedules.length > 0) {
+	for (const family of seamFamilies(spec)) {
+		if (family.registryContent === undefined) continue
 		targets.push({
-			id: 'schedules:registry',
-			file: scheduleFilePaths('_').registryFile,
+			id: family.registryId,
+			file: family.registryFile,
 			routePath: '',
-			nextContent: emitScheduleRegistry(schedules),
+			nextContent: family.registryContent,
 		})
 	}
-
-	const refining = sourceDescriptors(spec).filter((d) => d.refine)
-	if (refining.length > 0) {
-		targets.push({
-			id: 'sources:registry',
-			file: sourceFilePaths('_').registryFile,
-			routePath: '',
-			nextContent: emitSourceRegistry(refining),
-		})
-	}
-
-	const custom = importerDescriptors(spec).filter((d) => d.format === 'custom')
-	if (custom.length > 0) {
-		targets.push({
-			id: 'imports:registry',
-			file: importerFilePaths('_').registryFile,
-			routePath: '',
-			nextContent: emitImportRegistry(custom),
-		})
-	}
-
-	const slotted = liveDescriptors(spec).filter((d) => d.slot)
-	if (slotted.length > 0) {
-		targets.push({
-			id: 'live:registry',
-			file: liveFilePaths('_').registryFile,
-			routePath: '',
-			nextContent: emitLiveRegistry(slotted),
-		})
-	}
-
 	return targets
 }
 

@@ -35,6 +35,7 @@ import {
 import {
 	orphanedSlots,
 	pageDescriptors,
+	seamFamilies,
 	type UnavailableCheck,
 } from '@maxstack/mcp'
 import {
@@ -202,6 +203,24 @@ export async function validateCommand(dir: string | undefined): Promise<void> {
 				`stale route: ${entry.file} serves ${entry.routePath}, but no page in the spec declares it. ` +
 					'It is in the route table and will 500 on a resource the app no longer has. ' +
 					'Regeneration prunes it — run "maxstack gen" (this run\'s regen pass already has; re-run to confirm).',
+			)
+		}
+		// The same set difference for the seam registries (#355). Scoped to the
+		// case that regeneration cannot fix by itself: while one declaration
+		// survives, the registry is re-emitted from the live descriptors and the
+		// retired key is gone. It is the *last* one that used to persist forever,
+		// because every seam generator early-returns on an empty descriptor list
+		// and an early return writes nothing. A registry left behind is not inert
+		// like a stale route — the runtime imports it through
+		// `owned.generated.tsx`, so its handlers stay resolvable to the job queue.
+		for (const family of seamFamilies(spec)) {
+			if (family.registryContent !== undefined) continue
+			const entry = manifest.entries.find((e) => e.id === family.registryId)
+			if (entry?.ownership !== 'generated') continue
+			failures.push(
+				`stale ${family.noun} registry: ${entry.file} is still tracked and still imported by the runtime, ` +
+					`but the spec declares no ${family.noun} that needs one. Every ${family.stub} it names stays resolvable. ` +
+					'Regeneration prunes it — run "maxstack gen".',
 			)
 		}
 		for (const entry of manifest.entries) {

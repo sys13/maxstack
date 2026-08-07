@@ -151,6 +151,11 @@ async function loadManifest(fs: Fs): Promise<RouteManifest> {
  * A project with no declared schedules emits **nothing** — not an empty
  * registry. The same absence rule the spec layer uses: a project that never
  * declared recurrence should not grow a `jobs/` directory to prove it.
+ *
+ * That early return is also why this cannot unwire the last declaration on its
+ * own, and why `pruneSeams` exists (#355): while one schedule survives the
+ * registry is re-emitted without the retired keys, but undeclaring the final one
+ * writes nothing and would leave the registry — and every handler in it — wired.
  */
 export async function generateSchedules(
 	fs: Fs,

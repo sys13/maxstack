@@ -15,7 +15,7 @@
  * `isRegenStable` on a **second** run over an untouched tree.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -305,6 +305,153 @@ describe('validate notices a manifest orphan (issue #338)', () => {
 		expect(text).toMatch(/stale route: routes\/shelf\.tsx/)
 		// It names the route, so the reader can tell which page they dropped.
 		expect(text).toContain('/shelf')
+		process.exitCode = prev
+		spy.mockRestore()
+	}, 60_000)
+})
+
+/**
+ * Pruning the seam registries — issue #355, the wiring and the gate.
+ *
+ * The decision table is pinned in `packages/maxstack-core`'s
+ * `prune-seams.test.ts` and the per-family cycle in `seam-prune.test.ts`; what
+ * is pinned here is that `maxstack gen` and `maxstack validate` actually reach
+ * them, through a real project on disk.
+ *
+ * Schedules, because the schedule registry is where the cost of getting this
+ * wrong is highest: a stale route is inert until somebody navigates to it,
+ * whereas a handler the runtime can still resolve is machinery pointed at
+ * external systems.
+ */
+const scheduleOp = JSON.stringify({
+	op: 'schedules.declare',
+	args: {
+		schedule: {
+			id: 'sch-sweep',
+			key: 'invoice.sweep',
+			description: 'Issue and send recurring invoices',
+			timezone: 'America/New_York',
+			recurrence: { kind: 'monthly', onDayOfMonth: 28, atTime: '09:00' },
+			runAs: { kind: 'service', role: 'billing' },
+		},
+	},
+})
+
+/** Undeclare every schedule, as a spec edit — there is no `undeclare` op. */
+async function removeSchedules(dir: string): Promise<void> {
+	const project = await loadProject(dir)
+	const spec = await project.spec.load()
+	await project.spec.save({
+		...spec,
+		// Emptied rather than deleted: `writeSpecDir` only writes the files it is
+		// given, so setting the section to `undefined` leaves the old
+		// `schedules.json` on disk and the next load reads it straight back.
+		schedules: { schedules: [] },
+		// Same reason as `removePage`: the codec reconstructs each `declare` entry
+		// from the state it points at, so an entry naming a schedule that is no
+		// longer there fails to decode.
+		opLog: spec.opLog.filter((entry) => entry.diff.targetId !== 'sch-sweep'),
+	})
+}
+
+describe('generateProject — pruning an undeclared schedule (issue #355)', () => {
+	let dir: string
+
+	beforeAll(async () => {
+		dir = await mkdtemp(join(tmpdir(), 'maxstack-gen-355-'))
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		await initCommand(dir, { desc: 'a billing app', git: false })
+		await opCommand(dir, { op: entityOp })
+		await opCommand(dir, { op: pageOp('pg-books', 'Books', '/books', 'table') })
+		await opCommand(dir, { op: scheduleOp })
+	}, 60_000)
+
+	afterAll(async () => {
+		vi.restoreAllMocks()
+		await rm(dir, { recursive: true, force: true })
+	})
+
+	it('unregisters the registry and leaves the handler alone', async () => {
+		await generateProject(await loadProject(dir))
+		const handler = 'jobs/invoice-sweep.handler.ts'
+		expect(await exists(dir, 'jobs/schedules.generated.ts')).toBe(true)
+		expect(await exists(dir, handler)).toBe(true)
+		await writeFile(
+			join(dir, 'app', handler),
+			'// the billing run, by hand\n',
+			'utf8',
+		)
+
+		await removeSchedules(dir)
+		const after = await generateProject(await loadProject(dir))
+
+		// The registry goes. Undeclaring the LAST schedule is the case
+		// regeneration could never fix: every seam generator early-returns on an
+		// empty descriptor list ("no declaration, no directory"), and an early
+		// return writes nothing at all.
+		expect(after.pruned).toContainEqual(
+			expect.objectContaining({
+				file: 'jobs/schedules.generated.ts',
+				action: 'deleted',
+			}),
+		)
+		expect(await exists(dir, 'jobs/schedules.generated.ts')).toBe(false)
+		const manifest = JSON.parse(await appFile(dir, '.generated.routes.json'))
+		const ids = manifest.entries.map((e: { id: string }) => e.id)
+		// Without the entry, `owned.generated.tsx` re-exports an empty map and the
+		// job queue registers no handler for the retired key.
+		expect(ids).not.toContain('schedules:registry')
+
+		// The handler is untouched, still tracked, and reported rather than
+		// silently orphaned — it is the maintainer's code, which is the point.
+		expect(await appFile(dir, handler)).toBe('// the billing run, by hand\n')
+		expect(ids).toContain('schedule:invoice.sweep:slot')
+		expect(after.pruned).toContainEqual(
+			expect.objectContaining({ file: handler, action: 'kept-owned' }),
+		)
+
+		// A prune that is not idempotent is a different bug wearing this one's fix.
+		const second = await generateProject(await loadProject(dir))
+		expect(second.pruned.every((p) => p.action === 'kept-owned')).toBe(true)
+		expect(isRegenStable(second.writes)).toBe(true)
+		expect(await appFile(dir, handler)).toBe('// the billing run, by hand\n')
+	}, 60_000)
+})
+
+describe('validate notices a stale seam registry (issue #355)', () => {
+	let dir: string
+
+	beforeAll(async () => {
+		dir = await mkdtemp(join(tmpdir(), 'maxstack-val-355-'))
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		await initCommand(dir, { desc: 'a billing app', git: false })
+		await opCommand(dir, { op: entityOp })
+		await opCommand(dir, { op: pageOp('pg-books', 'Books', '/books', 'table') })
+		await opCommand(dir, { op: scheduleOp })
+		await generateProject(await loadProject(dir))
+		await removeSchedules(dir)
+	}, 60_000)
+
+	afterAll(async () => {
+		vi.restoreAllMocks()
+		await rm(dir, { recursive: true, force: true })
+	})
+
+	it('fails on a tracked registry the spec no longer needs', async () => {
+		const errors: string[] = []
+		const spy = vi
+			.spyOn(console, 'error')
+			.mockImplementation((...a: unknown[]) => {
+				errors.push(a.join(' '))
+			})
+		const prev = process.exitCode
+		process.exitCode = 0
+		await validateCommand(dir)
+		expect(process.exitCode).toBe(1)
+		expect(errors.join('\n')).toMatch(
+			/stale schedule registry: jobs\/schedules\.generated\.ts/,
+		)
 		process.exitCode = prev
 		spy.mockRestore()
 	}, 60_000)

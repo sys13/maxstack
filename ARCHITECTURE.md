@@ -70,6 +70,18 @@ because that route is yours now. The user-owned slot file beside a pruned module
 is never deleted; `maxstack validate` already fails on a slot with nothing left
 to fill, which is a question only you can answer.
 
+The same reconciliation runs over the four seam registries — schedules, sources,
+imports, live channels. Undeclare one of several and the registry is re-emitted
+without it; undeclare the **last** one and the registry itself goes, because a
+project that declares none never had the file (no declaration, no directory).
+This matters more than a dead route does: a route is inert until somebody visits
+it, while a registry the runtime still imports keeps every retired handler
+resolvable to the job queue, and the work behind a handler reaches external
+systems and writes rows. **The handler, refiner, parser or surface itself is
+never deleted** — it is hand-written domain logic, the whole reason the seam
+exists. Losing its registration is what stops it running; deleting the file is
+yours to do.
+
 ## Owning code
 
 Three levels, in increasing order of commitment:

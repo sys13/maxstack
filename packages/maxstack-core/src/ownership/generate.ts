@@ -25,7 +25,6 @@ import {
 	removeRoutesToModule,
 } from './emit.ts'
 import {
-	hashContent,
 	isRouteModuleEntry,
 	MANIFEST_FILENAME,
 	parseManifest,
@@ -34,6 +33,8 @@ import {
 	serializeManifest,
 	upsertEntry,
 } from './manifest.ts'
+import type { PruneResult } from './prune.ts'
+import { retireGeneratedFile } from './prune.ts'
 import type { Fs, WriteResult } from './write.ts'
 import { writeGenerated, writeUserFileOnce } from './write.ts'
 
@@ -321,41 +322,6 @@ export async function generateResourcePage(
 // Pruning — the direction generation never walked (issue #338)
 // ===========================================================================
 
-/** What pruning did about one stale route module. */
-export type PruneAction =
-	/**
-	 * The module was still genuinely generated — banner intact, bytes matching
-	 * the hash the generator recorded — so the file was deleted along with its
-	 * manifest entry and its `routes.ts` line.
-	 */
-	| 'deleted'
-	/**
-	 * The module is tracked `generated` but its bytes are not the generator's any
-	 * more: somebody edited it in place. The route and the manifest entry are
-	 * dropped — the app stops serving a page the spec does not declare — and the
-	 * **file is left on disk**.
-	 */
-	| 'unwired'
-	/**
-	 * The module is `ejected` or `user`. Nothing was touched at all: not the
-	 * file, not the manifest entry, not the route.
-	 */
-	| 'kept-owned'
-	/**
-	 * The module is still live, but the path it serves moved: its old
-	 * `routes.ts` line was removed so the emitter can insert the current one.
-	 * The file is regenerated as usual; nothing is deleted.
-	 */
-	| 'repathed'
-
-export interface PruneResult {
-	id: string
-	file: string
-	action: PruneAction
-	/** One line naming why this outcome and not deletion. */
-	reason: string
-}
-
 /**
  * Reconcile a project's route modules **down** to the pages the spec still
  * declares: the step `maxstack gen` never had.
@@ -382,27 +348,13 @@ export interface PruneResult {
  *
  * ## Never-clobber decides every case
  *
- * The invariant is that regeneration never deletes manual items, so what may be
- * deleted is exactly what is still the framework's:
- *
- *   - `generated` + on-disk bytes matching the recorded hash → the file is ours,
- *     byte for byte, and we delete it. This is the ordinary case and the one the
- *     issue is about.
- *   - `generated` + bytes that have moved → those bytes are somebody's work,
- *     whatever the manifest says about who owns the file. Deleting them to
- *     enforce a spec change would be exactly the clobber the invariant forbids,
- *     and the edit is evidence of intent that a manifest field cannot outrank.
- *     So the file **stays** and only the wiring goes. That is the honest split:
- *     unwiring stops the 500 (the actual defect) without destroying anything,
- *     and an inert `.tsx` nobody imports costs the maintainer a deletion they
- *     can make deliberately. Reported, so it is not silent.
- *   - `ejected` / `user` → untouched entirely, including the route. The
- *     maintainer took ownership of that module; unwiring it would delete a route
- *     from their app, which is a product decision that is theirs. The drift
- *     report already has a name for this state (`underived`) and a sentence for
- *     it — "the page this was generated for is no longer in the spec … the file
- *     is still yours and still runs" — so the manifest entry stays too, or that
- *     report would go blind the moment pruning shipped.
+ * The decision table is {@link retireGeneratedFile}, shared with
+ * {@link pruneSeams} so the invariant has one implementation: delete only what
+ * is still the framework's byte for byte, unwire (but keep) a `generated` file
+ * somebody has edited, and touch an `ejected`/`user` module not at all —
+ * including its route, because unwiring it would delete a route from an app
+ * whose owner is the maintainer, and because the drift report calls that state
+ * `underived` off the manifest entry that pruning therefore has to leave alone.
  *
  * The user-owned `routes/<resource>.slots.tsx` beside a pruned module is never
  * deleted and never unregistered, for the plainest reason available: it is hand
@@ -468,43 +420,21 @@ export async function prunePages(
 	}
 
 	for (const entry of stale) {
-		if (entry.ownership !== 'generated') {
-			results.push({
-				id: entry.id,
-				file: entry.file,
-				action: 'kept-owned',
-				reason: `you own this module (${entry.ownership}) — the page it came from is gone from the spec, but nothing here is the framework's to remove`,
-			})
-			continue
-		}
-
-		const onDisk = await fs.exists(entry.file)
-		// An absent hash means the manifest cannot vouch for the bytes, which is
-		// the same position as bytes that have moved — treat it as the user's.
-		const stillOurs =
-			!onDisk ||
-			(entry.hash !== undefined &&
-				hashContent(await fs.read(entry.file)) === entry.hash)
-
-		if (stillOurs) {
-			if (onDisk) await fs.remove(entry.file)
-			results.push({
-				id: entry.id,
-				file: entry.file,
-				action: 'deleted',
-				reason: onDisk
-					? "no page in the spec declares this route any more, and the file was still the generator's byte for byte"
-					: 'no page in the spec declares this route any more, and the file was already gone',
-			})
-		} else {
-			results.push({
-				id: entry.id,
-				file: entry.file,
-				action: 'unwired',
-				reason:
-					'no page in the spec declares this route any more, but the file has been edited since it was generated — the route and the manifest entry are gone, the file is left for you to delete',
-			})
-		}
+		const { action, onDisk } = await retireGeneratedFile(fs, entry)
+		results.push({
+			id: entry.id,
+			file: entry.file,
+			action,
+			reason:
+				action === 'deleted'
+					? onDisk
+						? "no page in the spec declares this route any more, and the file was still the generator's byte for byte"
+						: 'no page in the spec declares this route any more, and the file was already gone'
+					: action === 'unwired'
+						? 'no page in the spec declares this route any more, but the file has been edited since it was generated — the route and the manifest entry are gone, the file is left for you to delete'
+						: `you own this module (${entry.ownership}) — the page it came from is gone from the spec, but nothing here is the framework's to remove`,
+		})
+		if (action === 'kept-owned') continue
 
 		routes = removeRoutesToModule(routes, `./${entry.file}`)
 		manifest = removeEntry(manifest, entry.id)

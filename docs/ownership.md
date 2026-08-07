@@ -114,7 +114,14 @@ own copy of those projections (the boundary policy forbids it importing
 `@maxstack/mcp`).
 
 Each generator's **absence rule** holds throughout: a project that declared no
-schedule grows no `jobs/` directory to prove it.
+schedule grows no `jobs/` directory to prove it — and, since the absence rule
+runs in both directions, a project that *stops* declaring one loses the registry
+it grew. Undeclare one schedule of three and the registry is re-emitted with the
+survivors; undeclare the last one and the registry is deleted along with the
+manifest entry the runtime imports it through. The handler, refiner, parser or
+surface itself is **never** deleted: it is your code, and losing its registration
+is what stops it running. `gen` prints a line naming each one, so an unwired
+handler is something you were told about rather than a file that went quiet.
 
 The registries reach the runtime through the same Bar 2 seam owned slot code
 does — `owned.generated.tsx` re-exports each one (`OWNED_SCHEDULE_HANDLERS`,

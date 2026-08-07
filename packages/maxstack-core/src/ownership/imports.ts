@@ -195,6 +195,10 @@ async function loadManifest(fs: Fs): Promise<RouteManifest> {
  * registry, and not an `imports/` directory. The same absence rule the spec layer
  * uses, and here it carries the same second meaning it does for sources: an empty
  * tree is the platform saying the declarations were enough.
+ *
+ * Removing the last custom importer is therefore `pruneSeams`' job, not this
+ * function's: an early return writes nothing, so the stale registry would
+ * survive every run (#355).
  */
 export async function generateImports(
 	fs: Fs,

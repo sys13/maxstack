@@ -23,6 +23,7 @@ import {
 	parseManifest,
 	type PruneResult,
 	prunePages,
+	pruneSeams,
 	recordGeneration,
 	serializeManifest,
 	type WriteResult,
@@ -34,6 +35,7 @@ import {
 	pageDescriptors,
 	regenTargets,
 	scheduleDescriptors,
+	seamFamilies,
 	sourceDescriptors,
 } from '@maxstack/mcp'
 import { resolve } from 'node:path'
@@ -47,7 +49,9 @@ export interface GenerateSummary {
 	/** Doc + e2e artifacts (always overwritten — framework-owned). */
 	artifacts: string[]
 	/**
-	 * Route modules the spec no longer justifies, and what was done about each.
+	 * Everything the spec no longer justifies — route modules (#338) and the
+	 * four seam registries and their write-once halves (#355) — and what was done
+	 * about each.
 	 *
 	 * Deliberately **not** folded into `writes`: `isRegenStable` reads that list
 	 * as "did this run touch anything the user owns", and a prune is the opposite
@@ -79,6 +83,13 @@ export async function generateProject(project: Project): Promise<GenerateSummary
 		fs,
 		new Map(descriptors.map((d) => [pageModuleKey(d), d.routePath])),
 	)
+	// The same reconciliation for the four non-page seams (#355). Also before
+	// emission, and for a sharper reason than the pages': every seam generator
+	// early-returns on an empty descriptor list ("no declaration, no directory"),
+	// so undeclaring the *last* schedule emits nothing at all and the registry —
+	// with every retired handler still in it — would survive any number of runs.
+	const { results: prunedSeams } = await pruneSeams(fs, seamFamilies(spec))
+	pruned.push(...prunedSeams)
 
 	for (const descriptor of descriptors) {
 		const { results } = await generateResourcePage(fs, descriptor)
