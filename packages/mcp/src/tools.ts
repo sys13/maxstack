@@ -803,6 +803,11 @@ async function applyAndSave(
 	const next = applyOp(spec, op, {
 		id,
 		origin: ctx.origin,
+		// Who wrote the op, when the host knows that is not who asked for it
+		// (issue #359). Absent for every host that serves a caller writing its own
+		// ops, and `applyOp` then falls back to `origin` — the answer this had
+		// before the field existed, so no existing path moves.
+		...(ctx.authorship ? { authorship: ctx.authorship } : {}),
 		appliedAt: ctx.now(),
 		// The write-path id is ours to state — unless the host is reusing this
 		// function in process and has its own declared path (issue #358). The
@@ -845,6 +850,9 @@ function projectOp(
 		return applyOp(spec, op, {
 			id: 'op-propose-projection' as OpId,
 			origin: ctx.origin,
+			// Same authorship the real apply would use, so what propose projects and
+			// what apply lands cannot disagree about the row's provenance.
+			...(ctx.authorship ? { authorship: ctx.authorship } : {}),
 			appliedAt: ctx.now(),
 			// Discarded, but stamped honestly all the same: a projection that leaked
 			// into a real op log should name the surface it actually came from.

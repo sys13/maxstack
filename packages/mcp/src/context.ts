@@ -191,6 +191,26 @@ export interface PlatformContext {
 	 */
 	writePath?: string
 	/**
+	 * Who *wrote* the change these tools are about to land, when that is not the
+	 * same as who asked for it — passed through to `applyOp` as
+	 * `ApplyMeta.authorship`, which is what decides the provenance a new row gets.
+	 *
+	 * Optional, defaulting to {@link PlatformContext.origin}, and its absence is
+	 * the right answer for every host that serves a caller writing its own ops:
+	 * an agent over `/mcp` both asks and authors, and so does a person at the CLI.
+	 *
+	 * It exists for the one host where they genuinely differ (issue #359). The
+	 * workbench's Land button reuses `apply_spec_change` in process to land an op
+	 * the clustering layer proposed: the request is a maintainer's form post
+	 * (`origin: 'human'`, which #358 corrected and this does not undo), while the
+	 * op's content is AI-derived. Read as one axis, the corrected requester made
+	 * the landed row `manual()` — indistinguishable from hand-authored, and
+	 * regen-protected. So `origin` answers the op log and `authorship` answers the
+	 * row, and a host supplies the second only where it can name it from a record
+	 * (there, the proposal's own provenance) rather than from the transport.
+	 */
+	authorship?: 'ai' | 'human'
+	/**
 	 * *Which* author is driving — the agent that named itself, the
 	 * session grouping this conversation's ops, the api key that authorized them.
 	 * Host-supplied because only the host knows: this layer sees a JSON-RPC frame,

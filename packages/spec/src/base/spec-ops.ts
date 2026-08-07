@@ -385,9 +385,19 @@ export interface FlagGateTarget {
  * explicit `suggested()` in the op args instead (an undecided
  * default made every MCP-applied field silently invisible to the runtime,
  * which grounds on accepted rows only).
+ *
+ * The axis it reads is {@link ApplyMeta.authorship}, **not**
+ * {@link ApplyMeta.origin}, and the difference is issue #359: `origin` says who
+ * *made the request*, and for a landed AI proposal that is a maintainer at a
+ * browser while the change itself was written by an agent. `authorship` falls
+ * back to `origin` because for every other write path the two genuinely are the
+ * same fact — a person typing `maxstack add-field` both asks for the field and
+ * authored it.
  */
 function defaultProvenance(meta: ApplyMeta): Provenance {
-	return meta.origin === 'human' ? manual() : accept(suggested())
+	return (meta.authorship ?? meta.origin) === 'human'
+		? manual()
+		: accept(suggested())
 }
 
 // ===========================================================================
@@ -7184,6 +7194,26 @@ export interface ApplyMeta {
 	 * not (a placeholder in a provenance record reads as an answer).
 	 */
 	actor: OpActor
+	/**
+	 * Who *wrote the change*, when that is not who asked for it. Drives the
+	 * {@link defaultProvenance} an add op's row lands with; it is **not** recorded
+	 * on the op-log entry, because the log's question is who landed this and
+	 * `origin` + `actor` already answer it truthfully.
+	 *
+	 * Optional, defaulting to `origin`, and issue #359 is why it exists at all.
+	 * `origin` was doing two jobs — who requested this (a per-request audit fact)
+	 * and who authored it (a property of the change, not of the HTTP request that
+	 * carried it) — and they only coincide because for most write paths the
+	 * requester *is* the author. The workbench's Land button is where they come
+	 * apart: a maintainer clicks it (`origin: 'human'`, correctly, since #358) to
+	 * land an op an agent proposed, and inferring authorship from the click
+	 * stamped `manual()` — erasing the AI lineage the review layer exists to keep
+	 * visible, and handing the row the regeneration protection `manual()` carries.
+	 *
+	 * A host states this only when it *knows* the two differ and can say so from a
+	 * record rather than a guess; absent is the honest default everywhere else.
+	 */
+	authorship?: 'ai' | 'human'
 }
 
 /**

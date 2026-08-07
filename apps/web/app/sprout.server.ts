@@ -998,16 +998,23 @@ function seedDemoSpec(): SpecSystem {
  */
 export type PlatformHost = Omit<
 	PlatformContext,
-	'origin' | 'surface' | 'writePath' | 'actor'
+	'origin' | 'surface' | 'writePath' | 'actor' | 'authorship'
 >
 
 /**
  * The per-request half: what a caller must state about itself before these
  * tools will land anything for it.
+ *
+ * `authorship` is the one optional member, and it is optional because it is the
+ * one fact a *request* cannot supply (issue #359): `platformAttributionFor` can
+ * see the transport and therefore the requester, but who wrote the change is a
+ * property of the change. Only a caller holding the record — Land, holding the
+ * proposal it is landing — can name it, so it is stated there rather than
+ * derived here.
  */
 export type PlatformAttribution = Pick<
 	PlatformContext,
-	'origin' | 'surface' | 'writePath' | 'actor'
+	'origin' | 'surface' | 'writePath' | 'actor' | 'authorship'
 >
 
 const platformScope = globalThis as typeof globalThis & {

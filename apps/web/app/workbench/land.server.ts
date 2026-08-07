@@ -53,9 +53,10 @@ import { deriveIssues } from './issues.server'
  * time. The AI lineage is not lost: it is in the decision-ledger entry this
  * function writes (the Issue's own question and rationale) and in the feedback
  * the Issue was clustered from. The consequence to know about is that
- * `applyOp` maps `human` to `manual()` rather than `accept(suggested())`, so
- * the landed row reads as hand-added rather than as an accepted suggestion —
- * both accepted, which is what matters for grounding.
+ * `applyOp` maps `human` to `manual()` rather than `accept(suggested())` — and
+ * that consequence turned out to be a bug in its own right (issue #359), fixed
+ * by {@link candidateAuthorship} below rather than by taking any of the above
+ * back.
  *
  * `writePath` is its own declared entry in `scripts/write-paths.config.json`
  * rather than a borrowed `mcp-apply-spec-change`. Reusing that id was how this
@@ -67,6 +68,32 @@ export const LAND_ATTRIBUTION: PlatformAttribution = {
 	origin: 'human',
 	surface: 'web',
 	writePath: 'web-land-issue',
+}
+
+/**
+ * Who *wrote* the op being landed — the other half of the sentence
+ * {@link LAND_ATTRIBUTION} starts, and issue #359.
+ *
+ * #358 made `origin` truthfully answer "a maintainer, in a browser, clicked
+ * this". `defaultProvenance` then read that same field as "a maintainer wrote
+ * this", and stamped the landed row `manual()`. Two things went wrong at once:
+ * the AI lineage was erased (an `accept(suggested())` row stays visibly
+ * AI-derived after it goes live — that is the point of keeping `isSuggested`
+ * true through an accept), and the row silently picked up the regeneration
+ * protection `isAddedManually` confers, so a regenerate would preserve a row
+ * nobody hand-authored.
+ *
+ * The fix is not to un-fix `origin`: requester and author are two axes, and Land
+ * is the write path where they genuinely differ. So Land states both. This one
+ * is read off the proposal's own record rather than hardcoded `'ai'`, because
+ * the record is what actually knows: an Issue enters the world `suggested()`
+ * from the clustering layer, and `accept` preserves `isSuggested` — so a human
+ * accepting an Issue does not make its candidate op hand-authored, and the flag
+ * still says who wrote it at the moment it lands. A hypothetical hand-authored
+ * Issue would answer `'human'` here and get `manual()`, correctly.
+ */
+export function candidateAuthorship(issue: Issue): 'ai' | 'human' {
+	return issue.provenance.isSuggested ? 'ai' : 'human'
 }
 
 // ===========================================================================
@@ -192,10 +219,15 @@ export async function landIssueCandidate(
 	}
 	const { op } = landable.change
 
-	const applied = await executePlatformTool(platform, 'apply_spec_change', {
-		op: op.op,
-		args: op.args,
-	})
+	// The apply carries the proposal's authorship beside the clicker's identity —
+	// see `candidateAuthorship`. Only this call: the decision-ledger entry below
+	// records a *maintainer's* rationale for landing, which is authored by
+	// whoever clicked and takes no provenance row of its own.
+	const applied = await executePlatformTool(
+		{ ...platform, authorship: candidateAuthorship(issue) },
+		'apply_spec_change',
+		{ op: op.op, args: op.args },
+	)
 	if (applied.isError) {
 		return {
 			landed: false,
