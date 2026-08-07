@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { readSpecDir } from '@maxstack/mcp'
 import { suggested } from '@maxstack/spec'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -58,6 +58,125 @@ describe('maxstack init naming', () => {
 		expect(pkg.name).toBe('widget-tracker')
 
 		await rm(parent, { recursive: true, force: true })
+	})
+})
+
+/**
+ * #331 — `init`'s report opened with a twelve-row inventory of every file the
+ * scaffold wrote, then an MCP paragraph, and only then the two commands the user
+ * is supposed to type. The inventory is reference material: it answers a
+ * question nobody has in the second after running `init`, and it pushed the
+ * actionable part off the first screenful.
+ *
+ * What is pinned here is the standard, not the wording: the next step is near
+ * the top, the inventory is gone from stdout, and — the part that would
+ * otherwise rot silently — the `cd` target actually names the directory the
+ * project was written to, from the directory the user is standing in.
+ */
+describe('what init prints leads with what to type next (#331)', () => {
+	const originalCwd = process.cwd()
+	const dirs: string[] = []
+
+	afterEach(async () => {
+		process.chdir(originalCwd)
+		vi.restoreAllMocks()
+		for (const d of dirs.splice(0))
+			await rm(d, { recursive: true, force: true })
+	})
+
+	/** Run `init` from inside a fresh temp cwd, capturing every printed line. */
+	async function report(arg: string | undefined, name?: string) {
+		const parent = await mkdtemp(join(tmpdir(), 'maxstack-init-report-'))
+		dirs.push(parent)
+		// Resolve the symlinked macOS tmpdir, so a `resolve()` comparison below is
+		// comparing paths and not two spellings of the same one.
+		const cwd = await realpath(parent)
+		process.chdir(cwd)
+		const lines: string[] = []
+		const capture = (...a: unknown[]) => {
+			lines.push(a.join(' '))
+		}
+		vi.spyOn(console, 'log').mockImplementation(capture)
+		vi.spyOn(console, 'warn').mockImplementation(capture)
+
+		await initCommand(
+			arg,
+			{ desc: 'a reading log', git: false },
+			name ? { projectName: async () => name } : {},
+		)
+		return { cwd, lines, text: lines.join('\n') }
+	}
+
+	it('puts the next command inside the first handful of lines', async () => {
+		const { text } = await report('reader')
+		const printed = text.split('\n').flatMap((l) => l.split('\n'))
+		const nonEmpty = printed.filter((l) => l.trim())
+		// The receipt is two lines (name + where it went); the git warning is one
+		// more. The command must be reachable without scrolling past a wall.
+		const cd = nonEmpty.findIndex((l) => l.includes('cd reader'))
+		expect(cd).toBeGreaterThanOrEqual(0)
+		expect(cd).toBeLessThanOrEqual(3)
+	})
+
+	it('no longer inventories the scaffold on stdout', async () => {
+		const { text } = await report('reader')
+		// The old tree, row by row. Any of these back on stdout is the regression.
+		for (const row of [
+			'maxstack.json',
+			'tsconfig.json',
+			'package.json',
+			'biome.jsonc',
+			'.mcp.json',
+			'.claude/settings.json',
+			'.env.example',
+			'mcp__maxstack__*',
+		])
+			expect(text).not.toContain(row)
+		expect(text).not.toMatch(/[├└]/)
+		// Eight lines of report, blank ones included — not the twenty-four it was.
+		// Twelve here because these fixtures pass `--no-git`, which adds the
+		// no-undo warning the real default path does not print.
+		expect(text.split('\n').length).toBeLessThanOrEqual(12)
+	})
+
+	it('prints a cd target that resolves to the project it just wrote', async () => {
+		// The failure this exists to catch: `init` derives the scaffold directory
+		// from the *answered name* when no argument is given, so the printed `cd`
+		// and the actual root are computed from different things and can drift.
+		for (const [arg, name] of [
+			['reader', undefined],
+			[undefined, 'Reading Log'],
+		] as [string | undefined, string | undefined][]) {
+			const { cwd, text } = await report(arg, name)
+			const target = text.match(/cd (\S+)/)?.[1]
+			expect(target, 'no cd hint printed').toBeTruthy()
+			// `cd <target>` from where the user is standing has to land on a real
+			// maxstack project — the one that was just created.
+			const landed = resolve(cwd, target ?? '')
+			expect(
+				JSON.parse(await readFile(join(landed, 'maxstack.json'), 'utf8')).name,
+			).toBe(name ?? 'reader')
+		}
+	})
+
+	it('says where the detail went, and the detail is there', async () => {
+		const { cwd, text } = await report('reader')
+		expect(text).toContain('README.md')
+		// Whatever left stdout has to be findable later, or it was deleted rather
+		// than moved. The README's Layout section is where it went.
+		const readme = await readFile(join(cwd, 'reader', 'README.md'), 'utf8')
+		const layout = readme.slice(readme.indexOf('## Layout'))
+		for (const row of [
+			'maxstack.json',
+			'tsconfig.json',
+			'package.json',
+			'biome.jsonc',
+			'.mcp.json',
+			'.claude/settings.json',
+			'.env.example',
+			'CLAUDE.md',
+		])
+			expect(layout, `README's Layout never mentions ${row}`).toContain(row)
 	})
 })
 

@@ -219,16 +219,15 @@ export async function initCommand(
 	const target = dir ?? kebabCase(projectName)
 	const name = projectName
 
-	const { root, config, invocation, writes, artifacts, git } =
-		await scaffoldProject({
-			root: resolve(target),
-			name,
-			desc: opts.desc,
-			backend: opts.backend,
-			preflightJson: opts.preflightJson,
-			// Commander's `--no-git` sets `git: false`.
-			noGit: opts.git === false,
-		})
+	const { root, invocation, writes, artifacts, git } = await scaffoldProject({
+		root: resolve(target),
+		name,
+		desc: opts.desc,
+		backend: opts.backend,
+		preflightJson: opts.preflightJson,
+		// Commander's `--no-git` sets `git: false`.
+		noGit: opts.git === false,
+	})
 
 	// Install the selected modules through the ordinary `add` path.
 	// Deliberately not a bespoke bulk installer: "select several at init" has to
@@ -242,48 +241,24 @@ export async function initCommand(
 	// `cd` hint: honor whatever the user targeted (arg or prompt answer), but
 	// stay quiet when they landed in the current directory.
 	const where = root === resolve('.') ? '.' : target
-	const sep = glyphs.mid // "·" (UTF-8) / "-" (ASCII), for inline lists
 
+	// #331: what to type next is the first thing on the screen, and very nearly
+	// the only thing on it. This used to open with a twelve-row inventory of
+	// every file the scaffold wrote — reference material, answering a question
+	// nobody has in the second after running `init`, and pushing the two commands
+	// that matter to the bottom of a screenful. The inventory did not disappear:
+	// it lives in the generated README, under `## Layout`, where it is findable
+	// at the moment it is actually wanted.
+	//
+	// The receipt is two lines. The name (with the description folded in when
+	// there is one, so confirming the input costs no extra line), then the
+	// absolute root: `init` with no argument derives the directory from the
+	// answered name, so where the project now lives is the one thing a first-time
+	// user cannot infer from what they typed.
 	console.log(
-		`\n  ${green(glyphs.check)}  ${bold(name)}  ${dim(`${glyphs.dash} maxstack project ready`)}`,
+		`\n  ${green(glyphs.check)}  ${bold(name)}  ${dim(`${glyphs.dash} ${opts.desc || 'maxstack project ready'}`)}`,
 	)
-	if (opts.desc) console.log(`     ${dim(opts.desc)}`)
-	// State where it went, absolutely. `init` with no argument
-	// derives the directory from the answered name, so the one thing a first-time
-	// user cannot infer from what they typed is where their project now lives.
 	console.log(`     ${dim(root)}`)
-
-	console.log(
-		`\n${filelist([
-			[CONFIG_FILENAME, 'project config'],
-			[`${SPEC_DIRNAME}/`, 'the typed one-system spec'],
-			[
-				`${config.appDir}/`,
-				`${count(writes.length, 'route write')} ${sep} ${count(artifacts.length, 'artifact')}`,
-			],
-			['package.json', 'pinned maxstack toolchain'],
-			['tsconfig.json', 'typecheck config for the code you own'],
-			[
-				`biome.jsonc ${sep} vitest.config.ts ${sep} playwright.config.ts`,
-				'the lint · test · e2e gates',
-			],
-			...(git.status === 'initialized'
-				? ([['.git/', 'version control + the scaffold commit']] as [
-						string,
-						string,
-					][])
-				: []),
-			[`README.md ${sep} CLAUDE.md`, 'docs + agent cold-start briefing'],
-			[`.env ${sep} .env.example`, 'generated secrets + committed contract'],
-			['.mcp.json', 'MCP server registration'],
-			['.claude/skills/', 'spec-driven skills'],
-			['.claude/settings.json', 'hook: keeps agents off generated files'],
-		])}`,
-	)
-
-	console.log(
-		`\n  ${cyan('mcp__maxstack__*')} ${dim('tools load in every session')} ${dim(`(${glyphs.dash} .mcp.json spawns`)} ${cyan(`${invocation.shell} mcp`)}${dim(')')}`,
-	)
 
 	// Issue #264. Never-clobber promises the platform will not overwrite code
 	// you own; the thing that makes a mistake survivable is being able to diff
@@ -292,18 +267,26 @@ export async function initCommand(
 	const gitNotice = gitBootstrapNotice(git)
 	if (gitNotice) console.warn(`\n  ! ${gitNotice}`)
 
-	// The agent-driven path is now a single step: `.mcp.json` registers a stdio
+	// The agent-driven path is a single step: `.mcp.json` registers a stdio
 	// server the client starts itself, so there's no "start dev first, in
-	// another shell, before the session" ordering left to get wrong.
-	console.log(`\n  ${bold(`next ${glyphs.dash} let an agent drive it`)}\n`)
+	// another shell, before the session" ordering left to get wrong — which is
+	// why the MCP registration no longer needs a paragraph here.
+	console.log()
 	console.log(
 		steps([
 			...(where !== '.' ? ([[`cd ${where}`, '']] as [string, string][]) : []),
-			['claude', 'just describe what you want built'],
+			[
+				'claude',
+				'describe what you want built — the maxstack tools are already there',
+			],
 		]),
 	)
+	// The two follow-ons, one line each: the server, and where the detail went.
 	console.log(
-		`\n  ${dim('and to watch it run:')} ${cyan(`${invocation.shell} dev`)} ${dim(`${glyphs.dash} the app at localhost:3000`)}\n`,
+		`\n  ${dim('or run it yourself:')} ${cyan(`${invocation.shell} dev`)} ${dim(`${glyphs.dash} the app at localhost:3000`)}`,
+	)
+	console.log(
+		`  ${dim('what was scaffolded:')} ${cyan('README.md')} ${dim(`${glyphs.dash} ${count(writes.length, 'route write')} ${glyphs.mid} ${count(artifacts.length, 'artifact')} generated`)}\n`,
 	)
 
 	// Issue #131: a config that invokes `maxstack` by name resolves to whatever
@@ -339,12 +322,6 @@ const glyphs = {
 	get check() {
 		return isUtf8() ? '✔' : 'ok'
 	},
-	get tee() {
-		return isUtf8() ? '├' : '|'
-	},
-	get corner() {
-		return isUtf8() ? '└' : '`'
-	},
 	get mid() {
 		return isUtf8() ? '·' : '-'
 	},
@@ -356,21 +333,6 @@ const glyphs = {
 /** Pluralize a labeled count: `count(1, 'artifact')` → `1 artifact`. */
 function count(n: number, noun: string): string {
 	return `${n} ${noun}${n === 1 ? '' : 's'}`
-}
-
-/**
- * Render the scaffolded paths as a clean tree — a dim branch glyph, the path,
- * then a dimmed one-line note aligned on a common column. Replaces the old
- * single `·`-joined line, which wrapped mid-token in narrow terminals.
- */
-function filelist(rows: [path: string, note: string][]): string {
-	const width = Math.max(...rows.map(([p]) => p.length))
-	return rows
-		.map(([p, note], i) => {
-			const branch = i === rows.length - 1 ? glyphs.corner : glyphs.tee
-			return `  ${dim(branch)} ${p.padEnd(width)}  ${dim(note)}`
-		})
-		.join('\n')
 }
 
 /**
@@ -780,11 +742,24 @@ through typed spec-ops and never-clobber regeneration.
 
 ## Layout
 
+Everything \`${bin} init\` wrote, and why (#331 — this list used to print to the
+terminal at scaffold time, where it answered a question nobody had yet):
+
 - \`${CONFIG_FILENAME}\` — project config (app dir, data dir, backend, reviewMode)
 - \`${SPEC_DIRNAME}/\` — the one-system spec, split by layer (product · data · pages · pricing · ledger · oplog)
-- \`.mcp.json\` + \`.claude/skills/\` — MCP registration + the spec-driven skills
 - \`${config.appDir}/\` — generated route modules + user-owned slot stubs + manifest
 - \`${config.dataDir}/\` — durable runtime state (created by \`${bin} dev\`)
+- \`package.json\` — the pinned maxstack toolchain and the four gate scripts
+- \`tsconfig.json\` — the compiler config behind \`typecheck\`, covering the code you own
+- \`biome.jsonc\` · \`vitest.config.ts\` · \`playwright.config.ts\` — the lint · test · e2e gates
+- \`.mcp.json\` — registers the MCP server over stdio, so \`mcp__maxstack__*\` loads
+  in **every** agent session (it spawns \`${bin} mcp\`; nothing to start first)
+- \`.claude/skills/\` — the spec-driven skills, auto-loaded
+- \`.claude/settings.json\` — a hook that keeps agents off generated files
+- \`CLAUDE.md\` — the agent cold-start briefing (spec-first, field types, owning a route)
+- \`.env\` — generated secrets, gitignored · \`.env.example\` — the committed contract
+- \`.git/\` — version control, with the whole scaffold in the first commit
+  (skipped by \`--no-git\`, which leaves never-clobber with no undo behind it)
 
 ## Requirements
 
