@@ -30,6 +30,7 @@ import type { PgTable } from 'drizzle-orm/pg-core'
 // pglite — `createDemoDb` — lazy-imports the driver, matching the lazy-import
 // idiom in `sprout/backend.ts` (postgres.js, node:fs).
 import type { drizzle } from 'drizzle-orm/pglite'
+import { classifyConstraintViolation } from '../sprout/constraints.ts'
 import type { ResourceRegistry } from '../sprout/registry.ts'
 import {
 	type SearchHit,
@@ -223,6 +224,39 @@ function searchPredicates(
 	return { where, params }
 }
 
+/**
+ * Run a write and classify what the driver refuses.
+ *
+ * This is the boundary #352 asks for, and it is *here* rather than in the ops
+ * because the SQLSTATE only exists on this side of the store interface: a
+ * `SproutStore` is the contract the ops speak, and the ops must not learn what
+ * a Postgres error looks like to keep working over a store that has no driver
+ * at all. So the driver-shaped fact is turned into a platform-shaped error at
+ * the one place that has both — the store — and everything above it sees a
+ * constructed error it already knows how to render.
+ *
+ * Anything unrecognised is re-thrown **untouched**, so an unexpected failure
+ * keeps its stack and still reaches `fail()` as the generic 500 with the detail
+ * on stderr. Wrapping only the writes is deliberate: class-23 violations are
+ * raised by INSERT/UPDATE/DELETE, and a read that somehow raised one would be a
+ * genuine surprise worth a 500.
+ */
+async function classifyingWrite<T>(
+	registry: ResourceRegistry,
+	resource: string,
+	run: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await run()
+	} catch (error) {
+		const columns =
+			registry.get(resource)?.resource.columns.map((c) => c.name) ?? []
+		const violation = classifyConstraintViolation(error, resource, columns)
+		if (violation) throw violation
+		throw error
+	}
+}
+
 export function createDrizzleStore(
 	db: AnyDb,
 	registry: ResourceRegistry,
@@ -339,28 +373,34 @@ export function createDrizzleStore(
 		},
 		async create(resource, data) {
 			const { table } = tableFor(registry, resource)
-			const rows = await db
-				.insert(table)
-				.values(data as never)
-				.returning()
-			return rows[0] as Row
+			return classifyingWrite(registry, resource, async () => {
+				const rows = await db
+					.insert(table)
+					.values(data as never)
+					.returning()
+				return rows[0] as Row
+			})
 		},
 		async update(resource, id, data) {
 			const { table, pkCol } = tableFor(registry, resource)
-			const rows = await db
-				.update(table)
-				.set(data as never)
-				.where(eq(pkCol as never, id))
-				.returning()
-			return (rows[0] as Row) ?? null
+			return classifyingWrite(registry, resource, async () => {
+				const rows = await db
+					.update(table)
+					.set(data as never)
+					.where(eq(pkCol as never, id))
+					.returning()
+				return (rows[0] as Row) ?? null
+			})
 		},
 		async delete(resource, id) {
 			const { table, pkCol } = tableFor(registry, resource)
-			const rows = (await db
-				.delete(table)
-				.where(eq(pkCol as never, id))
-				.returning()) as unknown[]
-			return rows.length > 0
+			return classifyingWrite(registry, resource, async () => {
+				const rows = (await db
+					.delete(table)
+					.where(eq(pkCol as never, id))
+					.returning()) as unknown[]
+				return rows.length > 0
+			})
 		},
 	}
 }

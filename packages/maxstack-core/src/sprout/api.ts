@@ -4,6 +4,7 @@
  * All authorization/validation lives in operations.ts.
  */
 
+import { ConflictError, ConstraintViolationError } from './constraints.ts'
 import type { ErrorContext } from './error-id.ts'
 import { nextErrorId, reportInternalError } from './error-id.ts'
 import {
@@ -77,6 +78,47 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 					limit: e.limit,
 					current: e.current,
 				},
+			},
+		}
+	}
+	// A duplicate. The one driver failure that is a fact about the *caller's own
+	// request* rather than about the platform, so it is the one that must not be
+	// swallowed by the fallback below: before #336 it came back as Postgres's
+	// prose with a 500 and after #336 as `Internal error` with a 500, and neither
+	// lets a client tell "change one field and retry" from "the database is down"
+	// (#352). It arrives here already classified by SQLSTATE at the store
+	// boundary (`constraints.ts`) — the class is constructed, so this is the same
+	// class test every branch above makes, not a new sniff at a driver string.
+	//
+	// The body names the offending fields and the constraint's identifier and
+	// nothing else. Those are schema — the caller is addressing the table by name
+	// already, and they are what makes the 409 actionable rather than merely
+	// distinct. The statement, the projection, the bound parameters and the
+	// driver's `detail` (which quotes the conflicting row's value) stay on the
+	// original error, which never reaches a body.
+	if (e instanceof ConflictError) {
+		return {
+			status: 409,
+			body: {
+				error: e.message,
+				fieldErrors: e.fieldErrors,
+				conflict: { fields: e.fields, constraint: e.constraint },
+			},
+		}
+	}
+	// Every other integrity violation — a foreign key that points nowhere, a
+	// check the row breaks, a NOT NULL column left empty. 422 with `fieldErrors`,
+	// exactly like `ValidationError`, because that is what it is: a validation
+	// refusal whose rule happens to live in the schema rather than in the Zod
+	// layer. Below `ConflictError` because that is a subclass — reordering these
+	// two would turn every 409 into a 422.
+	if (e instanceof ConstraintViolationError) {
+		return {
+			status: 422,
+			body: {
+				error: e.message,
+				fieldErrors: e.fieldErrors,
+				constraint: { kind: e.kind, name: e.constraint, fields: e.fields },
 			},
 		}
 	}

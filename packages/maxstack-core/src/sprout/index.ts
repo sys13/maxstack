@@ -14,6 +14,7 @@ export * from './api-contract.ts'
 // subpath instead. The `StoreBackend` type still flows through `from-spec.ts`.
 // `./coordination.ts` only *type*-imports `./backend.ts`, so it carries none of
 // the driver weight the note above is about and belongs in the barrel.
+export * from './constraints.ts'
 export * from './coordination.ts'
 export * from './derived.ts'
 export * from './document-embed.ts'
