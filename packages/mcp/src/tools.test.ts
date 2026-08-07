@@ -1414,6 +1414,27 @@ describe('report_defect', () => {
 		expect(res.note).toMatch(/rather than writing it into the decision ledger/)
 	})
 
+	it('describes the not-persisted case its own payload can return', async () => {
+		// An agreement test, not a second assertion about the prose: the
+		// description is only required to disclose the sink-less shape *because*
+		// the tool was just observed producing it on this host. Same drift as #334
+		// on run_generator — a description written for the fullest host, and a
+		// thinner host the client is never told about — so it is pinned the same
+		// way rather than left to be noticed in a dogfood session.
+		const res = payload(
+			await executePlatformTool(ctx, 'report_defect', good),
+		) as { recorded: boolean }
+		const description = platformTools(ctx).find(
+			(t) => t.name === 'report_defect',
+		)?.description
+		if (!description) throw new Error('report_defect missing from the listing')
+		if (res.recorded === false) {
+			expect(description).toMatch(/`recorded`/)
+			expect(description).toMatch(/recorded: false/)
+			expect(description).toMatch(/PERSISTED/)
+		}
+	})
+
 	it('changes nothing about the spec', async () => {
 		const before = JSON.stringify(await ctx.spec.load())
 		await executePlatformTool(ctx, 'report_defect', good)

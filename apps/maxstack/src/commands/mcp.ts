@@ -62,7 +62,7 @@ import { ownershipRiskContext } from '../lib/review-risk.ts'
  * `generateProject` (the same never-clobber writer `maxstack gen` uses) so the
  * tool means on stdio what its name promises.
  */
-function diskPageGenerator(project: Project): RegisteredGenerator {
+export function diskPageGenerator(project: Project): RegisteredGenerator {
 	return {
 		name: 'page',
 		summary:
