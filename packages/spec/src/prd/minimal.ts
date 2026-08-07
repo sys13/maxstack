@@ -13,6 +13,7 @@
  * new project's spec from it.
  */
 
+import { PRD_PLACEHOLDER } from './placeholder.ts'
 import type { PRD } from './prd.types.ts'
 
 export interface MinimalPrdInput {
@@ -66,21 +67,18 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 		},
 		context: {
 			tldr: input.tldr,
-			background:
-				input.background ??
-				'Seeded from a minimal spec skeleton; the background fills in as the product grows change-by-change.',
+			background: input.background ?? PRD_PLACEHOLDER.background,
 		},
 		problem: {
 			statement: input.problem,
-			costOfInaction:
-				'Users keep the data in scattered notes and spreadsheets, and it rots.',
+			costOfInaction: PRD_PLACEHOLDER.costOfInaction,
 			painkillerOrVitamin: 'vitamin',
 		},
 		discovery: {
 			activities: [
 				{
 					id: 'a-interview',
-					description: 'Talk to a handful of target users about the workflow.',
+					description: PRD_PLACEHOLDER.discoveryActivity,
 					type: 'user_research',
 					status: 'done',
 				},
@@ -98,12 +96,12 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 				},
 			],
 			jobsToBeDone: ['Track the domain data', 'Adapt the app over time'],
-			currentWorkarounds: ['Spreadsheets', 'Sticky notes'],
+			currentWorkarounds: [...PRD_PLACEHOLDER.currentWorkarounds],
 		},
 		market: {
 			competitors: [
 				{
-					name: 'A general-purpose spreadsheet',
+					name: PRD_PLACEHOLDER.competitor,
 					type: 'indirect',
 					strengths: ['Flexible', 'Familiar'],
 					weaknesses: ['No domain model', 'No safe evolution'],
@@ -156,7 +154,7 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 		requirements: [
 			{
 				id: 'r-core',
-				userStory: 'As the primary user, I can manage the core domain data.',
+				userStory: PRD_PLACEHOLDER.requirementUserStory,
 				acceptanceCriteria: [
 					'I can create, read, update, and delete the core records.',
 					'The list reflects my changes immediately.',
@@ -194,7 +192,7 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 		assumptions: [
 			{
 				id: 'as-fit',
-				statement: 'The domain model fits the user’s real workflow.',
+				statement: PRD_PLACEHOLDER.assumption,
 				confidence: 0.7,
 				impactIfWrong: 0.8,
 				validatedByActivityId: 'a-interview',
@@ -203,7 +201,7 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 		risks: [
 			{
 				id: 'rk-overfit',
-				description: 'The app overfits one workflow and resists change.',
+				description: PRD_PLACEHOLDER.risk,
 				type: 'technical_risk',
 				likelihood: 0.3,
 				impact: 0.6,
@@ -233,7 +231,7 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 					id: 'ms-mvp',
 					name: 'MVP live',
 					date: input.milestoneDate ?? '2026-08-01',
-					deliverable: 'The core flow works end-to-end.',
+					deliverable: PRD_PLACEHOLDER.milestoneDeliverable,
 					deliversRequirementIds: ['r-core'],
 				},
 			],
@@ -261,7 +259,7 @@ export function minimalPRD(input: MinimalPrdInput): PRD {
 			killCriteria: [
 				{
 					metricId: 'm-north-star',
-					threshold: 'Flat for two months after launch.',
+					threshold: PRD_PLACEHOLDER.killCriterion,
 					action: 'reassess',
 				},
 			],

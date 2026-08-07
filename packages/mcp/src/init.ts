@@ -62,6 +62,7 @@ import {
 	SPEC_OP_VOCABULARY,
 	type SpecOp,
 	type SpecSystem,
+	unauthoredPrdNotice,
 	validateOpDryRun,
 } from '@maxstack/spec'
 import { type BlastRadius, blastRadius } from './blast-radius.ts'
@@ -382,6 +383,15 @@ export async function initReport(
 		project: {
 			title: now.product.meta.title,
 			status: now.product.meta.status,
+			// #343: `maxstack init` writes a structurally complete product doc, so
+			// an agent reading `problem` or `personas` here gets fluent English
+			// whether or not a human ever wrote a word of it. Named, never
+			// omitted — the same rule `unavailable` applies to a check that could
+			// not run, for the same reason: unwritten and written must not look
+			// alike.
+			...(unauthoredPrdNotice(now.product)
+				? { productDoc: unauthoredPrdNotice(now.product) }
+				: {}),
 			requirements: now.product.requirements.length,
 			entities: now.data.entities.length,
 			pages: now.pages.pages.length,
@@ -427,9 +437,13 @@ function headlineFor(
 	unavailable: UnavailableCheck[],
 ): string {
 	const shape = `"${spec.product.meta.title}": ${spec.data.entities.length} entit${spec.data.entities.length === 1 ? 'y' : 'ies'}, ${spec.pages.pages.length} page(s), ${spec.opLog.length} op(s) applied.`
+	const doc = unauthoredPrdNotice(spec.product)
+	const unwritten = doc ? ` ${doc}` : ''
 	const gap =
 		unavailable.length > 0
 			? ` ${unavailable.length} part(s) of this picture could not be answered by this host — see \`unavailable\`; they are unknown, not empty.`
 			: ''
-	return batch ? `${batch.headline} ${shape}${gap}` : `${shape}${gap}`
+	return batch
+		? `${batch.headline} ${shape}${unwritten}${gap}`
+		: `${shape}${unwritten}${gap}`
 }

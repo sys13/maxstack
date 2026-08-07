@@ -3,9 +3,11 @@ import {
 	type EntitySpec,
 	type FieldSpec,
 	manual,
+	minimalPRD,
 	newSpecSystem,
 	type OpId,
 	type PageSpec,
+	prdSeedProse,
 	type SpecSystem,
 	suggested,
 } from '@maxstack/spec'
@@ -1566,5 +1568,64 @@ describe('effect (what the op did to the application)', () => {
 		const body = data(res) as { valid: boolean; effect: unknown }
 		expect(body.valid).toBe(false)
 		expect(body.effect).toBeNull()
+	})
+})
+
+/**
+ * #343 — `maxstack init` seeds a structurally complete product doc so the PRD
+ * validates, which means an agent calling `query_spec {section:"product"}` gets
+ * fluent English about a persona, a competitor and a kill criterion whether or
+ * not a human ever wrote a word of it. Grounding on that is grounding on
+ * invention, and the payload gave no way to tell.
+ */
+describe('query_spec (#343 — an unauthored product doc says so)', () => {
+	/** The doc a project has right after `maxstack init`. */
+	function seededCtx(): PlatformContext {
+		const seed = prdSeedProse('reader')
+		return ctxFor(
+			newSpecSystem(
+				minimalPRD({
+					title: 'reader',
+					tldr: seed.tldr,
+					problem: seed.problem,
+					northStar: seed.northStar,
+					persona: seed.persona,
+					differentiation: seed.differentiation,
+				}),
+			),
+		)
+	}
+
+	it('names the gap in the summary — the section every session reads', async () => {
+		const res = data(
+			await executePlatformTool(seededCtx(), 'query_spec', {}),
+		) as { productDoc?: string }
+		expect(res.productDoc).toContain('never been authored')
+		expect(res.productDoc).toContain('problem.statement')
+	})
+
+	it('names it beside the doc itself, not only in the summary', async () => {
+		const res = data(
+			await executePlatformTool(seededCtx(), 'query_spec', {
+				section: 'product',
+			}),
+		) as { unauthored?: { path: string }[]; note?: string; problem: unknown }
+		// The content is still returned whole — the gap is annotation, not
+		// redaction; an agent that wants to read the scaffold still can.
+		expect(res.problem).toBeTruthy()
+		expect(res.unauthored?.map((u) => u.path)).toContain('problem.statement')
+		expect(res.note).toContain('never been authored')
+	})
+
+	it('says nothing at all once the doc is authored', async () => {
+		const summary = data(await executePlatformTool(ctx, 'query_spec', {})) as {
+			productDoc?: string
+		}
+		expect(summary.productDoc).toBeUndefined()
+		const product = data(
+			await executePlatformTool(ctx, 'query_spec', { section: 'product' }),
+		) as { unauthored?: unknown; note?: unknown }
+		expect(product.unauthored).toBeUndefined()
+		expect(product.note).toBeUndefined()
 	})
 })

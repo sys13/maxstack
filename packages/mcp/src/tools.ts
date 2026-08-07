@@ -57,6 +57,8 @@ import {
 	SPEC_OP_VOCABULARY,
 	type SpecOp,
 	type SpecSystem,
+	unauthoredPrdNotice,
+	unauthoredPrdSections,
 	validateOpDryRun,
 } from '@maxstack/spec'
 import { argErrors } from './args.ts'
@@ -577,8 +579,20 @@ function querySection(
 	args: Record<string, unknown> = {},
 ): unknown {
 	switch (section) {
-		case 'product':
-			return spec.product
+		case 'product': {
+			// The doc, plus what in it was never written (#343). A PRD that reads
+			// as authored but is not is worse than an absent one: an agent
+			// grounding on `problem.statement` cannot tell a decision from the
+			// scaffold `maxstack init` left behind, so the gap is named beside the
+			// content rather than left to be inferred.
+			const unauthored = unauthoredPrdSections(spec.product)
+			if (unauthored.length === 0) return spec.product
+			return {
+				...spec.product,
+				unauthored,
+				note: unauthoredPrdNotice(spec.product),
+			}
+		}
 		case 'requirements':
 			return spec.product.requirements.map((r) => ({
 				id: r.id,
@@ -618,6 +632,12 @@ function querySection(
 			return {
 				title: spec.product.meta.title,
 				status: spec.product.meta.status,
+				// Present only when there IS a gap, so the common case costs
+				// nothing — but never absent while the gap exists, because the
+				// summary is the one section every session reads.
+				...(unauthoredPrdNotice(spec.product)
+					? { productDoc: unauthoredPrdNotice(spec.product) }
+					: {}),
 				requirements: spec.product.requirements.length,
 				entities: spec.data.entities.length,
 				pages: spec.pages.pages.length,

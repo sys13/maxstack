@@ -239,6 +239,38 @@ describe('maxstack platform verbs', () => {
 		spy.mockRestore()
 	})
 
+	/**
+	 * #343 — the product doc `init` writes is fluent, complete and entirely
+	 * invented, and this project has by now applied several real spec-ops without
+	 * a single surface mentioning it. Silence was the bug: a reviewer opening the
+	 * repo could not tell the PRD had never been written, because it *was*
+	 * written. This is the end-to-end version of that claim — real `init`, real
+	 * ops, real gate, real stdout.
+	 */
+	it('validate says the product doc is still init boilerplate, after real ops', async () => {
+		const warnings: string[] = []
+		const spy = vi
+			.spyOn(console, 'warn')
+			.mockImplementation((...a: unknown[]) => {
+				warnings.push(a.join(' '))
+			})
+		const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const prev = process.exitCode
+		process.exitCode = 0
+		await validateCommand(dir)
+		process.exitCode = prev
+		spy.mockRestore()
+		errSpy.mockRestore()
+
+		const text = warnings.join('\n')
+		expect(text).toMatch(/product doc/)
+		expect(text).toMatch(/maxstack init" skeleton/)
+		// Names the sections, not just the fact — and says what to do.
+		expect(text).toContain('problem.statement')
+		expect(text).toContain('goals.northStarMetric')
+		expect(text).toContain('spec/product.json')
+	})
+
 	it('validate goes green once those checks can run and pass', async () => {
 		// Stand in for an installed toolchain: the runner refuses to run a declared
 		// script with no node_modules, because a missing toolchain is a check that

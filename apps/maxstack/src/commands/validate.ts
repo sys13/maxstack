@@ -39,11 +39,13 @@ import {
 } from '@maxstack/mcp'
 import {
 	listPortals,
+	PRD_SECTION_COUNT,
 	portalExposureReport,
 	summarizeExposure,
+	unauthoredPrdSections,
 } from '@maxstack/spec'
 import { generateProject, isRegenStable } from '../lib/generate.ts'
-import { loadProject } from '../lib/project.ts'
+import { loadProject, SPEC_DIRNAME } from '../lib/project.ts'
 import { projectCheckRunner } from '../lib/project-checks.ts'
 
 export async function validateCommand(dir: string | undefined): Promise<void> {
@@ -55,6 +57,36 @@ export async function validateCommand(dir: string | undefined): Promise<void> {
 	console.log(
 		`✔ spec valid: ${spec.data.entities.length} entities · ${spec.pages.pages.length} pages`,
 	)
+
+	// 1a. The product doc — how much of it is still the `maxstack init`
+	// skeleton (#343).
+	//
+	// `init` has to write a structurally complete PRD (an incomplete one does not
+	// validate), which means a fresh project starts with a fluent, plausible
+	// product brief that nobody wrote: a persona, a competitor, a milestone with
+	// a real date, a kill criterion. It survived every op because nothing ever
+	// mentioned it. This is the mention.
+	//
+	// Printed, not failed. Not having written the PRD on op three is a normal
+	// state and failing the gate for it would teach people to ignore the gate —
+	// but silence let a seven-op project ship a brief about a product it wasn't.
+	{
+		const unauthored = unauthoredPrdSections(spec.product)
+		if (unauthored.length > 0) {
+			console.warn(
+				`\n⚠ product doc: ${unauthored.length} of ${PRD_SECTION_COUNT} sections are still the "maxstack init" skeleton — nobody authored them:`,
+			)
+			for (const gap of unauthored)
+				console.warn(`  - ${gap.path} — ${gap.hint}`)
+			console.warn(
+				`  Nothing here is a decision until you write it. Edit ${SPEC_DIRNAME}/product.json, or the Product pane in \`maxstack workbench\`.\n`,
+			)
+		} else {
+			console.log(
+				`✔ product doc authored: none of its ${PRD_SECTION_COUNT} sections is init boilerplate`,
+			)
+		}
+	}
 
 	// 1b. Slot-name hygiene — a `slot:<name>` block's id normally stems-match
 	// its own type suffix (`blk-pack-loadout` / `slot:pack_loadout`); when it

@@ -31,7 +31,12 @@ import {
 	type PageListSurface,
 	slotBlockName,
 } from '@maxstack/core/ownership'
-import type { PageSpec, SpecSystem } from '@maxstack/spec'
+import {
+	type PageSpec,
+	type SpecSystem,
+	unauthoredPrdNotice,
+	unauthoredPrdSections,
+} from '@maxstack/spec'
 import type {
 	GeneratorInfo,
 	GeneratorResult,
@@ -81,25 +86,48 @@ export function counted(
 // docs — project-tailored Markdown, derived from the spec
 // ===========================================================================
 
+/**
+ * The generated overview used to open with whatever `maxstack init` had written
+ * — a placeholder tl;dr, a placeholder problem statement, and a requirement
+ * whose acceptance criteria were "I can create, read, update, and delete the
+ * core records" (#343). That is the first document a human opens, and it led
+ * with three paragraphs nobody wrote, ahead of the pages and entities that were
+ * real.
+ *
+ * So an unauthored section is **omitted** here rather than printed, and the
+ * omission is stated at the top. A doc derived from the spec cannot invent the
+ * missing half, but it can refuse to pass scaffold off as content.
+ */
 function docsOverview(spec: SpecSystem): string {
 	const { product, data, pages, pricing } = spec
+	const unwritten = new Set(unauthoredPrdSections(product).map((s) => s.path))
 	const lines: string[] = []
 	lines.push(`# ${product.meta.title}`, '')
-	if (product.context.tldr) lines.push(product.context.tldr, '')
+	if (product.context.tldr && !unwritten.has('context.tldr'))
+		lines.push(product.context.tldr, '')
 
-	lines.push('## Problem', '', product.problem.statement, '')
+	const notice = unauthoredPrdNotice(product)
+	if (notice)
+		lines.push(`> **${notice}** Sections below it would fill are omitted.`, '')
 
-	lines.push('## North-star metric', '')
-	const ns = product.goals.northStarMetric
-	lines.push(`- **${ns.name}** — ${ns.definition}`, '')
+	if (!unwritten.has('problem.statement'))
+		lines.push('## Problem', '', product.problem.statement, '')
 
-	lines.push(`## Requirements (${product.requirements.length})`, '')
-	for (const r of product.requirements) {
-		lines.push(`### ${r.id} · ${r.priority}`, '', r.userStory, '')
-		if (r.acceptanceCriteria.length) {
-			lines.push('Acceptance criteria:')
-			for (const c of r.acceptanceCriteria) lines.push(`- ${c}`)
-			lines.push('')
+	if (!unwritten.has('goals.northStarMetric')) {
+		lines.push('## North-star metric', '')
+		const ns = product.goals.northStarMetric
+		lines.push(`- **${ns.name}** — ${ns.definition}`, '')
+	}
+
+	if (!unwritten.has('requirements')) {
+		lines.push(`## Requirements (${product.requirements.length})`, '')
+		for (const r of product.requirements) {
+			lines.push(`### ${r.id} · ${r.priority}`, '', r.userStory, '')
+			if (r.acceptanceCriteria.length) {
+				lines.push('Acceptance criteria:')
+				for (const c of r.acceptanceCriteria) lines.push(`- ${c}`)
+				lines.push('')
+			}
 		}
 	}
 
@@ -143,6 +171,13 @@ export const docsGenerator: RegisteredGenerator = {
 			artifacts: [{ path: 'docs/OVERVIEW.md', content: docsOverview(spec) }],
 			notes: [
 				`Generated docs/OVERVIEW.md from ${counted(spec.product.requirements.length, 'requirement')}.`,
+				// Named in the notes, not only inside the artifact: an agent reads
+				// the notes and may never open the file it just wrote.
+				...(unauthoredPrdNotice(spec.product)
+					? [
+							`${unauthoredPrdNotice(spec.product)} Those sections are omitted from the overview rather than printed as content.`,
+						]
+					: []),
 			],
 		}
 	},

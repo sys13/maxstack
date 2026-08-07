@@ -1,3 +1,4 @@
+import { PRD_SECTION_COUNT, unauthoredPrdSections } from '@maxstack/spec'
 import type { ReactNode } from 'react'
 import { getPlatform } from '~/sprout.server'
 import type { Route } from './+types/admin.spec.product'
@@ -7,7 +8,16 @@ export async function loader() {
 	// The PRD is a plain serializable object; hand it to the view whole and let
 	// each section guard its own fields, so a partial/evolving brief still
 	// renders whatever it does have.
-	return { product: spec.product }
+	//
+	// `unauthored` is computed here rather than eyeballed in the view (#343):
+	// `maxstack init` writes a complete, fluent brief nobody wrote, and this pane
+	// rendered it exactly like a real one. Which sections are still scaffold is a
+	// fact about the doc, so it is derived once, from the same helper the CLI
+	// gate and the MCP summary use, and shown at the top where it is read.
+	return {
+		product: spec.product,
+		unauthored: unauthoredPrdSections(spec.product),
+	}
 }
 
 /** A titled block that renders nothing when it has no children. */
@@ -64,6 +74,7 @@ export default function SpecProduct({ loaderData }: Route.ComponentProps) {
 		)
 	}
 	const scope = p.scope
+	const unauthored = loaderData.unauthored ?? []
 	return (
 		<section className="max-w-4xl">
 			<div className="flex flex-wrap items-baseline gap-3">
@@ -83,6 +94,27 @@ export default function SpecProduct({ loaderData }: Route.ComponentProps) {
 					.filter(Boolean)
 					.join(' · ')}
 			</div>
+
+			{unauthored.length > 0 ? (
+				<div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+					<div className="font-semibold">
+						{unauthored.length} of {PRD_SECTION_COUNT} sections have never been
+						authored
+					</div>
+					<p className="mt-1 text-muted-foreground">
+						They are still the <code>maxstack init</code> skeleton. What you
+						read below in these sections was scaffolded, not decided — treat it
+						as blank:
+					</p>
+					<ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+						{unauthored.map((gap) => (
+							<li key={gap.path}>
+								<code>{gap.path}</code> — {gap.hint}
+							</li>
+						))}
+					</ul>
+				</div>
+			) : null}
 
 			<Section title="Context">
 				{p.context ? (

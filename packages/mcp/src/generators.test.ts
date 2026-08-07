@@ -6,7 +6,13 @@ import {
 	type RouteManifest,
 } from '@maxstack/core/ownership'
 import type { EntitySpec, PageSpec, SpecSystem } from '@maxstack/spec'
-import { manual, newSpecSystem, suggested } from '@maxstack/spec'
+import {
+	manual,
+	minimalPRD,
+	newSpecSystem,
+	prdSeedProse,
+	suggested,
+} from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
 import { describe, expect, it } from 'vitest'
 import {
@@ -403,5 +409,78 @@ describe('pageDescriptors (issue #337 — one route module per page)', () => {
 		])
 		// Drop the middle page: the survivor keeps the module it already wrote.
 		expect(modules([books, third])).toEqual([undefined, 'archive'])
+	})
+})
+
+/**
+ * #343 — `docs/OVERVIEW.md` is the first document a human opens, and it opened
+ * with three paragraphs `maxstack init` had invented: a placeholder tl;dr, a
+ * placeholder problem statement, and a requirement whose acceptance criteria
+ * were "I can create, read, update, and delete the core records". The real
+ * pages and entities came after them.
+ */
+describe('docs generator (#343 — never prints scaffold as content)', () => {
+	const entity: EntitySpec = {
+		id: 'e-book',
+		name: 'Book',
+		fields: [
+			{
+				id: 'fld-title',
+				name: 'title',
+				type: 'string',
+				required: true,
+				provenance: manual(),
+			},
+		],
+		provenance: manual(),
+	}
+
+	/** The doc a project has right after `maxstack init`, plus one real entity. */
+	function seededSpec(): SpecSystem {
+		const seed = prdSeedProse('reader')
+		const base = newSpecSystem(
+			minimalPRD({
+				title: 'reader',
+				tldr: seed.tldr,
+				problem: seed.problem,
+				northStar: seed.northStar,
+				persona: seed.persona,
+				differentiation: seed.differentiation,
+			}),
+		)
+		return { ...base, data: { entities: [entity] }, pages: { pages: [] } }
+	}
+
+	it('omits the unauthored sections and says that it did', async () => {
+		const res = await docsGenerator.run(seededSpec(), {})
+		const content = res.artifacts[0]?.content ?? ''
+
+		// The three sections that used to lead the document.
+		expect(content).not.toContain('## Problem')
+		expect(content).not.toContain('## North-star metric')
+		expect(content).not.toContain('## Requirements')
+		expect(content).not.toContain(
+			'I can create, read, update, and delete the core records.',
+		)
+		// The omission is stated, not silent — and the real content still lands.
+		expect(content).toContain('never been authored')
+		expect(content).toContain('## Data model (1 entity)')
+
+		// An agent reads the notes and may never open the file it just wrote.
+		expect(res.notes?.join('\n')).toContain('never been authored')
+	})
+
+	it('prints every section once the doc is authored', async () => {
+		const authored = newSpecSystem(tasklyPRD)
+		const res = await docsGenerator.run(
+			{ ...authored, data: { entities: [entity] } },
+			{},
+		)
+		const content = res.artifacts[0]?.content ?? ''
+		expect(content).toContain('## Problem')
+		expect(content).toContain('## North-star metric')
+		expect(content).toContain('## Requirements')
+		expect(content).not.toContain('never been authored')
+		expect(res.notes?.join('\n')).not.toContain('never been authored')
 	})
 })

@@ -17,7 +17,12 @@
 import { resolve } from 'node:path'
 import type { InstalledBundle } from '@maxstack/features/bundle'
 import { createFileSpecStore, type SpecStore } from '@maxstack/mcp'
-import { minimalPRD, newSpecSystem, type SpecSystem } from '@maxstack/spec'
+import {
+	minimalPRD,
+	newSpecSystem,
+	prdSeedProse,
+	type SpecSystem,
+} from '@maxstack/spec'
 
 /** On-disk project config (`maxstack.json`). */
 export interface ProjectConfig {
@@ -163,19 +168,31 @@ function isoDateDaysFromNow(days: number): string {
 	return d.toISOString().slice(0, 10)
 }
 
-/** Seed a fresh spec system from a title + description (a minimal valid PRD).
- * The description is a pitch, so it seeds only `context.tldr`; the problem
- * statement stays a neutral placeholder until the user authors one. */
+/**
+ * Seed a fresh spec system from a title + description (a minimal valid PRD).
+ *
+ * The description is a pitch, so it seeds only `context.tldr`. Everything else
+ * comes from {@link prdSeedProse}, whose strings say **UNWRITTEN** out loud
+ * (#343). They used to read like an authored brief — "Weekly active use", "The
+ * maintainer", "Grown safely over time through typed spec-ops" — which is why a
+ * project seven ops deep still shipped them: nothing distinguished the sentence
+ * nobody wrote from the sentence somebody did, so nobody rewrote either.
+ *
+ * The doc stays structurally complete (a PRD missing required containers does
+ * not validate, and the generators ground on its shape), but nothing in it can
+ * now be mistaken for a decision. `unauthoredPrdSections` finds exactly these
+ * strings and every surface that reads the spec reports the gap.
+ */
 export function seedSpec(name: string, description: string): SpecSystem {
+	const seed = prdSeedProse(name)
 	return newSpecSystem(
 		minimalPRD({
 			title: name,
-			tldr: description || `${name} — a maxstack project.`,
-			problem: `${name} models a small domain that grows change-by-change through the maxstack loop.`,
-			northStar: 'Weekly active use',
-			persona: 'The maintainer',
-			differentiation:
-				'Grown safely over time through typed spec-ops and never-clobber regeneration.',
+			tldr: description || seed.tldr,
+			problem: seed.problem,
+			northStar: seed.northStar,
+			persona: seed.persona,
+			differentiation: seed.differentiation,
 			lastUpdated: todayISO(),
 			milestoneDate: isoDateDaysFromNow(MILESTONE_LEAD_DAYS),
 		}),
