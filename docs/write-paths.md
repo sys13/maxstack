@@ -59,8 +59,18 @@ interface OpActor {
 }
 ```
 
-Three rules this follows, all of which have bitten before:
+Four rules this follows, all of which have bitten before:
 
+- **`surface` belongs to the host, never to the code that lands the op.** A tool
+  cannot know what carried the request to it. `apply_spec_change` used to stamp
+  `surface: 'mcp'` on the reasoning that an MCP tool is self-evidently reached
+  over MCP — but `executePlatformTool` is an ordinary function, and the
+  workbench's Land button calls it in process from an HTTP form post. So a
+  maintainer clicking a button recorded `{origin: 'ai', surface: 'mcp'}`: an
+  agent write that never happened, in the record this whole document exists to
+  make trustworthy. `PlatformContext.origin` and `PlatformContext.surface` are
+  therefore both required and both supplied per request, and a host that reuses
+  a tool in process names its own declared path via `writePath`.
 - **`surface` is not `origin`.** A human runs the CLI and so does an agent
   (where the verbs
   hardcoded `'human'` and an agent shelling out to `maxstack add-entity` logged

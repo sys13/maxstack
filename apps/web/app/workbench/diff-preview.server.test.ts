@@ -156,6 +156,7 @@ function platform(
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
 		origin: 'ai',
+		surface: 'mcp',
 		now: () => '2026-07-12',
 		nextOpId: () => `op-test-${++counter}` as OpId,
 	}

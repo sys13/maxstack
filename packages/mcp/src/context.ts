@@ -23,6 +23,7 @@ import type {
 	ISODate,
 	OpActor,
 	OpId,
+	OpSurface,
 	RiskContext,
 	SpecSystem,
 } from '@maxstack/spec'
@@ -158,14 +159,48 @@ export interface PlatformContext {
 	/** Who is driving — stamped onto applied ops + recorded decisions. */
 	origin: 'ai' | 'human'
 	/**
+	 * The transport this context was built for — stamped as `actor.surface` on
+	 * every op these tools land.
+	 *
+	 * Required, and supplied by the host rather than by the tools, because the
+	 * tools cannot know it. That reads as obvious and was got wrong (issue #358):
+	 * `applyAndSave` used to hardcode `surface: 'mcp'` on the reasoning that an
+	 * MCP tool is self-evidently reached over MCP. It is not. `executePlatformTool`
+	 * is an ordinary function, and the workbench's Land button calls it in process
+	 * from an HTTP form post — so a maintainer clicking a button in a browser
+	 * recorded `{origin: 'ai', surface: 'mcp'}`, an agent write that never
+	 * happened, in the one record the review layer exists to be trusted about.
+	 *
+	 * So `surface` sits beside `origin`: the two facts a host must state about
+	 * *itself* before it may land anything, neither derivable from the other (a
+	 * human and an agent both drive the CLI, and both drive the web workbench).
+	 * Required rather than defaulted for the reason the write-path registry is an
+	 * allowlist — a new host that has not thought about attribution should fail to
+	 * compile, not inherit somebody else's answer.
+	 */
+	surface: OpSurface
+	/**
+	 * The write-path registry id to stamp instead of the tool's own.
+	 *
+	 * Optional because it is only meaningful for a host that reuses these tools
+	 * *in process* rather than serving them over MCP: `apply_spec_change` reached
+	 * over JSON-RPC really is `mcp-apply-spec-change`, but the same call made by
+	 * `land.server.ts` is `web-land-issue`, a separately declared and separately
+	 * covered path. Left absent, each tool stamps the path it is declared as in
+	 * `scripts/write-paths.config.json`.
+	 */
+	writePath?: string
+	/**
 	 * *Which* author is driving — the agent that named itself, the
 	 * session grouping this conversation's ops, the api key that authorized them.
 	 * Host-supplied because only the host knows: this layer sees a JSON-RPC frame,
 	 * not the process that sent it.
 	 *
-	 * `surface` and `path` are filled in by the tools themselves (they know which
-	 * tool they are), so a host only has to answer the parts it actually knows —
-	 * and a host that knows nothing supplies nothing rather than a placeholder.
+	 * Deliberately identity-only: `surface` is the host's own field above and
+	 * `path` is the tool's, so a host answers exactly the parts it can actually
+	 * know — and a host that knows nothing supplies nothing rather than a
+	 * placeholder. This is the same split `resolveAgentIdentity` makes on the CLI
+	 * side (issue #279).
 	 */
 	actor?: Pick<OpActor, 'agent' | 'session' | 'keyId'>
 	/** Current date; deterministic in tests, wall-clock in production. */

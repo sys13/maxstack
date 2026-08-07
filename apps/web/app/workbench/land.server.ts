@@ -6,6 +6,9 @@
  * validates the op, appends it to `opLog` with provenance, and persists —
  * this module only decides *which* candidate is eligible and records why.
  *
+ * Reusing the tool is *not* the same as arriving over MCP, and conflating the
+ * two is what issue #358 fixed — see {@link LAND_ATTRIBUTION} below.
+ *
  * Only `kind: 'spec-op', via: 'apply-op'` candidates are landable this way —
  * the only `BenchmarkChange` kind that carries an actual typed `SpecOp`.
  * `regen-diff`/`slot-fill`/`eject`/`off-surface` candidates don't have one (by
@@ -21,8 +24,50 @@ import {
 	landableCandidates,
 } from '@maxstack/spec-derive/clustering'
 import { resolveDataDir } from '~/data-dir.server'
-import { getPlatform } from '~/sprout.server'
+import { type PlatformAttribution, platformFor } from '~/sprout.server'
 import { deriveIssues } from './issues.server'
+
+/**
+ * Who lands an Issue — a maintainer, in a browser, having read the Issue and
+ * clicked Land.
+ *
+ * This is issue #358's fix, and the reason it needed one is worth keeping: the
+ * call below reuses `apply_spec_change`, an *MCP tool*, as an in-process
+ * library. Before, it took the web host's process-wide `PlatformContext`, which
+ * had been built once at boot with `origin: 'ai'` for the `/mcp` endpoint — so
+ * a human clicking a button in a form post recorded
+ * `{origin: 'ai', actor: {surface: 'mcp', path: 'mcp-apply-spec-change'}}`.
+ * Every field of that is false, and the falsehood is in the one record the
+ * review layer exists to be trusted about.
+ *
+ * `surface: 'web'` is not arguable: this is an HTTP form post from a browser,
+ * whatever the op says.
+ *
+ * `origin: 'human'` is the arguable half and is still right. The op's *content*
+ * was AI-derived — it came out of clustering the feedback — so `ai` has a
+ * reading. But `origin` answers who *landed* it (see `actor.ts`: "the author
+ * kind"), and the whole design of this step is that nothing lands until a
+ * maintainer accepts the Issue and then separately chooses to land it. Stamping
+ * `ai` would say an agent wrote to the spec unattended, which is exactly the
+ * event a reviewer scans this log for, and it would be a false positive every
+ * time. The AI lineage is not lost: it is in the decision-ledger entry this
+ * function writes (the Issue's own question and rationale) and in the feedback
+ * the Issue was clustered from. The consequence to know about is that
+ * `applyOp` maps `human` to `manual()` rather than `accept(suggested())`, so
+ * the landed row reads as hand-added rather than as an accepted suggestion —
+ * both accepted, which is what matters for grounding.
+ *
+ * `writePath` is its own declared entry in `scripts/write-paths.config.json`
+ * rather than a borrowed `mcp-apply-spec-change`. Reusing that id was how this
+ * path passed `check-write-paths.mjs` while being undeclared: the checker
+ * accounts for call *sites*, and this one is inside a file another path already
+ * claims.
+ */
+export const LAND_ATTRIBUTION: PlatformAttribution = {
+	origin: 'human',
+	surface: 'web',
+	writePath: 'web-land-issue',
+}
 
 // ===========================================================================
 // The landed-issue store — which issue keys have already been landed, so the
@@ -119,7 +164,7 @@ function firstText(result: { content: { text: string }[] }): string {
  */
 export async function landIssueCandidate(
 	issueKeyToLand: string,
-	platform: PlatformContext = getPlatform(),
+	platform: PlatformContext = platformFor(LAND_ATTRIBUTION),
 ): Promise<LandResult> {
 	if ((await allLandedKeys()).has(issueKeyToLand)) {
 		return { landed: false, reason: 'already landed' }

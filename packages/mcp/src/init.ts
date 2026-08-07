@@ -217,7 +217,10 @@ async function runBatch(
 				id: `op-init-projection-${index}` as OpId,
 				origin: ctx.origin,
 				appliedAt: ctx.now(),
-				actor: { ...ctx.actor, surface: 'mcp', path: 'init-projection' },
+				// Surface from the host, never assumed (issue #358) — see
+				// `PlatformContext.surface`. The path stays this projection's own
+				// name so a leaked entry is findable.
+				actor: { ...ctx.actor, surface: ctx.surface, path: 'init-projection' },
 			})
 		} catch (e) {
 			// The validator blessed it and the fold threw — that is a defect, not a
@@ -269,7 +272,11 @@ async function runBatch(
 			id: ctx.nextOpId(),
 			origin: ctx.origin,
 			appliedAt: ctx.now(),
-			actor: { ...ctx.actor, surface: 'mcp', path: 'mcp-init-batch' },
+			actor: {
+				...ctx.actor,
+				surface: ctx.surface,
+				path: ctx.writePath ?? 'mcp-init-batch',
+			},
 		})
 	}
 	await ctx.spec.save(next)

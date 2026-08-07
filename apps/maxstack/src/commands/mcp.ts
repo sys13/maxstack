@@ -201,6 +201,10 @@ export function platformContext(
 		// CLI reads it because an agent shelling out is indistinguishable from a
 		// person typing, which is exactly the ambiguity this transport removes.
 		origin: 'ai',
+		// The other half of the same statement (issue #358): this process IS a
+		// stdio MCP server, so `mcp` is a fact about it and not a guess the tools
+		// were making on its behalf.
+		surface: 'mcp',
 		// *Which* agent, from the same environment the CLI reads (issue #279).
 		// An MCP server registered in `.mcp.json` is spawned by the agent client
 		// and inherits its env, so `CLAUDECODE` / `MAXSTACK_AGENT` /

@@ -28,6 +28,7 @@ function platform(): PlatformContext {
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
 		origin: 'ai',
+		surface: 'mcp',
 		now: () => '2026-07-09',
 		nextOpId: () => `op-${++n}` as OpId,
 	}

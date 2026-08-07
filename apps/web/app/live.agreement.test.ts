@@ -266,7 +266,10 @@ describe('the composition root actually wires the publisher', () => {
 		const delegating = src.split('export async function getContext(')[1] ?? ''
 		expect(
 			delegating.split('export async function contextForUser(')[0],
-		).toContain('return contextForUser(user)')
+			// `contextForUser(user, …)` since issue #358 — the request path also hands
+			// down the attribution it derived from the request. What is asserted is
+			// the delegation, not the argument list.
+		).toContain('return contextForUser(user,')
 	})
 })
 

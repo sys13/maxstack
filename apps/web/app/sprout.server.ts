@@ -967,14 +967,51 @@ function seedDemoSpec(): SpecSystem {
 	return spec
 }
 
-// The platform-tools context (spec ops / generators / checks). A module
-// singleton so applied ops persist across requests, mirroring the Sprout store.
-// With a data dir (the default in dev — see resolveDataDir) the spec is a
-// durable JSON document on disk, seeded from the Taskly fixture on first boot;
-// point MAXSTACK_DATA_DIR at a project (e.g. a generated project) to open
-// the workbench over that project's own spec. In-memory only under unit tests.
+// ===========================================================================
+// The platform host, and the attribution it deliberately does NOT carry
+// ===========================================================================
+
+/**
+ * Everything about the platform tools that is a property of *this process* —
+ * the spec store, the generators, the checks, the host-wired providers. A
+ * module singleton so applied ops persist across requests, mirroring the Sprout
+ * store. With a data dir (the default in dev — see resolveDataDir) the spec is a
+ * durable JSON document on disk, seeded from the Taskly fixture on first boot;
+ * point MAXSTACK_DATA_DIR at a project (e.g. a generated project) to open
+ * the workbench over that project's own spec. In-memory only under unit tests.
+ *
+ * What it pointedly leaves out is who is writing. `PlatformContext` bundles two
+ * unlike things: *capabilities*, which are per-process and expensive to build,
+ * and *attribution*, which is per-request and free. Storing both in one
+ * singleton meant whoever wrote the singleton picked one answer for every
+ * caller forever — and picked `origin: 'ai'`, because at the time the only
+ * caller was `POST /mcp`. Then the workbench's Land button started calling
+ * `executePlatformTool` in process, and a maintainer clicking a button in a
+ * browser began recording `{origin: 'ai', actor: {surface: 'mcp'}}` (issue
+ * #358). Nothing warned, because a singleton has nothing to warn about.
+ *
+ * So the singleton is now the capability half only, and its type says so:
+ * `PlatformHost` cannot be passed to `executePlatformTool`, because it has no
+ * `origin` and no `surface`. Every write goes through {@link platformFor},
+ * which demands both. That is a compile error rather than a convention — the
+ * same posture as `scripts/check-write-paths.mjs` being an allowlist.
+ */
+export type PlatformHost = Omit<
+	PlatformContext,
+	'origin' | 'surface' | 'writePath' | 'actor'
+>
+
+/**
+ * The per-request half: what a caller must state about itself before these
+ * tools will land anything for it.
+ */
+export type PlatformAttribution = Pick<
+	PlatformContext,
+	'origin' | 'surface' | 'writePath' | 'actor'
+>
+
 const platformScope = globalThis as typeof globalThis & {
-	__maxstackPlatform?: PlatformContext
+	__maxstackPlatform?: PlatformHost
 }
 
 function buildSpecStore(): SpecStore {
@@ -983,12 +1020,11 @@ function buildSpecStore(): SpecStore {
 	return createFileSpecStore(specDir, { seed: seedDemoSpec })
 }
 
-export function getPlatform(): PlatformContext {
+export function getPlatform(): PlatformHost {
 	platformScope.__maxstackPlatform ??= {
 		spec: buildSpecStore(),
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
-		origin: 'ai',
 		now: () => new Date().toISOString().slice(0, 10),
 		nextOpId: () => `op-${crypto.randomUUID()}` as OpId,
 		// Catalog discovery + install preview over MCP. Wired here
@@ -1042,6 +1078,66 @@ export function getPlatform(): PlatformContext {
 		},
 	}
 	return platformScope.__maxstackPlatform
+}
+
+/**
+ * The process's platform capabilities, plus one caller's attribution — the only
+ * way to get something `executePlatformTool` will accept.
+ *
+ * A fresh object per call over a shared host: the capabilities are the
+ * expensive, stateful part and are genuinely process-wide (one spec store, one
+ * generator registry), while `{origin, surface, writePath, actor}` is four
+ * fields that cost nothing to rebuild and are wrong the moment they are
+ * remembered across two requests.
+ */
+export function platformFor(attribution: PlatformAttribution): PlatformContext {
+	return { ...getPlatform(), ...attribution }
+}
+
+/**
+ * The JSON-RPC endpoint (`app/routes/mcp.ts`). Kept as a named constant beside
+ * the rule that reads it so the coupling is visible from both ends.
+ */
+const MCP_ENDPOINT = '/mcp'
+
+/**
+ * What the platform tools may claim about a request that arrived over HTTP.
+ *
+ * One derivation for every entry point into this app, rather than a default
+ * somebody remembers to override — which is precisely how issue #358 happened,
+ * except that the singleton was not even a default, it was an answer given once
+ * at boot and then applied to everybody.
+ *
+ * The rule is that the **transport is the signal**, the same reasoning the stdio
+ * host settles `origin` with (issue #279) and the only signal that is actually
+ * available here:
+ *
+ *   - `POST /mcp` is the agent protocol. Nothing else speaks JSON-RPC to this
+ *     app; a person uses the workbench. So `{ai, mcp}`.
+ *   - Everything else arrived from a browser — a workbench action, an admin or
+ *     project form post, a REST call. So `{human, web}`.
+ *
+ * Two things it deliberately does not do. It does not read `MAXSTACK_AGENT` /
+ * `MAXSTACK_SESSION` the way the CLI and the stdio host do: that environment
+ * belongs to the *server process*, not to whoever made the request, and copying
+ * the CLI's resolution here would stamp the operator's agent name on every
+ * visitor's write. And it does not try to distinguish an api-key REST caller
+ * from an interactive one, because it does not have to — `mayUsePlatformTools`
+ * in `@maxstack/mcp` refuses an api-key identity the platform tools outright,
+ * and no REST route touches the spec at all. The `web`/`human` answer applies
+ * only where it can actually be recorded, and there it is right.
+ *
+ * The runtime `origin: 'system'` of a background write is a different axis
+ * entirely and is untouched by any of this: it lives on the audit log
+ * (`session | api-key | mcp | system | portal`, see `sources.server.ts`), and
+ * the source-loop guard reads it there. A `PlatformContext` cannot express
+ * `system` and never could — background work does not author spec ops.
+ */
+export function platformAttributionFor(request: Request): PlatformAttribution {
+	const isJsonRpc = new URL(request.url).pathname === MCP_ENDPOINT
+	return isJsonRpc
+		? { origin: 'ai', surface: 'mcp' }
+		: { origin: 'human', surface: 'web' }
 }
 
 // The audit sink is a process-lifetime singleton so a record's history survives
@@ -1473,7 +1569,11 @@ export async function getContext(request: Request): Promise<McpContext> {
 	if (user) {
 		user.orgId = await resolveActiveOrg(request, user, registry, store)
 	}
-	return contextForUser(user)
+	// Attribution is derived from the request, not remembered from boot — see
+	// `platformAttributionFor` and issue #358. This is the whole reason it is a
+	// parameter: `getContext` is the one place in the web app that has the
+	// request in hand, and every HTTP entry point comes through it.
+	return contextForUser(user, platformAttributionFor(request))
 }
 
 /**
@@ -1489,13 +1589,23 @@ export async function getContext(request: Request): Promise<McpContext> {
  */
 export async function contextForUser(
 	user: SproutUser | null,
+	platform?: PlatformAttribution,
 ): Promise<McpContext> {
 	const { registry, store } = await getSprout()
 	return {
 		registry,
 		store,
 		user,
-		platform: getPlatform(),
+		// Omitted, not defaulted, when the caller named no attribution. `platform`
+		// is optional on `McpContext` precisely so a context that cannot honestly
+		// say who is writing does not get spec-authoring tools — which is the right
+		// answer for background work: a source poll or a queued job is not an
+		// author, and `PlatformContext` has no vocabulary for one (`origin` is
+		// `ai | human`, and the runtime's `system` lives on the audit log, where
+		// the source loop guard still reads it). A future HTTP entry point that
+		// forgets to attribute itself therefore fails loudly with "unknown tool"
+		// rather than quietly landing ops under somebody else's name.
+		...(platform ? { platform: platformFor(platform) } : {}),
 		// Records create/update/delete so per-record history has something to read.
 		audit: getAuditSink(),
 		// Populates computed fields and rollups on every read op, so

@@ -35,6 +35,7 @@ function ctxFor(spec: SpecSystem): PlatformContext {
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
 		origin: 'ai',
+		surface: 'mcp',
 		now: () => '2026-08-02',
 		nextOpId: () => `op-${++n}` as OpId,
 	}

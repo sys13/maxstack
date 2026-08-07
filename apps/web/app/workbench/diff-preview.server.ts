@@ -29,7 +29,6 @@
  * instead of guessing.
  */
 
-import type { PlatformContext } from '@maxstack/mcp'
 import {
 	applyOp,
 	type PageSpec,
@@ -37,7 +36,7 @@ import {
 	type SpecOp,
 	type SpecSystem,
 } from '@maxstack/spec'
-import { getPlatform } from '~/sprout.server'
+import { getPlatform, type PlatformHost } from '~/sprout.server'
 import { deriveIssues } from './issues.server'
 import { allLandedKeys } from './land.server'
 import { type RenderedPreview, renderGeneratedPage } from './preview.server'
@@ -107,7 +106,7 @@ const PREVIEW_APPLY_META = {
 /** Render one spec's page (or report why it can't) — shared by the before and
  *  after branches so they run through the exact same path. */
 async function renderPage(
-	platform: PlatformContext,
+	platform: PlatformHost,
 	spec: SpecSystem,
 	pageId: string,
 ): Promise<RenderedPreview | null> {
@@ -155,7 +154,11 @@ async function findQueueItem(key: string): Promise<QueueItem | null> {
  */
 export async function loadDiffPreview(
 	key: string,
-	platform: PlatformContext = getPlatform(),
+	// `PlatformHost`, not `PlatformContext`: this whole module is a preflight —
+	// it renders what a change *would* do and throws the result away — so it has
+	// no business carrying an `origin` or a `surface`. Since issue #358 the type
+	// says that out loud instead of accepting one and ignoring it.
+	platform: PlatformHost = getPlatform(),
 ): Promise<DiffPreviewData | null> {
 	const item = await findQueueItem(key)
 	if (!item) return null

@@ -804,9 +804,16 @@ async function applyAndSave(
 		id,
 		origin: ctx.origin,
 		appliedAt: ctx.now(),
-		// The surface and the write-path id are ours to state; the rest is
-		// whatever the host could actually answer.
-		actor: { ...ctx.actor, surface: 'mcp', path: 'mcp-apply-spec-change' },
+		// The write-path id is ours to state — unless the host is reusing this
+		// function in process and has its own declared path (issue #358). The
+		// surface is never ours: an MCP tool is not proof of an MCP transport,
+		// only the host knows what carried the request, and guessing produced a
+		// browser click recorded as an agent's MCP write.
+		actor: {
+			...ctx.actor,
+			surface: ctx.surface,
+			path: ctx.writePath ?? 'mcp-apply-spec-change',
+		},
 	})
 	await ctx.spec.save(next)
 	trace.spec = next
@@ -839,7 +846,9 @@ function projectOp(
 			id: 'op-propose-projection' as OpId,
 			origin: ctx.origin,
 			appliedAt: ctx.now(),
-			actor: { ...ctx.actor, surface: 'mcp', path: 'propose-projection' },
+			// Discarded, but stamped honestly all the same: a projection that leaked
+			// into a real op log should name the surface it actually came from.
+			actor: { ...ctx.actor, surface: ctx.surface, path: 'propose-projection' },
 		})
 	} catch {
 		return null

@@ -52,6 +52,7 @@ function ctxFor(
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
 		origin: 'ai',
+		surface: 'mcp',
 		now: () => '2026-07-29',
 		nextOpId: () => `op-${++n}` as OpId,
 		actor,
@@ -410,4 +411,57 @@ describe('the MCP read tools never write', () => {
 			expect(await ctx.spec.load()).toEqual(before)
 		})
 	}
+})
+
+// ===========================================================================
+// The attribution these tools stamp is the HOST's, not their own (#358)
+// ===========================================================================
+
+describe('the platform tools never invent a surface', () => {
+	/** The same host as `ctxFor`, re-attributed as an in-process caller. */
+	function inProcess(spec: SpecSystem): PlatformContext {
+		return {
+			...ctxFor(spec),
+			origin: 'human',
+			surface: 'web',
+			writePath: 'web-land-issue',
+		}
+	}
+
+	it('stamps the host surface and write path on an applied op', async () => {
+		// `executePlatformTool` is an ordinary function, and the web workbench
+		// calls it in process from an HTTP form post. Hardcoding `surface: 'mcp'`
+		// here — on the reasoning that an MCP tool implies an MCP transport — is
+		// what made a browser click record as an agent's MCP write (issue #358).
+		const ctx = inProcess(newSpecSystem(tasklyPRD))
+		await executePlatformTool(ctx, 'apply_spec_change', addUndecided)
+
+		const spec = await ctx.spec.load()
+		const applied = spec.opLog[spec.opLog.length - 1]
+		expect(applied?.origin).toBe('human')
+		expect(applied?.actor?.surface).toBe('web')
+		expect(applied?.actor?.path).toBe('web-land-issue')
+	})
+
+	it('stamps them on a batched op too', async () => {
+		const ctx = inProcess(newSpecSystem(tasklyPRD))
+		await executePlatformTool(ctx, 'init', { ops: [addUndecided], apply: true })
+
+		const spec = await ctx.spec.load()
+		const applied = spec.opLog[spec.opLog.length - 1]
+		expect(applied?.actor?.surface).toBe('web')
+		expect(applied?.actor?.path).toBe('web-land-issue')
+	})
+
+	it('keeps its own write-path id when the host does not override one', async () => {
+		// The default is still the declared MCP path — a host serving JSON-RPC
+		// should not have to restate what the tool already knows about itself.
+		const ctx = { ...ctxFor(newSpecSystem(tasklyPRD)), surface: 'mcp' as const }
+		await executePlatformTool(ctx, 'apply_spec_change', addUndecided)
+		const spec = await ctx.spec.load()
+		expect(spec.opLog[spec.opLog.length - 1]?.actor).toMatchObject({
+			surface: 'mcp',
+			path: 'mcp-apply-spec-change',
+		})
+	})
 })

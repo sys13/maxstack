@@ -62,6 +62,7 @@ export function docContext(): PlatformContext {
 		]),
 		checks: defaultCheckRunner(),
 		origin: 'ai',
+		surface: 'mcp',
 		now: () => '1970-01-01' as never,
 		nextOpId: () => 'op-doc' as never,
 		// The three host-gated providers, present so their tools are documented.

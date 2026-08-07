@@ -190,6 +190,18 @@
 			"why": "The workbench asking “what are you trying to build?” and writing the answer down (issue #256). Lands the maintainer's own sentence as a product-layer requirement via `prd.addRequirement`, `origin: 'human'` because they typed it — their goal must not end up attributed to whichever agent later writes the code for it. Reuses the existing product vocabulary rather than inventing an `intent` concept, so `query_spec {section:\"product\"}` returns it and the agent reads the intent out of the spec instead of being told it in a prompt that vanishes with the conversation. `canAccept: false` and asserted so: writing down a goal must never settle somebody else's pending proposal, and this is the only write path on this surface that a user reaches without first being shown a row to decide about."
 		},
 		{
+			"id": "web-land-issue",
+			"surface": "web",
+			"site": "apps/web/app/workbench/land.server.ts",
+			"via": "packages/mcp/src/tools.ts",
+			"kind": "write",
+			"authorKind": "human",
+			"grounds": true,
+			"canAccept": false,
+			"coveredBy": "apps/web/app/platform-attribution.invariant.test.ts",
+			"why": "The workbench's Land button — an accepted Issue's candidate op, landed by a maintainer who read the Issue and clicked. It reaches applyOp through `apply_spec_change` in packages/mcp/src/tools.ts, reused as an in-process library rather than served over MCP, which is why it needs its own declaration: before issue #358 it borrowed `mcp-apply-spec-change`'s id and surface wholesale, so a browser form post recorded `{origin: 'ai', surface: 'mcp'}` — an agent write that never happened — and the checker passed it because the call *site* was already accounted for. `origin: 'human'` because a person decided to land it; the AI lineage of the op's content lives in the decision-ledger entry landed alongside it. `canAccept: false`: landing writes a new row, it never settles somebody else's pending one."
+		},
+		{
 			"id": "web-bulk-review",
 			"surface": "web",
 			"site": "apps/web/app/workbench/bulk-review.server.ts",

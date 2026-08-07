@@ -8,7 +8,11 @@ import { newSpecSystem, type OpId, type SpecSystem } from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
 import type { ProposedCluster } from '@maxstack/spec-derive/clustering'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { allLandedKeys, landIssueCandidate } from './land.server'
+import {
+	allLandedKeys,
+	LAND_ATTRIBUTION,
+	landIssueCandidate,
+} from './land.server'
 
 const scope = globalThis as typeof globalThis & {
 	__maxstackFeedback?: unknown[]
@@ -86,7 +90,9 @@ function platform(): PlatformContext {
 		spec: createInMemorySpecStore(spec),
 		generators: defaultGeneratorRunner(),
 		checks: defaultCheckRunner(),
-		origin: 'ai',
+		// The real attribution the Land button declares, spread rather than
+		// restated, so these tests exercise what production stamps (issue #358).
+		...LAND_ATTRIBUTION,
 		now: () => '2026-07-12',
 		nextOpId: () => `op-test-${++counter}` as OpId,
 	}
