@@ -18,6 +18,7 @@ import {
 	opSearch,
 	opSearchCount,
 	opUpdate,
+	RateLimitedError,
 	UnknownResourceError,
 	UnsupportedOperationError,
 	ValidationError,
@@ -30,7 +31,72 @@ export interface ApiResponse<T = unknown> {
 	body: T
 }
 
-function fail(e: unknown): ApiResponse {
+/** Which call was being served when it failed — server-side log context for an
+ * unrecognized error, never part of the response body. */
+interface FailContext {
+	resource: string
+	operation: string
+}
+
+/**
+ * A short correlation id, in `logger.ts`'s `req_…` shape so the two ids read as
+ * the same kind of thing in a log pipeline. It is handed to the caller *and*
+ * printed with the detail, which is the whole point: a user can quote it in a
+ * bug report and the operator can find the one line that says what actually
+ * broke.
+ */
+function nextErrorId(): string {
+	return `err_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * The detail, to stderr, as one structured JSON line — the shape
+ * `logRequest`/`createConsoleErrorReporter` already emit (`level`, `type`,
+ * then fields), so a deployed app's logs stay greppable and `maxstack doctor`'s
+ * "go and read stderr" advice lands somewhere useful.
+ *
+ * `@maxstack/core` may not import `@maxstack/features` (see
+ * `scripts/boundaries.config.json`), so this cannot reuse the observability
+ * reporter; it deliberately duplicates only the line *shape*, not the logic.
+ */
+function logInternalError(
+	e: unknown,
+	errorId: string,
+	context: FailContext,
+): void {
+	const err = e instanceof Error ? e : new Error(String(e))
+	console.error(
+		JSON.stringify({
+			level: 'error',
+			type: 'api-internal-error',
+			errorId,
+			resource: context.resource,
+			operation: context.operation,
+			name: err.name,
+			message: err.message,
+			stack: err.stack,
+		}),
+	)
+}
+
+/**
+ * The failure boundary for every REST body.
+ *
+ * The split it draws is between an error *we* constructed — a 404, a 403, a 422
+ * validation refusal, a 429 budget — which was written for the caller and goes
+ * back verbatim, and anything else, which arrived from the driver or the store.
+ * A driver error's `message` is the failed statement: the SQL, every column name
+ * in the projection, and the bound parameters. Returning it published the
+ * table's shape — including columns a read policy deliberately omits from the
+ * serialized row — plus whatever the caller had just sent, to an unauthenticated
+ * `GET` (#336). So the fallback is a fixed string plus a correlation id, and the
+ * detail goes to stderr.
+ *
+ * The boundary is *class* membership, never a scan of the message text: an error
+ * type added later is generic until someone deliberately maps it here, which is
+ * the safe direction to fail.
+ */
+function fail(e: unknown, context: FailContext): ApiResponse {
 	if (e instanceof ValidationError) {
 		// Every 422 is repair instructions: `error` names the
 		// resource, the operation and every rejected field; `fieldErrors` states
@@ -72,10 +138,17 @@ function fail(e: unknown): ApiResponse {
 	if (e instanceof UnsupportedOperationError) {
 		return { status: 422, body: { error: e.message } }
 	}
-	return {
-		status: 500,
-		body: { error: e instanceof Error ? e.message : String(e) },
+	// A declared portal's hourly write budget, spent. Constructed by
+	// `opCreate`/`opUpdate` and addressed to the caller ("try again later"), so it
+	// belongs on this side of the boundary — and it has to be named explicitly,
+	// because the generic fallback below would otherwise turn a rate-limit refusal
+	// into an unactionable 500 the caller retries immediately.
+	if (e instanceof RateLimitedError) {
+		return { status: 429, body: { error: e.message } }
 	}
+	const errorId = nextErrorId()
+	logInternalError(e, errorId, context)
+	return { status: 500, body: { error: 'Internal error', errorId } }
 }
 
 export async function listHandler(
@@ -86,7 +159,7 @@ export async function listHandler(
 	try {
 		return { status: 200, body: await opList(ctx, resource, opts) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'list' })
 	}
 }
 
@@ -125,7 +198,7 @@ export async function searchHandler(
 		])
 		return { status: 200, body: { query, total, results } }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'search' })
 	}
 }
 
@@ -137,7 +210,7 @@ export async function getHandler(
 	try {
 		return { status: 200, body: await opGet(ctx, resource, id) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'get' })
 	}
 }
 
@@ -149,7 +222,7 @@ export async function countHandler(
 	try {
 		return { status: 200, body: { count: await opCount(ctx, resource, opts) } }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'count' })
 	}
 }
 
@@ -161,7 +234,7 @@ export async function getManyHandler(
 	try {
 		return { status: 200, body: await opGetMany(ctx, resource, ids) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'getMany' })
 	}
 }
 
@@ -173,7 +246,7 @@ export async function createHandler(
 	try {
 		return { status: 201, body: await opCreate(ctx, resource, data) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'create' })
 	}
 }
 
@@ -186,7 +259,7 @@ export async function updateHandler(
 	try {
 		return { status: 200, body: await opUpdate(ctx, resource, id, data) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'update' })
 	}
 }
 
@@ -198,7 +271,7 @@ export async function deleteHandler(
 	try {
 		return { status: 200, body: { success: await opDelete(ctx, resource, id) } }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'delete' })
 	}
 }
 
@@ -212,6 +285,6 @@ export async function restoreHandler(
 	try {
 		return { status: 200, body: await opRestore(ctx, resource, id) }
 	} catch (e) {
-		return fail(e)
+		return fail(e, { resource, operation: 'restore' })
 	}
 }
