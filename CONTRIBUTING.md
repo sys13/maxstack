@@ -116,6 +116,23 @@ specific bug shipped green. That history is the argument for keeping them:
 
 - **`check-test-integrity`** — see below.
 
+Two more need a build, so they run in CI's `smoke` job rather than in `validate`
+(nothing in `validate` emits a bundle, so neither failure is visible to it):
+
+- **`check-chunk-cycles`** — a cycle between emitted chunks makes initialization
+  order decide whether a module-level binding is defined when another chunk
+  reads it. That is a boot crash, for code that passed every test.
+
+- **`check-payload-budget`** — `maxstack-runtime` ships `apps/web/build`
+  verbatim, and 87% of a cold start is the download, so payload size is a
+  latency number. It grew 22.9MB → 41.5MB unnoticed, and 16.8MB of that was
+  three files *nothing referenced*: the client build walked into
+  `@electric-sql/pglite`, emitted its wasm and data assets, then tree-shook away
+  every chunk that could name them. So the check has two halves — a total under
+  budget, and zero unreferenced assets, the second being the one that names the
+  class instead of the instance. Run it yourself with
+  `pnpm --filter @maxstack/web build && pnpm check:payload-budget`.
+
 ## Test integrity
 
 Never make a gate pass by weakening it: no deleting, skipping or loosening a

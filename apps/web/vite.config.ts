@@ -1,7 +1,75 @@
 import { reactRouter } from '@react-router/dev/vite'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { ownedSlotDevPlugin } from './vite-owned-slots-plugin.ts'
+
+const PGLITE_CLIENT_STUB = '\0maxstack:pglite-client-stub'
+
+/**
+ * Keep Postgres-in-WASM out of the *client* build.
+ *
+ * `@maxstack/core`'s `sprout/backend.ts` statically imports `@electric-sql/pglite`,
+ * and `advancedChunks` groups every workspace-package source module into one
+ * `maxstack-packages` chunk that exists in both environments — so the client
+ * build walked into pglite too. Rollup then tree-shook the *code* back out (no
+ * browser path calls it, and nothing in the emitted client chunks mentions
+ * pglite), but assets are emitted during transform and emission is not
+ * reverted. The result was three files nothing referenced —
+ * `pglite.wasm` (10.1MB), `pglite.data` (6.3MB), `initdb.wasm` (0.4MB) —
+ * **16.8MB of a 36MB runtime payload**, downloaded by every `npx maxstack`
+ * and served to nobody. `ssr.external` below could not help: it only governs
+ * the SSR environment, and the leak was on the client side.
+ *
+ * A stub rather than marking it external for the client: an external emits a
+ * bare `@electric-sql/pglite` specifier into a browser chunk, which fails at
+ * load with a resolution error and no clue why. The stub's export list is
+ * deliberately *short* — anything the client graph reaches for beyond it is a
+ * `MISSING_EXPORT` build failure naming the importing module, which is how this
+ * asks to be re-examined rather than silently growing a second stub surface.
+ *
+ * The hook uses rolldown's `filter` form: an unfiltered `resolveId` is only
+ * consulted for entry points here, so the bare specifier never reached it.
+ *
+ * `scripts/check-payload-budget.mjs` asserts the outcome (no orphan assets,
+ * total under budget) so this stays fixed if the chunking or the import moves.
+ */
+function pgliteClientStub(): Plugin {
+	return {
+		name: 'maxstack:pglite-client-stub',
+		enforce: 'pre',
+		// Client only. The SSR build must keep resolving the real package —
+		// `ssr.external` below hands it to node so the wasm/data pair stays
+		// beside its own module, and stubbing it here would boot a server with
+		// no database.
+		applyToEnvironment: (environment) => environment.name === 'client',
+		resolveId: {
+			filter: { id: /^@electric-sql\/pglite(\/|$)/ },
+			handler() {
+				return PGLITE_CLIENT_STUB
+			},
+		},
+		load(id) {
+			if (id !== PGLITE_CLIENT_STUB) return null
+			return `const serverOnly = () => {
+	throw new Error(
+		'@electric-sql/pglite is server-only — it reached a browser chunk. ' +
+			'Move the call behind a .server module (see apps/web/vite.config.ts).',
+	)
+}
+export const PGlite = new Proxy(function PGlite() {}, {
+	construct: serverOnly,
+	apply: serverOnly,
+})
+// drizzle-orm/pglite reads \`types.TIMESTAMP\` &c. at *module scope* to build an
+// OID→parser table, so this one cannot throw on access. Each property answers
+// with its own name: a unique, valid computed key, never a silent \`undefined\`
+// that would collapse four table entries into one.
+export const types = new Proxy({}, { get: (_target, prop) => prop })
+export default PGlite
+`
+		},
+	}
+}
 
 export default defineConfig({
 	plugins: [
@@ -15,6 +83,8 @@ export default defineConfig({
 		// path resolution runs in vite's internal resolver, after every user
 		// plugin's resolveId hook, so a `pre` plugin always wins the race.
 		ownedSlotDevPlugin(),
+		// 16.8MB of orphaned Postgres-WASM out of the client build — see above.
+		pgliteClientStub(),
 	],
 	// Native `~/*` → `./app/*` resolution from tsconfig's `paths` (replaces the
 	// old `vite-tsconfig-paths` plugin, subsumed into vite core in v8).

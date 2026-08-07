@@ -205,6 +205,15 @@ jobs:
       - name: Chunk graph is acyclic
         run: node scripts/check-chunk-cycles.mjs
 
+      # Same reason this job owns the cycle check: it is the only one that
+      # produces the artifact. `maxstack-runtime` ships `apps/web/build`
+      # verbatim, so every byte of it is downloaded before a stranger's first
+      # command — the payload grew 22.9MB → 41.5MB unnoticed, 16.8MB of it
+      # emitted assets no chunk referenced. Prints the measured bytes whether it
+      # passes or fails; read those, not the exit code.
+      - name: Runtime payload is under budget
+        run: node scripts/check-payload-budget.mjs
+
       - run: pnpm --filter @maxstack/web test:e2e
       - name: Upload Playwright report
         if: failure()
