@@ -200,8 +200,16 @@ export function TimelineView({
 
 	return (
 		<section
+			// `relative` for the same reason as `BoardView` (issue #340): this
+			// scroller hosts absolutely positioned descendants — the bars and their
+			// `sr-only` labels — and an unpositioned scroll container does not clip
+			// them, so any that landed past the viewport would widen the document
+			// instead of scrolling inside the chart. The bars are already contained
+			// by the `relative` axis `<ul>` below, so nothing here moves; this closes
+			// the same hole one level up rather than waiting for a descendant that
+			// isn't.
 			className={cn(
-				'overflow-x-auto rounded-lg border border-border',
+				'relative overflow-x-auto rounded-lg border border-border',
 				className,
 			)}
 			aria-label={`Timeline of ${resource.name}`}

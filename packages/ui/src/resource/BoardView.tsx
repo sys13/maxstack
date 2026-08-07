@@ -257,7 +257,18 @@ export function BoardView({
 
 	return (
 		<section
-			className={cn('overflow-x-auto', className)}
+			// `relative` is load-bearing, not decoration (issue #340). The board is
+			// wider than its box on purpose — four `w-64` columns exceed the content
+			// column on a laptop — and `overflow-x-auto` scrolls it, correctly. But
+			// overflow only clips descendants whose containing block is this element
+			// or something inside it. The per-column `sr-only` spans are
+			// `position: absolute`, so on an unpositioned scroller their containing
+			// block was the *initial* one: they sat at the off-screen columns'
+			// coordinates, unclipped, and widened the **document** — a body-level
+			// horizontal scrollbar caused by a 1px invisible span. Positioning the
+			// scroller makes it their containing block, so they scroll with the board
+			// like everything else in it.
+			className={cn('relative overflow-x-auto', className)}
 			data-board-group={groupField}
 		>
 			{onMove ? (

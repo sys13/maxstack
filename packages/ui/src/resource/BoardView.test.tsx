@@ -276,6 +276,34 @@ describe('BoardView', () => {
 		expect(within(card).getByText('High')).toBeInTheDocument()
 	})
 
+	// Issue #340: four columns made the *document* scroll sideways, not the
+	// board. The scroller was already the right element and already the right
+	// width — the leak was that overflow does not clip an absolutely positioned
+	// descendant whose containing block is outside it, and every column header
+	// holds an `sr-only` span, which is `position: absolute`. Those 1px spans sat
+	// at the off-screen columns' coordinates and widened the page.
+	//
+	// jsdom has no layout engine, so `scrollWidth` here is always 0 and a
+	// measurement assertion would be theatre. What is real and checkable in the
+	// DOM is the structural pair the fix rests on: the scroller carries
+	// `overflow-x-auto`, and it is positioned, so it is the containing block for
+	// the absolutely positioned descendants it contains. The measured numbers
+	// live in the issue; this keeps someone from deleting one half of the pair.
+	it('scrolls the board inside a positioned container, so the page cannot', () => {
+		const { container } = board()
+		const scroller = container.querySelector(
+			'[data-board-group]',
+		) as HTMLElement
+		expect(scroller.className).toContain('overflow-x-auto')
+		expect(scroller.className).toContain('relative')
+		// The reason `relative` is not cosmetic: these live inside the scroller and
+		// are absolutely positioned, so an unpositioned scroller would not clip
+		// them.
+		expect(
+			column(container, 'done').querySelectorAll('.sr-only').length,
+		).toBeGreaterThan(0)
+	})
+
 	it('shows the empty state only when the board has no rows at all', () => {
 		const { container } = board({ rows: [], emptyState: <p>Nothing yet</p> })
 		expect(container.textContent).toContain('Nothing yet')
