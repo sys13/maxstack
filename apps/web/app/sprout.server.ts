@@ -23,6 +23,7 @@ import {
 	type ComputedShape,
 	createAccessContext,
 	createSpecStore,
+	type InverseReference,
 	inverseReferences,
 	opCount,
 	opGetMany,
@@ -34,6 +35,7 @@ import {
 	type RollupShape,
 	type Row,
 	registerSpecEntities,
+	relatedOrder,
 	resolveReferences,
 	resolveRollups,
 	resourceCapabilities,
@@ -1953,6 +1955,52 @@ export interface RelatedRecordGroup {
 export const RELATED_ROW_LIMIT = 5
 
 /**
+ * How many related sections resolve at once.
+ *
+ * A detail page's panel is N relations and therefore 2N reads (a page of rows
+ * and a count each), and N is the schema's, not the request's. Running them one
+ * after another makes the page's latency the *sum* of the relations an app
+ * happens to declare; running them all at once makes a hub record open with
+ * however many concurrent statements the schema implies. So the fan-out is
+ * bounded here, in flight, rather than by dropping sections — a section that
+ * silently does not render is the exact failure this panel exists to fix.
+ */
+export const RELATED_CONCURRENCY = 6
+
+/**
+ * Which inverse relations a detail page actually renders as sections.
+ *
+ * Two of the declared edges are excluded, and neither is a matter of taste:
+ *
+ * - an FK onto a column that is **not the target's primary key**. The read
+ *   below filters `child.fk = <this row's id>`, which is the relation the FK
+ *   declares only when the FK points at the id. Against any other unique column
+ *   that filter is quietly wrong — the *wrong rows*, not an error — so it is
+ *   skipped rather than guessed at.
+ * - the child's **tenant column**. `config.tenantField` is an FK onto the org,
+ *   so read as an inverse it says "every row of this entity, in this org" — on
+ *   an org's own record page that is one section per entity in the app, each
+ *   listing the whole table five rows at a time. A tenant column is the scope a
+ *   read already runs under (`opList` forces it), not a relation between two
+ *   records, and rendering it as one is both meaningless and the only way the
+ *   section count scales with the size of the app rather than with the record.
+ */
+function relatedRelations(
+	ctx: McpContext,
+	resource: string,
+): InverseReference[] {
+	const shapes = ctx.registry.all().map((entry) => entry.resource)
+	const target = ctx.registry.get(resource)
+	return inverseReferences(shapes, resource).filter((inverse) => {
+		const entry = ctx.registry.get(inverse.resource)
+		if (!entry) return false
+		if (target && inverse.targetColumn !== target.resource.primaryKey)
+			return false
+		return entry.config.tenantField !== inverse.column
+	})
+}
+
+/**
  * For a record of `resource`, resolve every relation pointing *at* it — the
  * rows of each child entity that reference this record, plus their total
  *.
@@ -1965,9 +2013,16 @@ export const RELATED_ROW_LIMIT = 5
  * the counts are still here, as `count`, but a count of children that could not
  * be listed is exactly the surface people then hand-wrote a loader to replace.
  *
- * Reads go through `opList`/`opCount`, so a child the session may not read is
- * omitted rather than 500-ing the page — the same posture as
- * `referenceFieldOptions` and `resolveRowReferences`.
+ * Each section is a bulk read of *another* entity, so it is gated as one:
+ * `opList`/`opCount` apply the **child's** own read rule and the child's own
+ * tenant scope, never the host record's — the host being readable says nothing
+ * about its children. A child the session may not read is omitted rather than
+ * 500-ing the page, the same posture as `referenceFieldOptions` and
+ * `resolveRowReferences`.
+ *
+ * What is bounded: `limit` rows per section (the count beside the heading
+ * carries the true total), {@link RELATED_CONCURRENCY} sections resolving at
+ * once, and the sections themselves narrowed by {@link relatedRelations}.
  */
 export async function relatedRecords(
 	ctx: McpContext,
@@ -1976,37 +2031,59 @@ export async function relatedRecords(
 	options: { limit?: number } = {},
 ): Promise<RelatedRecordGroup[]> {
 	const limit = options.limit ?? RELATED_ROW_LIMIT
-	const shapes = ctx.registry.all().map((entry) => entry.resource)
+	const relations = relatedRelations(ctx, resource)
 	const out: RelatedRecordGroup[] = []
-	for (const inverse of inverseReferences(shapes, resource)) {
-		const entry = ctx.registry.get(inverse.resource)
-		if (!entry) continue
-		// The filter below is `child.fk = <this row's id>`, which is only the
-		// relation the FK declares when the FK points at the primary key. An FK
-		// onto some other unique column would make that filter quietly wrong —
-		// wrong rows, not an error — so it is skipped instead of guessed at.
-		const target = ctx.registry.get(resource)
-		if (target && inverse.targetColumn !== target.resource.primaryKey) continue
-		const filter = { [inverse.column]: id }
-		try {
-			const [count, rows] = await Promise.all([
-				opCount(ctx, inverse.resource, { filter }),
-				opList(ctx, inverse.resource, { filter, limit }),
-			])
-			out.push({
-				resource: inverse.resource,
-				label: entry.label,
-				fk: inverse.column,
-				count,
-				rows,
-				introspection: entry.resource,
-				// So an FK on a *child* row renders its referenced record's title
-				// rather than a raw uuid, exactly as it does on the child's own list.
-				references: await resolveRowReferences(ctx, entry.resource, rows),
-			})
-		} catch {
-			// An unreadable child resource is simply omitted, not fatal.
-		}
+	for (let i = 0; i < relations.length; i += RELATED_CONCURRENCY) {
+		const batch = await Promise.all(
+			relations
+				.slice(i, i + RELATED_CONCURRENCY)
+				.map((inverse) => relatedGroup(ctx, inverse, id, limit)),
+		)
+		for (const group of batch) if (group) out.push(group)
 	}
 	return out
+}
+
+/** One resolved section, or `null` when the session may not read the child. */
+async function relatedGroup(
+	ctx: McpContext,
+	inverse: InverseReference,
+	id: string,
+	limit: number,
+): Promise<RelatedRecordGroup | null> {
+	const entry = ctx.registry.get(inverse.resource)
+	if (!entry) return null
+	const filter = { [inverse.column]: id }
+	let count: number
+	let rows: Row[]
+	try {
+		// Ordered, because a `LIMIT` with no `ORDER BY` makes "the first five of
+		// fifty" a different five per render — see `relatedOrder`.
+		;[count, rows] = await Promise.all([
+			opCount(ctx, inverse.resource, { filter }),
+			opList(ctx, inverse.resource, {
+				filter,
+				limit,
+				...relatedOrder(entry.resource),
+			}),
+		])
+	} catch {
+		// An unreadable child resource is simply omitted, not fatal.
+		return null
+	}
+	return {
+		resource: inverse.resource,
+		label: entry.label,
+		fk: inverse.column,
+		count,
+		rows,
+		introspection: entry.resource,
+		// So an FK on a *child* row renders its referenced record's title rather
+		// than a raw uuid, exactly as it does on the child's own list. Resolved
+		// outside the read's own catch: the rows are already in hand and gated, so
+		// a failure to decorate them costs the titles, not the whole section.
+		references: await resolveRowReferences(ctx, entry.resource, rows).catch(
+			() => ({}),
+		),
+	}
 }

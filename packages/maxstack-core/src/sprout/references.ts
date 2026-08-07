@@ -108,6 +108,45 @@ export function inverseReferences(
 	return out
 }
 
+/** The column names a creation timestamp goes by, in the two casings the
+ * introspector can hand back. The same set `validation.ts` and `mcp.ts` treat
+ * as machine-maintained timestamps. */
+const CREATED_AT_NAMES = new Set(['createdAt', 'created_at'])
+
+/** An ordering for a read — the shape `ListOptions` takes. */
+export interface RelatedOrder {
+	orderBy: string
+	orderDir: 'asc' | 'desc'
+}
+
+/**
+ * How a related-records section orders the page of child rows it shows.
+ *
+ * A panel reads the *first* N of a relation and reports the true total beside
+ * it, so "first" has to mean something. A `LIMIT` with no `ORDER BY` is not a
+ * stable window in any real store — Postgres may return a different five rows
+ * for two renders of the same page — which turns "5 of 50" from a glance into
+ * a lottery, and makes the other 45 unreachable rather than merely unshown.
+ *
+ * Derived, not declared, for the same reason the relation itself is: the
+ * creation timestamp a resource already carries says which rows are newest,
+ * and newest-first is what a section of children is read for. Failing that,
+ * the primary key ascending — arbitrary but *stable*, which is the property
+ * that was missing.
+ *
+ * The timestamp has to be a `date` column as well as be named like one: a
+ * string column called `created_at` holding a free-text date would order
+ * lexicographically and claim to be chronological.
+ */
+export function relatedOrder(resource: SproutResource): RelatedOrder {
+	const created = resource.columns.find(
+		(c) => c.type === 'date' && CREATED_AT_NAMES.has(c.name),
+	)
+	return created
+		? { orderBy: created.name, orderDir: 'desc' }
+		: { orderBy: resource.primaryKey, orderDir: 'asc' }
+}
+
 export interface ReferenceFetch {
 	/** Batch-fetch rows of `table` by primary key. */
 	getMany(table: string, ids: string[]): Promise<Row[]>

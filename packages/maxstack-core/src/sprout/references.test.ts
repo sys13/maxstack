@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
 	inverseReferences,
 	parseIdArray,
+	relatedOrder,
 	resolveReferences,
 } from './references.ts'
 import type { Row } from './store.ts'
@@ -202,5 +203,52 @@ describe('inverseReferences', () => {
 
 	it('yields nothing for a table nothing points at', () => {
 		expect(inverseReferences([story, comment], 'nobody')).toEqual([])
+	})
+})
+
+describe('relatedOrder', () => {
+	const withColumns = (columns: SproutResource['columns']): SproutResource => ({
+		name: 'child',
+		primaryKey: 'id',
+		relations: [],
+		columns: [
+			col({ name: 'id', type: 'uuid', isPrimaryKey: true }),
+			...columns,
+		],
+	})
+
+	it('orders newest-first by the creation timestamp when there is one', () => {
+		expect(
+			relatedOrder(withColumns([col({ name: 'createdAt', type: 'date' })])),
+		).toEqual({ orderBy: 'createdAt', orderDir: 'desc' })
+	})
+
+	it('accepts the snake_case spelling too', () => {
+		expect(
+			relatedOrder(withColumns([col({ name: 'created_at', type: 'date' })])),
+		).toEqual({ orderBy: 'created_at', orderDir: 'desc' })
+	})
+
+	it('falls back to the primary key — arbitrary, but stable', () => {
+		// The property that matters is that a page of a relation is the *same*
+		// page twice: an unordered LIMIT is a different five rows per render.
+		expect(relatedOrder(withColumns([col({ name: 'body' })]))).toEqual({
+			orderBy: 'id',
+			orderDir: 'asc',
+		})
+	})
+
+	it('will not order by a column that merely has the name', () => {
+		// A string column called `createdAt` sorts lexicographically and claims to
+		// be chronological, which is worse than admitting there is no timestamp.
+		expect(
+			relatedOrder(withColumns([col({ name: 'createdAt', type: 'string' })])),
+		).toEqual({ orderBy: 'id', orderDir: 'asc' })
+	})
+
+	it('never names a column the resource does not have', () => {
+		const resource = withColumns([col({ name: 'body' })])
+		const { orderBy } = relatedOrder(resource)
+		expect(resource.columns.some((c) => c.name === orderBy)).toBe(true)
 	})
 })
