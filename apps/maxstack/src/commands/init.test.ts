@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { readSpecDir } from '@maxstack/mcp'
 import { suggested } from '@maxstack/spec'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as cliResolution from '../lib/cli-resolution.ts'
 import { loadProject } from '../lib/project.ts'
 import { projectCheckRunner } from '../lib/project-checks.ts'
 import { BIOME_VERSION, initCommand, scaffoldPackageJson } from './init.ts'
@@ -98,6 +99,15 @@ describe('what init prints leads with what to type next (#331)', () => {
 		}
 		vi.spyOn(console, 'log').mockImplementation(capture)
 		vi.spyOn(console, 'warn').mockImplementation(capture)
+		// What `init` prints must not depend on whose machine runs the test. The
+		// PATH-CLI warning names `.mcp.json` and `.claude/settings.json`, and it
+		// fires only when no usable global `maxstack` is installed — true on a CI
+		// runner, false on a maintainer's laptop. Left alone, the assertions below
+		// pass locally and fail in CI, which is exactly what happened.
+		vi.spyOn(cliResolution, 'probePathCli').mockResolvedValue({
+			found: '0.0.0-test',
+			usable: true,
+		})
 
 		await initCommand(
 			arg,
