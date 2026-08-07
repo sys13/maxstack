@@ -291,8 +291,23 @@ jobs:
       - name: npm view both packages
         working-directory: .
         run: |
-          set -euo pipefail
+          set -uo pipefail
           V="${{ needs.guard.outputs.version }}"
+          # The registry is read-after-write eventually consistent: a publish that
+          # has already returned success can still 404 on the next `npm view` for a
+          # few seconds. `publish-cli` waits that out before it publishes; this job
+          # has to as well. Without it a completely successful release ends red —
+          # observed on 0.11.12, where verify queried ~8s after the CLI published
+          # and got `404 No match found for version`.
+          for i in 1 2 3 4 5 6; do
+            npm view "maxstack-runtime@$V" version >/dev/null 2>&1 \
+              && npm view "maxstack@$V" version >/dev/null 2>&1 && break
+            echo "not both visible yet (attempt $i) — the registry lags a few seconds; waiting…"
+            sleep 10
+          done
+          # Past the settle window the reads are authoritative again: anything that
+          # still disagrees below is a real mismatch, not lag, and must fail.
+          set -euo pipefail
           rt=$(npm view "maxstack-runtime@$V" version)
           cli=$(npm view "maxstack@$V" version)
           pin=$(npm view "maxstack@$V" dependencies.maxstack-runtime)
@@ -362,9 +377,20 @@ jobs:
         run: |
           set -uo pipefail
           V="${{ needs.guard.outputs.version }}"
-          rt=no; cli=no
-          npm view "maxstack-runtime@$V" version >/dev/null 2>&1 && rt=yes
-          npm view "maxstack@$V" version >/dev/null 2>&1 && cli=yes
+          # Same registry lag as in `verify`, and it matters more here: this is the
+          # half-release alarm, so a false positive is the most expensive output
+          # this workflow can produce. Settle first, then classify. A run where
+          # both packages really did publish breaks out on the first pass and pays
+          # nothing; only an incomplete state waits the full window.
+          for i in 1 2 3 4 5 6; do
+            rt=no; cli=no
+            npm view "maxstack-runtime@$V" version >/dev/null 2>&1 && rt=yes
+            npm view "maxstack@$V" version >/dev/null 2>&1 && cli=yes
+            [ "$rt" = yes ] && [ "$cli" = yes ] && break
+            [ "$i" = 6 ] && break
+            echo "registry says runtime=$rt cli=$cli (attempt $i) — could be lag; waiting…"
+            sleep 10
+          done
           echo "### Registry state for $V" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| package | on registry |" >> "$GITHUB_STEP_SUMMARY"
