@@ -1,8 +1,17 @@
 /**
  * `maxstack add view <resource>` — the infer-then-eject verb (Plan v5 task 36).
- * Proves it scaffolds an *owned* view with the inferred columns written out
- * explicitly, flips the route to `ejected`, and that a subsequent `gen` skips it
- * so column edits survive regeneration (the task's exit criterion).
+ * Proves it scaffolds an *owned* view, flips the route to `ejected`, and that a
+ * subsequent `gen` skips it so cell edits survive regeneration (the task's exit
+ * criterion).
+ *
+ * Since #356 it also pins the *shape*: an owned route module on the same
+ * `OwnedRouteProps` contract `maxstack eject` emits against, not a props-less
+ * module that refetches over REST behind a loader that already ran. The
+ * assertions that the frozen introspection literal and the `useList` call are
+ * gone are the regression itself — that literal drifted from the schema and
+ * that refetch dropped the loader's resolved references and signed file URLs.
+ * That the emitted body actually renders those two things is proven where it
+ * can be rendered: `apps/web/app/routes/project.page.owned-route.test.tsx`.
  */
 
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -118,7 +127,7 @@ function specWithPost(): SpecSystem {
 }
 
 describe('resolveView / renderViewModule (pure)', () => {
-	it('introspects a resource out of a spec and writes its columns out explicitly', () => {
+	it('introspects a resource and emits an owned module on the OwnedRouteProps contract', () => {
 		const view = resolveView(specWithPost(), 'post')
 		expect(view.resource).toBe('post')
 		expect(view.pascal).toBe('Post')
@@ -131,17 +140,45 @@ describe('resolveView / renderViewModule (pure)', () => {
 		])
 
 		const src = renderViewModule(view)
-		// The inferred columns are spelled out (the guesser output)...
-		expect(src).toContain('"name": "title"')
-		expect(src).toContain('"name": "views"')
-		expect(src).toContain('satisfies IntrospectedResource')
-		// ...the projection dropped the fields the display side ignores...
-		expect(src).not.toContain('isPrimaryKey')
-		expect(src).not.toContain('"relations"')
-		// ...it fetches via the typed hook and demonstrates the eject seam.
-		expect(src).toContain('useList("post"')
-		expect(src).toContain('export default function PostView()')
-		expect(src).toContain('columns={columns}')
+		// It is an owned ROUTE module, on the same contract `maxstack eject`
+		// emits against (#356): the loader's payload arrives as props and the
+		// list is drawn by spreading it.
+		expect(src).toContain(
+			'export default function PostView({ list, newHref, Link }: OwnedRouteProps)',
+		)
+		expect(src).toContain('type OwnedRouteProps')
+		expect(src).toContain(
+			'<ResourceList {...list} columns={{ ...list.columns, ...columns }} />',
+		)
+		// The eject seam survives, as an override merged over inference — not as
+		// a replacement for it.
+		expect(src).toContain('const columns: ColumnOverrides = {')
+		expect(src).toContain('title: ({ value }) => (')
+		// The frozen introspection literal is GONE, not moved. It was a copy of a
+		// shape the loader computes live, so it went stale the moment a field was
+		// added; `list.resource` is introspected per request.
+		expect(src).not.toContain('satisfies IntrospectedResource')
+		expect(src).not.toContain('"name": "title"')
+		expect(src).not.toContain('primaryKey')
+		// …and so is the client refetch behind a loader that already fetched, and
+		// the duplicate provider stack it needed.
+		expect(src).not.toContain('useList')
+		expect(src).not.toContain('DataProvider')
+		expect(src).not.toContain('NotificationProvider')
+		expect(src).not.toContain('createRestDataProvider')
+	})
+
+	it('omits the override map entirely for a resource with no title field', () => {
+		// Nothing to demonstrate the seam on, so no dangling empty literal and no
+		// `ColumnOverrides` import to lint as unused — just the shared body.
+		const src = renderViewModule({
+			resource: 'post',
+			pascal: 'Post',
+			introspection: { name: 'post' } as never,
+		})
+		expect(src).toContain('<ResourceList {...list} />')
+		expect(src).not.toContain('ColumnOverrides')
+		expect(src).not.toContain('columns=')
 	})
 
 	it('never picks an FK column as the titleField', () => {
@@ -221,8 +258,11 @@ describe('maxstack add view (integration)', () => {
 		const file = join(dir, 'app/routes/post.tsx')
 		const src = await readFile(file, 'utf8')
 		expect(src).toContain('THIS FILE IS YOURS')
-		expect(src).toContain('ResourceList')
-		expect(src).toContain('"name": "published"')
+		expect(src).toContain('<ResourceList {...list}')
+		// The `published` field is not baked into this file at all — the loader
+		// introspects it per request, so adding a field to the spec later shows
+		// up here without an edit (#356).
+		expect(src).not.toContain('published')
 
 		const manifest = JSON.parse(
 			await readFile(join(dir, 'app/.generated.routes.json'), 'utf8'),
@@ -274,20 +314,84 @@ describe('maxstack add view (integration)', () => {
 		await addViewCommand(dir, 'post')
 		const out = log.mock.calls.flat().join('\n')
 		expect(out).not.toContain('no accepted page')
+		expect(out).not.toContain('renders a TABLE')
+	})
+
+	it('warns when the page it would render at is arranged by a view block', async () => {
+		// The one case `add view` reaches that `maxstack eject` refuses. The props
+		// contract still serves it — `project.page.tsx` builds the list props
+		// before the owned-route branch whatever the page's arrangement is — so
+		// the emitted module renders. It renders a *table*, though, because an
+		// owned module replaces the page's whole surface, and trading a working
+		// board for a table silently is the same foot-gun #349 made eject name.
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'data.addEntity',
+				args: {
+					entity: {
+						id: 'e-sprint',
+						name: 'Sprint',
+						description: 'a unit of work',
+						provenance,
+						fields: [
+							{
+								id: 'fld-sprint-name',
+								name: 'name',
+								type: 'string',
+								required: true,
+								provenance,
+							},
+							{
+								id: 'fld-sprint-status',
+								name: 'status',
+								type: 'string',
+								required: true,
+								provenance,
+							},
+						],
+					},
+				},
+			}),
+		})
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'page.addPage',
+				args: {
+					page: {
+						id: 'pg-sprint-board',
+						name: 'Sprint board',
+						route: '/sprints',
+						entityId: 'e-sprint',
+						provenance,
+						blocks: [{ id: 'blk-board', type: 'board', provenance }],
+					},
+				},
+			}),
+		})
+		const log = vi.mocked(console.log)
+		log.mockClear()
+		await addViewCommand(dir, 'sprint')
+		const out = log.mock.calls.flat().join('\n')
+		expect(out).toContain('"Sprint board"')
+		expect(out).toContain('renders a TABLE')
+		// …and it is a warning, not a refusal: the file still lands.
+		expect(
+			await readFile(join(dir, 'app/routes/sprint.tsx'), 'utf8'),
+		).toContain('OwnedRouteProps')
 	})
 
 	it('editing a column survives regeneration (the exit criterion)', async () => {
 		const file = join(dir, 'app/routes/post.tsx')
 		const edited = (await readFile(file, 'utf8')).replace(
-			'"label": "Views"',
-			'"label": "Reads"',
+			'font-medium',
+			'font-black uppercase',
 		)
-		expect(edited).toContain('"label": "Reads"')
+		expect(edited).toContain('font-black uppercase')
 		await writeFile(file, edited)
 
 		await genCommand(dir)
 
 		// The gen pass left the owned view untouched.
-		expect(await readFile(file, 'utf8')).toContain('"label": "Reads"')
+		expect(await readFile(file, 'utf8')).toContain('font-black uppercase')
 	})
 })

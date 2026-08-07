@@ -38,7 +38,7 @@ cd my-app
 maxstack op --file change.json    # apply a typed spec-op (add entity/field/page)
 maxstack gen                      # regenerate the app tree (never clobbers your edits)
 maxstack add auth                 # install a feature bundle (schema + pages + DI + seeds)
-maxstack add view <resource>      # scaffold an OWNED list view with explicit columns
+maxstack add view <resource>      # scaffold an OWNED list view (loader-fed)
 maxstack eject <route-id>         # take ownership of a generated file
 maxstack validate                 # spec valid · manifest intact · regen safe
 maxstack dev                      # run the app over its data dir
@@ -60,7 +60,7 @@ existing project (`[dir]` defaults to the current directory):
 | `maxstack op [dir]` | Apply a typed spec-op. `--file <op.json>` or `--op '<json>'`. Validates, then lands. |
 | `maxstack gen [dir]` | Regenerate the app tree from the spec (never clobbers owned files). |
 | `maxstack add <slug> [dir]` | Install a feature bundle (see references/bundles.md). |
-| `maxstack add view <resource> [dir]` | Scaffold an **owned** list view with explicit inferred columns. |
+| `maxstack add view <resource> [dir]` | Scaffold an **owned** list view, rendered from the loader's props. |
 | `maxstack eject <route-id> [dir]` | Take ownership of a generated route. `--to <file>` to relocate. |
 | `maxstack validate [dir]` | The gate: spec valid · manifest intact · regen safe. |
 | `maxstack gen --upgrade [dir]` | Regenerate against the current framework generators. |
@@ -120,9 +120,11 @@ prerequisites (e.g. `members`/`billing` build on `auth`).
 Generated files are regenerated on every `gen`. To edit one safely, take
 ownership first:
 
-- `maxstack add view <resource>` — scaffold an *owned* list view: it writes the
-  resource's inferred columns as explicit `<ResourceList>` props, then flips the
-  route to `ejected` so `gen` never regenerates over it. Edit columns freely.
+- `maxstack add view <resource>` — scaffold an *owned* list view: the module is
+  handed the page loader's rows, columns, permissions, resolved references and
+  signed file URLs and draws the list by spreading them, with the title cell
+  written out as an editable `columns` override. The route flips to `ejected` so
+  `gen` never regenerates over it. Edit cells freely.
 - `maxstack eject <route-id>` — take ownership of any generated route in place
   (or `--to <file>`). Eject copies-with-banner and **never clobbers** an existing
   owned file.

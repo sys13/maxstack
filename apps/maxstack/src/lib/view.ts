@@ -1,13 +1,38 @@
 /**
- * The `maxstack add view <resource>` scaffolder — the tier-3 analog of
- * `maxstack gen`, and the infer-then-eject workflow made a first-class CLI verb
- * (Plan v5 task 36).
+ * The `maxstack add view <resource>` scaffolder — the infer-then-eject workflow
+ * made a first-class CLI verb (Plan v5 task 36).
  *
- * `gen` emits a *framework-owned* thin route shell; `add view` emits the
- * **guesser output**: an *owned* route module with the inferred columns written
- * out explicitly as `<ResourceList>` props, that the author then edits and the
- * generator never regenerates over. The whole file is the eject seam — start
- * from inference, hand-edit the one cell you care about, the rest stays inferred.
+ * `gen` emits a *framework-owned* route module; `add view` emits an **owned**
+ * one, pre-ejected, whose whole reason to exist is the cell-override seam: the
+ * inferred title cell written out as an editable `columns` entry that the author
+ * hand-edits and the generator never regenerates over.
+ *
+ * ## One owned-page shape, not two (issue #356)
+ *
+ * `add view` and `maxstack eject` land in the same place — `OWNED_ROUTES`,
+ * rendered by `project.page.tsx` — so they emit against the same contract:
+ * {@link OwnedRouteProps}. The route's loader has already fetched the rows,
+ * introspected the columns, computed the viewer's capabilities and resolved FK
+ * titles and signed file URLs; an owned module is handed all of it and renders
+ * from it.
+ *
+ * Until #356 this emitter did the opposite. It wrote a props-less module that
+ * mounted its own `DataProvider` and re-fetched the same rows over REST from the
+ * browser, against a **frozen copy** of the introspection baked in at scaffold
+ * time. That double-fetched on every navigation, flashed an empty list on a page
+ * whose data was already in the loader payload, dropped the resolved references
+ * and file URLs entirely (FK cells rendered raw ids, file cells unsigned keys),
+ * and went stale against the schema the moment a field was added.
+ *
+ * The frozen literal is gone rather than moved: the emitted module reads
+ * `list.resource`, which the loader introspects live on every request. What
+ * survives is the part that was always the point — a named, hand-editable
+ * override per cell, merged *over* inference rather than replacing it, so a
+ * field added to the spec still shows up without touching this file.
+ *
+ * A module emitted in the old shape keeps working untouched: it takes no props,
+ * so the props it is now handed are simply ignored and it renders exactly as it
+ * did. Re-running `maxstack add view` is the opt-in upgrade.
  *
  * Pure w.r.t. the filesystem: this module builds the introspection and renders
  * the file *content*; the command (`commands/view.ts`) decides where it lands
@@ -22,6 +47,7 @@ import {
 	type SpecEntityShape,
 	type SproutResource,
 } from '@maxstack/core'
+import { NEW_LINK_CLASS } from '@maxstack/core/ownership'
 import { groundedEntityShapes } from '@maxstack/mcp'
 import type { SpecSystem } from '@maxstack/spec'
 
@@ -74,115 +100,91 @@ export function resolveView(spec: SpecSystem, resource: string): ResolvedView {
 	return { resource, pascal: pascal(resource), introspection, titleField }
 }
 
-/** Serialize an introspected resource to a clean, hand-editable TS object
- * literal — projected to exactly the `IntrospectedResource` display shape so the
- * emitted `satisfies IntrospectedResource` never trips an excess-property check
- * (`SproutResource` carries `hasDefault`/`isPrimaryKey`/`relations` the read side
- * ignores). Non-serializable metadata (e.g. a RegExp `pattern`) is dropped so the
- * file always parses; spec-derived resources never carry those. */
-function introspectionLiteral(resource: SproutResource): string {
-	const projected = {
-		name: resource.name,
-		primaryKey: resource.primaryKey,
-		columns: resource.columns.map((c) => ({
-			name: c.name,
-			type: c.type,
-			nullable: c.nullable,
-			...(c.enumValues ? { enumValues: c.enumValues } : {}),
-			...(c.references ? { references: c.references } : {}),
-			meta: c.meta ?? {},
-		})),
-	}
-	const clean = JSON.parse(
-		JSON.stringify(projected, (_key, value) =>
-			value instanceof RegExp || typeof value === 'function'
-				? undefined
-				: value,
-		),
-	)
-	return JSON.stringify(clean, null, '\t')
+/** An object-literal key: bare when the column name is an identifier, quoted
+ * (single, the repo's style) when it is not. */
+function key(name: string): string {
+	return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : `'${name}'`
 }
 
-/** Render the owned view module — the "guesser output" for a resource. */
+/**
+ * Render the owned view module for a resource.
+ *
+ * The body is `<ResourceList {...list} …/>` — the same one line `eject` emits,
+ * for the same reason: it is what keeps a hand-owned page working when the
+ * runtime learns to pass something new. The one thing this verb adds on top is
+ * the `columns` override map.
+ */
 export function renderViewModule(view: ResolvedView): string {
-	const { resource, pascal: P, introspection, titleField } = view
+	const { resource, pascal: P, titleField } = view
 	const label = formatLabel(resource)
 
-	// The one demonstrated eject: emphasize the title cell. Everything else stays
-	// inferred by <ResourceList>. Omitted entirely when there is no string field.
+	// The one demonstrated eject: emphasize the title cell. Every other column
+	// stays inferred from the *live* introspection the loader hands down.
+	// Omitted entirely when the resource has no string field to demonstrate on.
 	const columnsBlock = titleField
 		? `
-	// The eject seam: override exactly the cells you care about — the rest stay
-	// inferred from the schema above. Delete this to fall fully back to inference.
-	const columns = useMemo(
-		() => ({
-			${JSON.stringify(titleField)}: ({ value }: { value: unknown }) => (
-				<span className="font-medium">{String(value ?? '—')}</span>
-			),
-		}),
-		[],
-	)
+// The eject seam, and the whole reason this file exists: name a column, own its
+// cell. Merged OVER the inferred rendering below, so every column you do not
+// name here keeps its inferred cell — enum chips, formatted dates, resolved
+// reference titles, signed file links — and a field added to the spec later
+// shows up without an edit here.
+const columns: ColumnOverrides = {
+	${key(titleField)}: ({ value }) => (
+		<span className="font-medium">{String(value ?? '—')}</span>
+	),
+}
 `
 		: ''
-	const columnsProp = titleField ? '\n\t\t\t\tcolumns={columns}' : ''
+	// `list.columns` carries the project's filled `field` block slots, so the
+	// overrides above are merged onto them rather than replacing them — taking
+	// one cell here must not silently unfill a slot somewhere else.
+	const listJsx = titleField
+		? `<ResourceList {...list} columns={{ ...list.columns, ...columns }} />`
+		: `<ResourceList {...list} />`
+	// Biome-shaped by hand: a scaffold that arrives already reformatted by the
+	// project's own `lint --write` is a scaffold whose first diff is noise. Under
+	// 80 columns it stays on one line; the three-binding form does not fit.
+	const bindings = [
+		...(titleField ? ['type ColumnOverrides'] : []),
+		'type OwnedRouteProps',
+		'ResourceList',
+	]
+	const oneLine = `import { ${bindings.join(', ')} } from '@maxstack/ui'`
+	const importBlock =
+		oneLine.length <= 80
+			? oneLine
+			: `import {\n${bindings.map((b) => `\t${b},\n`).join('')}} from '@maxstack/ui'`
 
 	return `// Scaffolded by \`maxstack add view ${resource}\` — THIS FILE IS YOURS.
 //
-// It began as inferred "guesser output": the \`introspection\` object below was
-// derived from your spec and written out explicitly, and <ResourceList> renders
-// every column from it. Edit any of it — reorder columns, relabel, swap a cell —
-// and \`maxstack gen\` will never overwrite it (this route is \`ejected\` in the
-// route manifest). The workflow: start inferred → eject the one cell you care
-// about → the rest stays inferred.
-import { useMemo } from 'react'
-import {
-	createRestDataProvider,
-	DataProvider,
-	type IntrospectedResource,
-	NotificationProvider,
-	Notifications,
-	ResourceList,
-	useList,
-} from '@maxstack/ui'
+// \`maxstack gen\` will never overwrite it: this route is \`ejected\` in the route
+// manifest, so your edits survive regeneration (and it stops receiving generator
+// improvements — the eject tax).
+//
+// What you own is this page's RENDER. What still runs framework code is the
+// LOADER: the rows, the introspected columns, the viewer's permissions, the
+// resolved reference titles and the signed file URLs are all produced from
+// \`spec/\` on every request and handed to this module as props
+// (\`OwnedRouteProps\`). Spreading \`{...list}\` is what draws the real page; this
+// page therefore still depends on its spec entry.
+${importBlock}
 
-export const meta = { resource: ${JSON.stringify(resource)}, view: true }
-
-// The inferred schema, written out explicitly (the guesser output). A plain data
-// object — edit column order, labels, or metadata right here.
-const introspection = ${introspectionLiteral(introspection)} satisfies IntrospectedResource
-
-function ${P}List() {
-	// Typed, cached client-side fetch (task 33) — no loader wiring needed, so the
-	// view is self-contained wherever the runtime composes it.
-	const { data: rows = [], isLoading } = useList(${JSON.stringify(resource)}, {
-		pagination: { page: 1, perPage: 50 },
-	})
+export const meta = { resource: '${resource}', view: true }
 ${columnsBlock}
+export default function ${P}View({ list, newHref, Link }: OwnedRouteProps) {
 	return (
 		<section data-view="${resource}">
-			<h1 className="mb-4 text-2xl font-semibold">${label}</h1>
-			<ResourceList
-				resource={introspection}
-				rows={rows}
-				loading={isLoading}${columnsProp}
-				pageSize={10}
-			/>
+			<header className="mb-4 flex items-center justify-between">
+				<h1 className="text-2xl font-semibold">${label}</h1>
+				<Link
+					to={newHref}
+					className="${NEW_LINK_CLASS}"
+				>
+					+ New
+				</Link>
+			</header>
+			${listJsx}
 		</section>
-	)
-}
-
-// Self-contained: mounts its own data + notification providers so the view works
-// wherever it is rendered (the owned-route runtime seam supplies no ambient
-// providers). Remove these wrappers if you mount them higher up your tree.
-export default function ${P}View() {
-	const dataProvider = useMemo(() => createRestDataProvider(), [])
-	return (
-		<NotificationProvider>
-			<DataProvider dataProvider={dataProvider}>
-				<${P}List />
-				<Notifications />
-			</DataProvider>
-		</NotificationProvider>
 	)
 }
 `

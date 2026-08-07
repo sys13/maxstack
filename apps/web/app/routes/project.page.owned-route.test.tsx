@@ -22,7 +22,11 @@
 
 import type { SproutColumn } from '@maxstack/core'
 import { DEFAULT_THEME } from '@maxstack/spec'
-import { type OwnedRouteProps, ResourceList } from '@maxstack/ui'
+import {
+	type ColumnOverrides,
+	type OwnedRouteProps,
+	ResourceList,
+} from '@maxstack/ui'
 import { renderToString } from 'react-dom/server'
 import { createRoutesStub } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -46,6 +50,30 @@ vi.mock('~/owned.generated', () => ({
 			// `packages/maxstack-core/src/ownership/ownership.test.ts`.
 			return <ResourceList {...props.list} />
 		},
+		/**
+		 * What `maxstack add view <resource>` emits, since #356 — the same
+		 * `OwnedRouteProps` contract, plus its one distinguishing feature: a
+		 * `columns` override map merged *over* the inferred rendering rather
+		 * than replacing it. Pinned as text in
+		 * `apps/maxstack/src/commands/view.test.ts`; this is where it renders.
+		 *
+		 * `columns` is module-level in the emitted file; it is scoped here only
+		 * because this test file already binds that name.
+		 */
+		note: ({ list }: OwnedRouteProps) => {
+			const columns: ColumnOverrides = {
+				title: ({ value }) => (
+					<span className="font-medium">{String(value ?? '—')}</span>
+				),
+			}
+			return (
+				<ResourceList {...list} columns={{ ...list.columns, ...columns }} />
+			)
+		},
+		// A module emitted by `maxstack add view` BEFORE #356: it takes no props
+		// and mounts its own client-side stack. The runtime must keep rendering
+		// it — it is user-owned code in a project that may never re-scaffold.
+		relic: () => <p>the old view, still rendering</p>,
 	},
 	OWNED_SCHEDULE_HANDLERS: {},
 	OWNED_SOURCE_REFINERS: {},
@@ -113,7 +141,7 @@ const loaderData = {
 	liveSlot: undefined,
 }
 
-function render(): string {
+function render(data: Record<string, unknown> = loaderData): string {
 	// `Link` and `useFetcher` need a router even on the server.
 	const Stub = createRoutesStub([
 		{
@@ -121,7 +149,7 @@ function render(): string {
 			Component: () => (
 				<ProjectListPage
 					loaderData={
-						loaderData as unknown as Parameters<
+						data as unknown as Parameters<
 							typeof ProjectListPage
 						>[0]['loaderData']
 					}
@@ -130,6 +158,80 @@ function render(): string {
 		},
 	])
 	return renderToString(<Stub initialEntries={['/']} />)
+}
+
+/**
+ * A page whose rows carry the two things only the *loader* can produce: a
+ * foreign key resolved to the referenced record's title, and a storage key
+ * signed into a fetchable URL. Neither is derivable in the browser — signing
+ * needs a secret — so a module that refetches its own rows over REST cannot
+ * render either one, which is exactly what `add view` did before #356.
+ */
+const noteColumns: SproutColumn[] = [
+	{
+		name: 'id',
+		type: 'uuid',
+		nullable: false,
+		hasDefault: true,
+		isPrimaryKey: true,
+		meta: {},
+	},
+	{
+		name: 'title',
+		type: 'string',
+		nullable: false,
+		hasDefault: false,
+		isPrimaryKey: false,
+		meta: {},
+	},
+	{
+		name: 'author',
+		type: 'uuid',
+		nullable: true,
+		hasDefault: false,
+		isPrimaryKey: false,
+		references: { table: 'person', column: 'id' },
+		meta: {},
+	},
+	{
+		name: 'attachment',
+		type: 'string',
+		nullable: true,
+		hasDefault: false,
+		isPrimaryKey: false,
+		meta: { isFile: true },
+	},
+]
+
+const notePage: ProjectRoute = {
+	...page,
+	slug: 'notes',
+	route: '/notes',
+	name: 'Notes',
+	resource: 'note',
+	resourceLabel: 'Note',
+}
+
+const noteLoaderData = {
+	...loaderData,
+	page: notePage,
+	nav: [notePage],
+	columns: noteColumns,
+	rows: [
+		{
+			id: '33333333-3333-3333-3333-333333333333',
+			title: 'On dragons',
+			author: 'p-ursula',
+			attachment: 'uploads/notes/dragons.pdf',
+		},
+	],
+	references: { person: { 'p-ursula': 'Ursula Le Guin' } },
+	files: {
+		'uploads/notes/dragons.pdf': {
+			url: 'https://files.example/dragons.pdf?sig=deadbeef',
+			name: 'dragons.pdf',
+		},
+	},
 }
 
 describe('an ejected route is handed the page it owns (#349)', () => {
@@ -185,6 +287,39 @@ describe('an ejected route is handed the page it owns (#349)', () => {
 		// …and the framework's own list did not render alongside it. An owned
 		// route replaces the surface rather than decorating it.
 		expect(html.match(/Dune/g)).toHaveLength(1)
+	})
+
+	it('renders what `maxstack add view` emits, references and files included (#356)', () => {
+		// The #356 regression, at the surface it was reported on. `add view` used
+		// to emit a props-less module that refetched its rows over REST against a
+		// frozen introspection literal — so the loader's `resolveRowReferences`
+		// and `resolveRowFiles` output was computed, shipped, and thrown away:
+		// the FK cell rendered a raw id and the file cell an unsigned key.
+		const html = render(noteLoaderData)
+		expect(html).toContain('On dragons')
+		// The FK resolved to the referenced record's title, not `p-ursula`.
+		expect(html).toContain('Ursula Le Guin')
+		expect(html).not.toContain('p-ursula')
+		// The storage key signed into a fetchable URL, not the key.
+		expect(html).toContain('https://files.example/dragons.pdf?sig=deadbeef')
+		expect(html).not.toContain('uploads/notes/dragons.pdf')
+		// And the verb's own contribution — the `columns` override — applied on
+		// top of that inference rather than in place of it.
+		expect(html).toContain('font-medium')
+	})
+
+	it('keeps rendering a module emitted in the pre-#356 shape', () => {
+		// The migration story, and there is deliberately nothing to migrate: an
+		// `add view` module already on disk takes no props, so the props it is
+		// now handed are ignored and it renders exactly as it always did. A shape
+		// change in the emitter must never reach into code the user owns.
+		const relicPage = { ...page, resource: 'relic', slug: 'relics' }
+		const html = render({
+			...loaderData,
+			page: relicPage,
+			nav: [relicPage],
+		})
+		expect(html).toContain('the old view, still rendering')
 	})
 
 	it('still frames the page and still surfaces refused writes', () => {

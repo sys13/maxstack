@@ -182,8 +182,14 @@ const VARIANT_COMPONENT = {
 	feed: 'FeedList',
 } as const
 
-/** The "+ New" affordance, matching the framework list's own header. */
-const NEW_LINK_CLASS =
+/**
+ * The "+ New" affordance, matching the framework list's own header.
+ *
+ * Exported because `maxstack add view` emits the same header from the same
+ * `OwnedRouteProps` (issue #356). Two owned-page emitters that agree about the
+ * contract and disagree about the button are still two shapes.
+ */
+export const NEW_LINK_CLASS =
 	'inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground no-underline shadow transition-colors hover:bg-primary/90'
 
 /**

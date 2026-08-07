@@ -347,9 +347,9 @@ reach for the lowest rung that expresses the change:
 ### Scaffolding a view — infer-then-eject (`maxstack add view`)
 
 Rung 3 has a fast path for list/detail pages: `maxstack add view <resource>`.
-Where `maxstack gen` emits a *framework-owned* thin route shell, `add view`
-emits the **guesser output** — an *owned* route module with the resource's
-inferred columns written out explicitly as `<ResourceList>` props:
+Where `maxstack gen` emits a *framework-owned* route module, `add view` emits an
+**owned** one, pre-ejected, on the same contract `maxstack eject` hands over
+(`OwnedRouteProps`):
 
 ```sh
 maxstack add view post     # writes app/routes/post.tsx, ejected
@@ -357,14 +357,19 @@ maxstack add view post     # writes app/routes/post.tsx, ejected
 
 The scaffolded file:
 
-- embeds the introspected schema as a plain, editable `introspection` object —
-  the columns the generic admin would infer, now spelled out so you can reorder,
-  relabel, or drop them right in the file;
-- fetches its rows client-side with the typed `useList` hook (no loader wiring),
-  so it is self-contained wherever the runtime composes it;
-- renders `<ResourceList>` and demonstrates the eject seam with one overridden
-  cell (the title column) in a `columns={…}` prop — delete it to fall fully back
-  to inference, or add more overrides for the cells you care about.
+- takes the page's loader output as props and draws the list by spreading it
+  (`<ResourceList {...list} …/>`), so it renders the *same* rows the framework's
+  own list would — already ordered, permission-gated, with foreign keys resolved
+  to their titles and file keys signed into URLs. Nothing is refetched in the
+  browser and no schema is frozen into the file, so a field added to the spec
+  later shows up without an edit here;
+- demonstrates the eject seam with one overridden cell (the title column) in a
+  `columns` map merged *over* that inference — delete it to fall fully back to
+  inference, or add more overrides for the cells you care about.
+
+What you own is the **render**. The **loader** is still framework code: it
+resolves this page from `spec/` on every request, so the page keeps its spec
+entry.
 
 The route is registered `ejected` in the manifest, so **your edits survive
 regeneration**: `maxstack gen` reports it `skipped-user-owned` and never touches
@@ -372,8 +377,12 @@ it again. The workflow is the whole point — start inferred → eject the one c
 you care about → the rest stays inferred. `maxstack build` wires the owned module
 into `OWNED_ROUTES` so it also executes in a deployed build.
 
-Two things to know before you reach for it:
+Three things to know before you reach for it:
 
+- **An owned module replaces the page's whole surface.** If the page it lands on
+  is arranged by a `calendar`, `timeline` or `board` block, the scaffold draws a
+  table there instead — the same trade `maxstack eject` refuses to make quietly.
+  The command warns; prefer filling a block slot, which keeps the arrangement.
 - **The view renders where a spec page targets its entity.** An owned view has
   no URL of its own — the runtime mounts it at the spec page whose `entityId`
   resolves to the resource. If no such page exists yet, the command warns and
