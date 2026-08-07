@@ -135,6 +135,71 @@ export async function writeUserFileOnce(
 }
 
 /**
+ * Write a user-owned *module* — a whole file the user takes ownership of, at an
+ * id the manifest tracks — honoring never-clobber.
+ *
+ * This is the writer behind `maxstack add view`, and it sits between the other
+ * two on purpose:
+ *   - {@link writeGenerated} writes framework-owned files and skips a
+ *     user-owned entry, but it lands them `generated`, which is the opposite of
+ *     what a scaffold-and-eject verb wants;
+ *   - {@link writeUserFileOnce} refuses *any* existing file, which would also
+ *     refuse the framework's own generated route module — and overwriting that
+ *     is exactly the infer-then-eject workflow, not a clobber.
+ *
+ * So the rule is `writeGenerated`'s ownership test with an `ejected` landing:
+ * a `generated` entry (or nothing at all) may be written over, because those
+ * bytes are the generator's own; anything the manifest calls `ejected`/`user`,
+ * or any file on disk the manifest does not know about, belongs to the user and
+ * is refused. The caller decides what a refusal means — this returns
+ * `skipped-user-owned` rather than throwing, like every other writer here.
+ *
+ * `force` is the opt-in, and it is the *only* way to overwrite owned code. It
+ * exists because "re-run the command" is a legitimate upgrade path (issue #356
+ * changed the emitted shape), and a path with no escape hatch is a path people
+ * take with `rm` instead.
+ */
+export async function writeOwned(
+	fs: Fs,
+	manifest: RouteManifest,
+	entry: Omit<RouteManifestEntry, 'ownership' | 'hash'>,
+	content: string,
+	options: { force?: boolean } = {},
+): Promise<{ manifest: RouteManifest; result: WriteResult }> {
+	// Both keys matter. `id` is how the manifest tracks a route, but a *different*
+	// id may already own this path (an eject `--to` this file, a slot file), and
+	// clobbering that would be the same data loss wearing a different name.
+	const byId = findEntry(manifest, entry.id)
+	const byFile = manifest.entries.find((e) => e.file === entry.file)
+	const owned = [byId, byFile].find((e) => e && e.ownership !== 'generated')
+	// Untracked but present: nobody generated this, so somebody wrote it.
+	const untracked = !byId && !byFile && (await fs.exists(entry.file))
+
+	if (!options.force && (owned || untracked)) {
+		return {
+			manifest,
+			result: {
+				file: entry.file,
+				action: 'skipped-user-owned',
+				ownership: owned?.ownership ?? 'user',
+			},
+		}
+	}
+
+	const existedOnDisk = await fs.exists(entry.file)
+	await fs.write(entry.file, content)
+	const next = upsertEntry(manifest, { ...entry, ownership: 'ejected' })
+	return {
+		manifest: next,
+		result: {
+			file: entry.file,
+			action: existedOnDisk ? 'overwritten' : 'created',
+			ownership: 'ejected',
+		},
+	}
+}
+
+/**
  * The banner an ejected module carries.
  *
  * The second paragraph is the honesty fix from #349, and it is not decoration.

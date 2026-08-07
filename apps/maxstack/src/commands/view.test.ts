@@ -233,6 +233,53 @@ describe('resolveView / renderViewModule (pure)', () => {
 			/unknown resource "nope"/,
 		)
 	})
+
+	// #360: the emitter hardcoded `ResourceList`, so scaffolding a view onto a
+	// page the spec declares as `cards` or `feed` silently rewrote it as a table
+	// — the quiet cousin of the board downgrade the command already warns about.
+	it("emits the page's declared list variant, not always a table", () => {
+		const view = resolveView(specWithPost(), 'post')
+
+		const cards = renderViewModule(view, { variant: 'cards' })
+		expect(cards).toContain('CardGrid')
+		expect(cards).not.toContain('ResourceList')
+		// Sorted on the binding rather than the `type ` prefix, so the scaffold's
+		// first `lint --write` is a no-op.
+		expect(cards).toContain(
+			"import {\n\tCardGrid,\n\ttype ColumnOverrides,\n\ttype OwnedRouteProps,\n} from '@maxstack/ui'",
+		)
+
+		const feed = renderViewModule(view, { variant: 'feed' })
+		expect(feed).toContain('FeedList')
+		expect(feed).not.toContain('ResourceList')
+
+		// An absent surface (no page yet) and an explicit table both stay a table.
+		expect(renderViewModule(view)).toContain('<ResourceList {...list}')
+		expect(renderViewModule(view, { variant: 'table' })).toContain(
+			'<ResourceList {...list}',
+		)
+	})
+
+	it("passes a card/feed page's declared field subset through", () => {
+		const view = resolveView(specWithPost(), 'post')
+		const src = renderViewModule(view, {
+			variant: 'cards',
+			fields: ['title', 'views'],
+		})
+		expect(src).toContain('primaryField="title"')
+		expect(src).toContain("secondaryFields={['title', 'views']}")
+		// …and the column override still merges over the inferred cells.
+		expect(src).toContain('columns={{ ...list.columns, ...columns }}')
+
+		// A table's columns come from introspection, so a field list there would be
+		// a literal standing in for something the loader computes live.
+		const table = renderViewModule(view, {
+			variant: 'table',
+			fields: ['title', 'views'],
+		})
+		expect(table).not.toContain('primaryField')
+		expect(table).not.toContain('secondaryFields')
+	})
 })
 
 describe('maxstack add view (integration)', () => {
@@ -311,7 +358,10 @@ describe('maxstack add view (integration)', () => {
 	it('does not warn when a page already targets the resource', async () => {
 		const log = vi.mocked(console.log)
 		log.mockClear()
-		await addViewCommand(dir, 'post')
+		// `--force`, because "post" is already scaffolded by the test above and a
+		// second run is now refused (#360). That is the point of this file's
+		// never-clobber block below; here it is only how we reach the log again.
+		await addViewCommand(dir, 'post', { force: true })
 		const out = log.mock.calls.flat().join('\n')
 		expect(out).not.toContain('no accepted page')
 		expect(out).not.toContain('renders a TABLE')
@@ -393,5 +443,183 @@ describe('maxstack add view (integration)', () => {
 
 		// The gen pass left the owned view untouched.
 		expect(await readFile(file, 'utf8')).toContain('font-black uppercase')
+	})
+})
+
+/**
+ * Never-clobber (issue #360).
+ *
+ * `maxstack gen` skipping an ejected route was already proven above. The hole
+ * was that `add view` itself wrote with a bare `fs.write`, so the one command
+ * whose output says THIS FILE IS YOURS was also the one command that would
+ * silently overwrite it — on the very re-run #356 made the documented upgrade
+ * path from the old props-less module to the loader-fed one.
+ *
+ * Its own project so the assertions do not depend on how many times the
+ * integration block above scaffolded.
+ */
+describe('maxstack add view never-clobbers (issue #360)', () => {
+	let dir: string
+
+	beforeAll(async () => {
+		dir = await mkdtemp(join(tmpdir(), 'maxstack-view-own-'))
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		await initCommand(dir, { desc: 'a blog' })
+		await opCommand(dir, { op: entityOp })
+		await opCommand(dir, { op: pageOp })
+		await genCommand(dir)
+	})
+
+	afterAll(async () => {
+		vi.restoreAllMocks()
+		await rm(dir, { recursive: true, force: true })
+	})
+
+	it('refuses a second run and leaves the edited file byte-for-byte', async () => {
+		const file = join(dir, 'app/routes/post.tsx')
+		await addViewCommand(dir, 'post')
+
+		// The user then owns it — the whole point of the verb. Two edits: one in
+		// the demonstrated cell override, one a hand-written helper the scaffold
+		// would never re-emit, so a clobber cannot be mistaken for a no-op diff.
+		const mine = `${(await readFile(file, 'utf8')).replace(
+			'font-medium',
+			'font-black uppercase tracking-tight',
+		)}\nexport function myHelper() {\n\treturn 'irreplaceable'\n}\n`
+		await writeFile(file, mine)
+		const before = await readFile(file)
+
+		await expect(addViewCommand(dir, 'post')).rejects.toThrow(
+			/refusing to overwrite .*post\.tsx — you own it/,
+		)
+
+		// Byte-for-byte, not "contains my edit": a partial rewrite that happened to
+		// keep one string would pass the weaker assertion.
+		expect(await readFile(file)).toEqual(before)
+		// …and the manifest entry it would have re-flipped is untouched too.
+		const manifest = JSON.parse(
+			await readFile(join(dir, 'app/.generated.routes.json'), 'utf8'),
+		)
+		expect(
+			manifest.entries.find((e: { id: string }) => e.id === 'post').ownership,
+		).toBe('ejected')
+	})
+
+	it('names the opt-in in the refusal, and --force takes it', async () => {
+		const file = join(dir, 'app/routes/post.tsx')
+		await expect(addViewCommand(dir, 'post')).rejects.toThrow(
+			/maxstack add view post .*--force/s,
+		)
+
+		// The escape hatch works, and only it does. This is the documented upgrade
+		// path from a stale scaffold shape, so it must exist — but it has to be
+		// said out loud, which is the entire fix.
+		await addViewCommand(dir, 'post', { force: true })
+		const src = await readFile(file, 'utf8')
+		expect(src).not.toContain('myHelper')
+		expect(src).toContain('THIS FILE IS YOURS')
+	})
+
+	it('refuses a file the manifest does not know about at all', async () => {
+		// Never generated, never scaffolded — somebody hand-wrote a route module.
+		// There is no manifest entry to consult, so an ownership check that only
+		// read the manifest would clobber it. Presence on disk is the claim.
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'data.addEntity',
+				args: {
+					entity: {
+						id: 'e-note',
+						name: 'Note',
+						description: 'a note',
+						provenance,
+						fields: [
+							{
+								id: 'fld-note-title',
+								name: 'title',
+								type: 'string',
+								required: true,
+								provenance,
+							},
+						],
+					},
+				},
+			}),
+		})
+		const file = join(dir, 'app/routes/note.tsx')
+		await writeFile(file, '// hand-written, tracked by nothing\n')
+		const before = await readFile(file)
+
+		await expect(addViewCommand(dir, 'note')).rejects.toThrow(
+			/refusing to overwrite/,
+		)
+		expect(await readFile(file)).toEqual(before)
+	})
+
+	it('still writes over the framework-generated module (infer-then-eject)', async () => {
+		// The case that must NOT be refused: `gen` wrote this route, so the bytes
+		// being replaced are the generator's own. Scaffolding over them is the
+		// workflow, not a clobber — the same distinction `writeGenerated` draws.
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'data.addEntity',
+				args: {
+					entity: {
+						id: 'e-draft',
+						name: 'Draft',
+						description: 'a draft',
+						provenance,
+						fields: [
+							{
+								id: 'fld-draft-title',
+								name: 'title',
+								type: 'string',
+								required: true,
+								provenance,
+							},
+						],
+					},
+				},
+			}),
+		})
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'page.addPage',
+				args: {
+					page: {
+						id: 'pg-drafts',
+						name: 'Drafts',
+						route: '/drafts',
+						entityId: 'e-draft',
+						provenance,
+						blocks: [{ id: 'blk-draft-table', type: 'table', provenance }],
+					},
+				},
+			}),
+		})
+		await genCommand(dir)
+		const generated = join(dir, 'app/routes/draft.tsx')
+		expect(await readFile(generated, 'utf8')).toContain('AUTO-GENERATED')
+
+		await addViewCommand(dir, 'draft')
+		expect(await readFile(generated, 'utf8')).toContain('THIS FILE IS YOURS')
+	})
+
+	it("emits the page's declared variant end-to-end (issue #360)", async () => {
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'page.setBlockVariant',
+				args: {
+					pageId: 'pg-drafts',
+					blockId: 'blk-draft-table',
+					variant: 'cards',
+				},
+			}),
+		})
+		await addViewCommand(dir, 'draft', { force: true })
+		const src = await readFile(join(dir, 'app/routes/draft.tsx'), 'utf8')
+		expect(src).toContain('<CardGrid {...list}')
+		expect(src).not.toContain('ResourceList')
 	})
 })

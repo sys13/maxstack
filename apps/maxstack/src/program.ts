@@ -326,6 +326,10 @@ export function buildProgram(): Command {
 			'--dry-run',
 			'preview the spec diff the install would produce; write nothing',
 		)
+		.option(
+			'--force',
+			'for "add view": overwrite the view module even though you own it (destroys your edits)',
+		)
 		.description(
 			'Browse the catalog (no argument), install a feature bundle, or "add view <resource>" to scaffold an owned list view',
 		)
@@ -335,7 +339,7 @@ export function buildProgram(): Command {
 			if (!target) return catalogCommand(arg2 ?? '.')
 			if (target === 'view') {
 				if (!arg2) throw new Error('usage: maxstack add view <resource> [dir]')
-				return addViewCommand(dir, arg2)
+				return addViewCommand(dir, arg2, { force: opts.force === true })
 			}
 			return addCommand(arg2 ?? '.', target, { dryRun: opts.dryRun === true })
 		})

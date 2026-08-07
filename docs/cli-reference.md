@@ -301,6 +301,7 @@ maxstack add [options] [target] [arg2] [dir]
 | Option | Meaning | Default |
 | --- | --- | --- |
 | `--dry-run` | preview the spec diff the install would produce; write nothing | — |
+| `--force` | for "add view": overwrite the view module even though you own it (destroys your edits) | — |
 
 ## Owning generated code
 

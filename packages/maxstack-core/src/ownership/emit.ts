@@ -175,8 +175,15 @@ function newProject(): Project {
 	})
 }
 
-/** The `@maxstack/ui` list component each declared variant renders through. */
-const VARIANT_COMPONENT = {
+/**
+ * The `@maxstack/ui` list component each declared variant renders through.
+ *
+ * Exported because `maxstack add view` emits an owned module for the same
+ * surface and must pick the same component: a second copy of this map is how
+ * `add view` came to emit a `ResourceList` onto a page the spec declares as
+ * `cards`, silently downgrading it (issue #360).
+ */
+export const VARIANT_COMPONENT = {
 	table: 'ResourceList',
 	cards: 'CardGrid',
 	feed: 'FeedList',

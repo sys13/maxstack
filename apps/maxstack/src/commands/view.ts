@@ -12,6 +12,11 @@
  * renders that owned module in place of the inferred list (the Bar-2 seam) —
  * handing it the loader's rows, columns, capabilities, resolved references and
  * signed file URLs, which is what this scaffold renders from (issue #356).
+ *
+ * The write goes through `writeOwned` (issue #360). A verb whose output is a
+ * file stamped THIS FILE IS YOURS is the last place that may write it blind, and
+ * this one did until now — so a second run overwrote the user's module wholesale
+ * and then re-flipped the manifest entry it had itself already set to `ejected`.
  */
 
 import { resolve } from 'node:path'
@@ -23,7 +28,7 @@ import {
 	parseManifest,
 	type RouteManifest,
 	serializeManifest,
-	upsertEntry,
+	writeOwned,
 } from '@maxstack/core/ownership'
 import { pageDescriptor } from '@maxstack/mcp'
 import { getAcceptedOrAll } from '@maxstack/spec'
@@ -38,32 +43,70 @@ const resourceOf = (entityId: string) => entityId.replace(/^e-/, '')
 export async function addViewCommand(
 	dir: string | undefined,
 	resource: string,
+	options: { force?: boolean } = {},
 ): Promise<void> {
 	const project = await loadProject(dir ?? '.')
 	const spec = await project.spec.load()
 
 	// Introspect the resource out of the spec (throws with the known list if the
-	// name is unknown) and render its owned view module.
+	// name is unknown).
 	const view = resolveView(spec, resource)
 	const file = viewFile(resource)
-	const content = renderViewModule(view)
+
+	// An owned view renders where a spec page's entity resolves to this resource
+	// (`project.page.tsx`), so the page is what decides which list component the
+	// module should emit — resolved before the write, not after it (issue #360).
+	const pages = getAcceptedOrAll(spec.pages.pages).filter(
+		(p) => p.entityId && resourceOf(p.entityId) === resource,
+	)
+	const hasPage = pages.length > 0
+	const surface = pages.map((p) => pageDescriptor(p).list).find((l) => l)
+	const content = renderViewModule(view, surface)
 
 	const fs = createNodeFs(project.appPath)
-	await fs.write(file, content)
-
-	// Flip the route to `ejected` so regeneration skips it. Reuse the existing
-	// entry's route path when the resource was already generated; otherwise derive
-	// one from the resource name.
 	const manifest: RouteManifest = (await fs.exists(MANIFEST_FILENAME))
 		? parseManifest(await fs.read(MANIFEST_FILENAME))
 		: emptyManifest()
 	const prior = manifest.entries.find((e) => e.id === resource)
-	const next = upsertEntry(manifest, {
-		id: resource,
-		routePath: prior?.routePath ?? `/${resource}`,
-		file,
-		ownership: 'ejected',
-	})
+
+	// Never-clobber, through the same layer everything else writes through
+	// (issue #360). This used to be a bare `fs.write`, so re-running the command
+	// silently overwrote the file it had itself declared THIS FILE IS YOURS —
+	// including, since #356, whenever a user took the documented upgrade path from
+	// the old props-less shape to this one. `writeOwned` writes over a `generated`
+	// entry (that is the infer-then-eject workflow) and refuses everything else.
+	//
+	// The refusal *throws* rather than printing and returning 0: this is the one
+	// verb whose no-op means "your edits were about to be destroyed", and a
+	// scripted re-run that reports success while doing nothing is how that lesson
+	// gets learned twice. Refusing rather than writing beside it because there is
+	// no second place to write: the file's path is the route's path, so a
+	// `post.2.tsx` would be a module nothing mounts — a decoy, not an escape.
+	const { manifest: next, result } = await writeOwned(
+		fs,
+		manifest,
+		{
+			id: resource,
+			// Reuse the route path the generator recorded; otherwise derive one.
+			routePath: prior?.routePath ?? `/${resource}`,
+			file,
+		},
+		content,
+		{ force: options.force === true },
+	)
+	if (result.action === 'skipped-user-owned') {
+		throw new Error(
+			`refusing to overwrite ${project.config.appDir}/${file} — you own it` +
+				`\n  ("${resource}" is \`${result.ownership}\` in the route manifest).` +
+				'\n' +
+				'\n  Re-running `add view` would replace the whole module, so every hand' +
+				'\n  edit in it would be gone with no diff and no undo.' +
+				'\n' +
+				'\n  If you meant to regenerate it — the upgrade path to the current' +
+				'\n  scaffold shape — save your edits first and opt in:' +
+				`\n      maxstack add view ${resource}${dir && dir !== '.' ? ` ${dir}` : ''} --force`,
+		)
+	}
 	await fs.write(MANIFEST_FILENAME, serializeManifest(next))
 
 	const label = formatLabel(resource)
@@ -87,14 +130,6 @@ export async function addViewCommand(
 			`\n  reference titles and signed file URLs still resolve from spec/ per` +
 			`\n  request and arrive as props — so this page keeps its spec entry.`,
 	)
-
-	// An owned view renders where a spec page's entity resolves to this resource
-	// (`project.page.tsx`). Without one it has no URL — say so now, with the fix,
-	// instead of letting the user discover a 404 in `dev`.
-	const pages = getAcceptedOrAll(spec.pages.pages).filter(
-		(p) => p.entityId && resourceOf(p.entityId) === resource,
-	)
-	const hasPage = pages.length > 0
 
 	// The one case this verb reaches that `maxstack eject` refuses: the page a
 	// scaffolded view would render at is arranged by a calendar/timeline/board

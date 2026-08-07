@@ -47,7 +47,11 @@ import {
 	type SpecEntityShape,
 	type SproutResource,
 } from '@maxstack/core'
-import { NEW_LINK_CLASS } from '@maxstack/core/ownership'
+import {
+	NEW_LINK_CLASS,
+	type PageListSurface,
+	VARIANT_COMPONENT,
+} from '@maxstack/core/ownership'
 import { groundedEntityShapes } from '@maxstack/mcp'
 import type { SpecSystem } from '@maxstack/spec'
 
@@ -113,10 +117,28 @@ function key(name: string): string {
  * for the same reason: it is what keeps a hand-owned page working when the
  * runtime learns to pass something new. The one thing this verb adds on top is
  * the `columns` override map.
+ *
+ * `surface` is the page's declared list surface (`pageDescriptor(page).list`),
+ * when the resource has a page to render at. It selects the list component
+ * through the *same* {@link VARIANT_COMPONENT} map `emit.ts` uses: until issue
+ * #360 this emitter hardcoded `ResourceList`, so scaffolding a view onto a page
+ * the spec declares as `cards` or `feed` silently rewrote it as a table — the
+ * quieter cousin of the board downgrade the command already warns about.
+ * Omitted (or `table`) keeps the table.
  */
-export function renderViewModule(view: ResolvedView): string {
+export function renderViewModule(
+	view: ResolvedView,
+	surface?: PageListSurface,
+): string {
 	const { resource, pascal: P, titleField } = view
 	const label = formatLabel(resource)
+	const variant = surface?.variant ?? 'table'
+	const listComponent = VARIANT_COMPONENT[variant]
+	// Only cards and feed read the declared field subset (as their
+	// primary/secondary fields); a table's columns come from introspection, which
+	// no literal here could stand in for. Same rule as `listSurfaceJsx`.
+	const fields =
+		variant !== 'table' && surface?.fields?.length ? surface.fields : undefined
 
 	// The one demonstrated eject: emphasize the title cell. Every other column
 	// stays inferred from the *live* introspection the loader hands down.
@@ -138,17 +160,38 @@ const columns: ColumnOverrides = {
 	// `list.columns` carries the project's filled `field` block slots, so the
 	// overrides above are merged onto them rather than replacing them — taking
 	// one cell here must not silently unfill a slot somewhere else.
-	const listJsx = titleField
-		? `<ResourceList {...list} columns={{ ...list.columns, ...columns }} />`
-		: `<ResourceList {...list} />`
+	//
+	// The field literals are inlined rather than hoisted into the `LIST_FIELDS`
+	// const `emit.ts` uses: that file is the framework's and is rewritten whole,
+	// this one is the user's and its first edit is usually one of these names.
+	const listProps = [
+		'{...list}',
+		...(titleField ? ['columns={{ ...list.columns, ...columns }}'] : []),
+		...(fields
+			? [
+					`primaryField="${fields[0]}"`,
+					`secondaryFields={[${fields.map((f) => `'${f}'`).join(', ')}]}`,
+				]
+			: []),
+	]
+	const oneLineJsx = `<${listComponent} ${listProps.join(' ')} />`
 	// Biome-shaped by hand: a scaffold that arrives already reformatted by the
-	// project's own `lint --write` is a scaffold whose first diff is noise. Under
-	// 80 columns it stays on one line; the three-binding form does not fit.
+	// project's own `lint --write` is a scaffold whose first diff is noise. The
+	// JSX sits three tabs deep, so 76 is the budget before it wraps one-per-line.
+	const listJsx =
+		oneLineJsx.length <= 76
+			? oneLineJsx
+			: `<${listComponent}\n${listProps
+					.map((p) => `\t\t\t\t${p}`)
+					.join('\n')}\n\t\t\t/>`
+	// Under 80 columns it stays on one line; the three-binding form does not fit.
 	const bindings = [
 		...(titleField ? ['type ColumnOverrides'] : []),
 		'type OwnedRouteProps',
-		'ResourceList',
-	]
+		listComponent as string,
+		// Sorted on the *binding*, not the `type ` prefix — the order biome's
+		// import organizer would settle on, so the scaffold's first lint is a no-op.
+	].sort((a, b) => a.replace('type ', '').localeCompare(b.replace('type ', '')))
 	const oneLine = `import { ${bindings.join(', ')} } from '@maxstack/ui'`
 	const importBlock =
 		oneLine.length <= 80

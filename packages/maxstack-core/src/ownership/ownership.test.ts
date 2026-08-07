@@ -29,7 +29,7 @@ import {
 	type RegenTarget,
 	regenerateAsDiff,
 } from './regen.ts'
-import { EJECT_BANNER, eject, writeGenerated } from './write.ts'
+import { EJECT_BANNER, eject, writeGenerated, writeOwned } from './write.ts'
 
 const TASK: PageDescriptor = {
 	resource: 'task',
@@ -400,6 +400,80 @@ describe('never-clobber writer + eject', () => {
 		const ejected = await eject(fs, m, 'task', 'custom-pages/task.tsx')
 		expect(ejected.result.action).toBe('skipped-user-owned')
 		expect(await fs.read('custom-pages/task.tsx')).toBe('mine, written by hand')
+	})
+
+	/**
+	 * `writeOwned` — the writer behind `maxstack add view` (issue #360), which
+	 * until then wrote its user-owned module with a bare `fs.write`.
+	 *
+	 * The interesting property is that it is neither of the other two: it must
+	 * write over a `generated` module (that is the infer-then-eject workflow) and
+	 * refuse everything else, which is `writeGenerated`'s ownership rule landing
+	 * an `ejected` entry.
+	 */
+	describe('writeOwned', () => {
+		const entry = {
+			id: 'task',
+			routePath: '/admin/tasks',
+			file: 'routes/task.tsx',
+		}
+
+		it('writes over a generated module and lands it ejected', async () => {
+			const fs = createMemFs()
+			const gen = await writeGenerated(fs, emptyManifest(), entry, '// GEN')
+			const owned = await writeOwned(fs, gen.manifest, entry, 'MINE')
+			expect(owned.result.action).toBe('overwritten')
+			expect(owned.result.ownership).toBe('ejected')
+			expect(await fs.read(entry.file)).toBe('MINE')
+		})
+
+		it('refuses the second run — the clobber that shipped', async () => {
+			const fs = createMemFs()
+			const first = await writeOwned(fs, emptyManifest(), entry, 'MINE')
+			expect(first.result.action).toBe('created')
+			await fs.write(entry.file, 'MINE, then hand-edited')
+
+			const second = await writeOwned(fs, first.manifest, entry, 'SCAFFOLD v2')
+			expect(second.result.action).toBe('skipped-user-owned')
+			expect(second.result.ownership).toBe('ejected')
+			expect(await fs.read(entry.file)).toBe('MINE, then hand-edited')
+			// The manifest is returned unchanged, so a caller that persists the
+			// result cannot re-stamp an entry over a write that did not happen.
+			expect(second.manifest).toBe(first.manifest)
+		})
+
+		it('refuses a file on disk the manifest has never heard of', async () => {
+			// No entry to consult, so a manifest-only ownership test would clobber
+			// it. Somebody wrote those bytes; nobody generated them.
+			const fs = createMemFs({ 'routes/task.tsx': 'hand-written' })
+			const res = await writeOwned(fs, emptyManifest(), entry, 'SCAFFOLD')
+			expect(res.result.action).toBe('skipped-user-owned')
+			expect(await fs.read(entry.file)).toBe('hand-written')
+		})
+
+		it('refuses when a DIFFERENT id already owns the same path', async () => {
+			// An `eject --to` this file, or a slot file. Same data loss, different
+			// name — which is why the check is on the file as well as the id.
+			const fs = createMemFs({ 'routes/task.tsx': 'ejected elsewhere' })
+			const m = upsertEntry(emptyManifest(), {
+				id: 'legacy-task',
+				routePath: '/admin/tasks',
+				file: 'routes/task.tsx',
+				ownership: 'ejected',
+			})
+			const res = await writeOwned(fs, m, entry, 'SCAFFOLD')
+			expect(res.result.action).toBe('skipped-user-owned')
+			expect(await fs.read(entry.file)).toBe('ejected elsewhere')
+		})
+
+		it('overwrites owned code only under force', async () => {
+			const fs = createMemFs({ 'routes/task.tsx': 'hand-written' })
+			const res = await writeOwned(fs, emptyManifest(), entry, 'SCAFFOLD', {
+				force: true,
+			})
+			expect(res.result.action).toBe('overwritten')
+			expect(await fs.read(entry.file)).toBe('SCAFFOLD')
+		})
 	})
 })
 
