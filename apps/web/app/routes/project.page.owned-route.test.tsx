@@ -24,6 +24,7 @@ import type { SproutColumn } from '@maxstack/core'
 import { DEFAULT_THEME } from '@maxstack/spec'
 import {
 	type ColumnOverrides,
+	EMPTY_FILTERS,
 	type OwnedRouteProps,
 	ResourceList,
 } from '@maxstack/ui'
@@ -139,6 +140,9 @@ const loaderData = {
 	truncated: false,
 	liveKey: undefined,
 	liveSlot: undefined,
+	filters: EMPTY_FILTERS,
+	sort: undefined,
+	referenceOptions: {},
 }
 
 function render(data: Record<string, unknown> = loaderData): string {
@@ -322,11 +326,106 @@ describe('an ejected route is handed the page it owns (#349)', () => {
 		expect(html).toContain('the old view, still rendering')
 	})
 
+	it('is handed the list controls too, as one element it need only place', () => {
+		// Issue #342. Search, facets and CSV export existed, were tested, and were
+		// mounted on `/admin` and the workbench — the two surfaces a generated
+		// app's users never see. Wiring them into the framework's page alone
+		// would have made an eject *cost* them, which is the third shape #356
+		// just removed. So they come down on the props contract.
+		//
+		// An element rather than a prop bag because the wiring is the part an
+		// owned page must not reimplement: filter state in the query string, read
+		// back by the loader, search upgrading to the ranked index when the
+		// resource declares one. The owner chooses only where it goes.
+		render()
+		if (!captured) throw new Error('owned route was never rendered')
+		expect(captured.toolbar).toBeDefined()
+		expect(renderToString(<>{captured.toolbar}</>)).toContain('Export CSV')
+	})
+
+	it('drives sorting from the props, not from the rows it was handed', () => {
+		// A list page is the first 100 rows of a table, so sorting the array in
+		// the browser reorders a page rather than the list. `onSort` is what puts
+		// `<ResourceList>` in controlled mode and sends the ordering back to the
+		// loader as a URL somebody can bookmark.
+		render()
+		if (!captured) throw new Error('owned route was never rendered')
+		expect(typeof captured.list.onSort).toBe('function')
+	})
+
 	it('still frames the page and still surfaces refused writes', () => {
 		// The chrome is not the page: nav and theme stay the framework's, and a
 		// refused cell edit has to be visible whether or not the page was
 		// ejected — no owned module should have to remember to render it.
 		const html = render()
 		expect(html).toContain('Reader')
+	})
+})
+
+/**
+ * The surface the issue is actually about: the *generated* page, un-ejected.
+ *
+ * #342 was found by building the same app twice. The maxstack arm's entire
+ * control surface was four elements — two nav links, "+ New" and "Edit" — over
+ * a list of books that could not be searched, sorted or filtered, while the
+ * 427-line hand-written arm had all of it. Every component needed already
+ * existed in this repo and rendered three routes away.
+ */
+describe('the generated list page has the capabilities the admin has (#342)', () => {
+	// A resource with no owned module, so the framework's own surface renders.
+	const shelfPage: ProjectRoute = {
+		...page,
+		slug: 'shelf',
+		route: '/shelf',
+		name: 'Shelf',
+		resource: 'shelf',
+		resourceLabel: 'Book',
+	}
+	const shelfData = {
+		...loaderData,
+		page: shelfPage,
+		nav: [shelfPage],
+		columns: [
+			...columns,
+			{
+				name: 'status',
+				type: 'enum' as const,
+				nullable: false,
+				hasDefault: true,
+				isPrimaryKey: false,
+				enumValues: ['reading', 'finished'],
+				meta: { label: 'Status' },
+			},
+		],
+	}
+
+	it('offers search, the derived facets and export', () => {
+		const html = render(shelfData)
+		// `reader`'s `status` enum would have produced shelf tabs for free: the
+		// facet is derived from introspection, no op and no declaration.
+		expect(html).toContain('Search')
+		expect(html).toContain('Status')
+		expect(html).toContain('Export CSV')
+	})
+
+	it('makes its column headers sort', () => {
+		// `<ResourceList>` had rendered sortable headers for a year, gated on
+		// `meta.sortable === true` — a key nothing ever wrote. So the capability
+		// was implemented and unreachable on every list in the product.
+		const html = render(shelfData)
+		expect(html).toContain('aria-label="Sort by Title"')
+	})
+
+	it('says nothing matched rather than offering to seed an app that has rows', () => {
+		// A filtered list that came back empty is not an empty app. "Add the
+		// first book" is the wrong offer — there are books — and "load sample
+		// data" is worse.
+		const html = render({
+			...shelfData,
+			rows: [],
+			filters: { search: 'zzz', filter: {} },
+		})
+		expect(html).toContain('No matches')
+		expect(html).not.toContain('Add the first')
 	})
 })

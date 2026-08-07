@@ -19,7 +19,12 @@ import * as slots from './task.slots.tsx'
 
 export const meta = { resource: 'task', generated: true }
 
-export default function TaskListPage({ list, newHref, Link }: OwnedRouteProps) {
+export default function TaskListPage({
+	list,
+	newHref,
+	toolbar,
+	Link,
+}: OwnedRouteProps) {
 	return (
 		<section data-resource="task">
 			<header className="mb-4 flex items-center justify-between">
@@ -31,6 +36,7 @@ export default function TaskListPage({ list, newHref, Link }: OwnedRouteProps) {
 					+ New
 				</Link>
 			</header>
+			{toolbar}
 			<ResourceList {...list} />
 			<Slot name="afterList" render={slots.afterList} />
 		</section>

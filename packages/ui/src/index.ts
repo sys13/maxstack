@@ -363,6 +363,9 @@ export {
 export {
 	filtersFromSearchParams,
 	filtersToSearchParams,
+	narrowFilters,
+	sortFromSearchParams,
+	sortToSearchParams,
 } from './resource/filter-params.ts'
 export {
 	activeFilterCount,
@@ -372,8 +375,10 @@ export {
 	type FacetKind,
 	type FacetOption,
 	type FilterValues,
+	isSortableColumn,
 	type RangeValue,
 	searchableFields,
+	sortableFields,
 } from './resource/filterable.ts'
 export {
 	History,
@@ -390,6 +395,10 @@ export {
 	suggestColumnMapping,
 	validateImportRows,
 } from './resource/import.ts'
+export {
+	ListControls,
+	type ListControlsProps,
+} from './resource/ListControls.tsx'
 export type { OwnedRouteProps } from './resource/owned-route.ts'
 export {
 	pickDate,

@@ -196,6 +196,13 @@ export const VARIANT_COMPONENT = {
  * `OwnedRouteProps` (issue #356). Two owned-page emitters that agree about the
  * contract and disagree about the button are still two shapes.
  */
+/**
+ * The destructured `OwnedRouteProps` an emitted page takes. One definition
+ * because it is printed once and rewritten once (see the wrap below), and the
+ * two must name the same bindings or the rewrite silently does nothing.
+ */
+const OWNED_PARAMS = '{ list, newHref, toolbar, Link }'
+
 export const NEW_LINK_CLASS =
 	'inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground no-underline shadow transition-colors hover:bg-primary/90'
 
@@ -337,10 +344,19 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 			].join('\n')
 		: `\t\t\t<h1>${title}</h1>`
 
+	// The control bar, rendered above the list exactly where the framework's own
+	// page puts it (#342). One identifier, because the wiring — filter state in
+	// the query string, read back by the loader, search upgrading to the ranked
+	// index — is the part an owned page must not have to reimplement. Move the
+	// line and the bar moves; delete it and the page loses search, facets and
+	// export, which is a choice the owner is now able to make rather than one
+	// the eject made for them.
+	const toolbarJsx = list ? '\t\t\t{toolbar}' : ''
 	const body = [
 		'return (',
 		`\t\t<section data-resource="${resource}">`,
 		header,
+		toolbarJsx,
 		surfaceJsx,
 		slotJsx,
 		'\t\t</section>',
@@ -357,15 +373,26 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 		// and an unused binding would fail the scaffold's lint. Omitting the
 		// parameter keeps it assignable to `ComponentType<OwnedRouteProps>` all
 		// the same, so `OWNED_ROUTES` stays uniformly typed.
-		parameters: list
-			? [{ name: '{ list, newHref, Link }', type: 'OwnedRouteProps' }]
-			: [],
+		parameters: list ? [{ name: OWNED_PARAMS, type: 'OwnedRouteProps' }] : [],
 	})
 	fn.setBodyText(body)
 
 	// Normalize to Biome-ish style: tabs, no semicolons.
 	sf.formatText({ indentSize: 1, convertTabsToSpaces: false })
-	const printed = sf.getFullText().replace(/;\n/g, '\n').replace(/;$/gm, '')
+	const printed = sf
+		.getFullText()
+		.replace(/;\n/g, '\n')
+		.replace(/;$/gm, '')
+		// The four-binding signature is 86 characters before the component name is
+		// even added, so it never fits Biome's 80-column line and ts-morph's
+		// printer does not wrap parameters. Emitting the one-line form would hand
+		// the user a DO-NOT-EDIT file their own `lint --write` immediately
+		// reformats — a scaffold whose first diff is noise, in a file they cannot
+		// edit without ejecting.
+		.replace(
+			`(${OWNED_PARAMS}: OwnedRouteProps)`,
+			'({\n\tlist,\n\tnewHref,\n\ttoolbar,\n\tLink,\n}: OwnedRouteProps)',
+		)
 	return `${BANNER}\n${printed.startsWith('\n') ? printed.slice(1) : printed}`
 }
 

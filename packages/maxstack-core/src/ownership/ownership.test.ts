@@ -127,9 +127,14 @@ describe('emit (ts-morph generator-side emission)', () => {
 			const src = emitResourcePage(LIST)
 			// The failing-before-#349 assertion: the module takes props at all.
 			expect(src).toContain(
-				'export default function TaskListPage({ list, newHref, Link }: OwnedRouteProps)',
+				'export default function TaskListPage({\n\tlist,\n\tnewHref,\n\ttoolbar,\n\tLink,\n}: OwnedRouteProps)',
 			)
 			expect(src).toContain('<ResourceList {...list} />')
+			// The control bar reaches the ejected page too (#342). Without this
+			// line an ejected list silently loses search, filters and export —
+			// which is how the generated app came to be a second-class citizen of
+			// its own component library in the first place.
+			expect(src).toContain('{toolbar}')
 			expect(src).toContain('type OwnedRouteProps')
 			// …and the placeholder that stood in for the page is gone.
 			expect(src).not.toContain('generated resource list renders here')

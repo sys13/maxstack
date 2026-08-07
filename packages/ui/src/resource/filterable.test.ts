@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest'
 import {
 	activeFilterCount,
 	deriveFacets,
+	isSortableColumn,
 	searchableFields,
+	sortableFields,
 } from './filterable.ts'
 import type { IntrospectedResource } from './resource-types.ts'
 
@@ -139,5 +141,82 @@ describe('activeFilterCount', () => {
 				range: { estimate: { gte: '5', lte: '20' }, dueDate: { lte: '' } },
 			}),
 		).toBe(3)
+	})
+})
+
+/**
+ * Issue #342. `<ResourceList>` had rendered sortable headers since Plan v5 —
+ * gated on `meta.sortable === true`, a key nothing in the product ever wrote.
+ * So the capability was implemented and unreachable: every list in every
+ * surface had unclickable headers, and no test could tell, because the
+ * component's own fixture set the key by hand.
+ */
+describe('isSortableColumn / sortableFields (#342)', () => {
+	it('sorts by default rather than on an opt-in nobody writes', () => {
+		// The regression itself. Before #342 each of these was false, because
+		// `meta.sortable` was absent — as it is on every column of every
+		// introspected resource.
+		expect(isSortableColumn({ name: 'title', type: 'string', meta: {} })).toBe(
+			true,
+		)
+		expect(isSortableColumn({ name: 'due', type: 'date', meta: {} })).toBe(true)
+		expect(isSortableColumn({ name: 'points', type: 'number', meta: {} })).toBe(
+			true,
+		)
+		expect(isSortableColumn({ name: 'done', type: 'boolean', meta: {} })).toBe(
+			true,
+		)
+	})
+
+	it('leaves the columns whose order would be meaningless alone', () => {
+		// A JSON blob, a stored file key and an array of foreign keys all order
+		// by an encoding the reader never sees, so a header offering it would be
+		// a control whose result looks random.
+		expect(isSortableColumn({ name: 'payload', type: 'json', meta: {} })).toBe(
+			false,
+		)
+		expect(
+			isSortableColumn({
+				name: 'cover',
+				type: 'string',
+				meta: { isFile: true },
+			}),
+		).toBe(false)
+		expect(
+			isSortableColumn({
+				name: 'tags',
+				type: 'json',
+				meta: { arrayReference: { table: 'tag', column: 'id' } },
+			}),
+		).toBe(false)
+		expect(
+			isSortableColumn({
+				name: 'secret',
+				type: 'string',
+				meta: { hidden: true },
+			}),
+		).toBe(false)
+	})
+
+	it('honors an explicit declaration in both directions', () => {
+		expect(
+			isSortableColumn({
+				name: 'payload',
+				type: 'json',
+				meta: { sortable: true },
+			}),
+		).toBe(true)
+		expect(
+			isSortableColumn({
+				name: 'title',
+				type: 'string',
+				meta: { sortable: false },
+			}),
+		).toBe(false)
+	})
+
+	it('lists a resource sortable fields, primary key excluded', () => {
+		expect(sortableFields(resource)).not.toContain('id')
+		expect(sortableFields(resource)).toContain('title')
 	})
 })

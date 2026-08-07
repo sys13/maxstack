@@ -214,7 +214,12 @@ ${importBlock}
 
 export const meta = { resource: '${resource}', view: true }
 ${columnsBlock}
-export default function ${P}View({ list, newHref, Link }: OwnedRouteProps) {
+export default function ${P}View({
+	list,
+	newHref,
+	toolbar,
+	Link,
+}: OwnedRouteProps) {
 	return (
 		<section data-view="${resource}">
 			<header className="mb-4 flex items-center justify-between">
@@ -226,6 +231,9 @@ export default function ${P}View({ list, newHref, Link }: OwnedRouteProps) {
 					+ New
 				</Link>
 			</header>
+			{/* Search, the derived filter facets and CSV export, wired to the URL by
+			    the framework's loader. Move it, or delete it and lose them. */}
+			{toolbar}
 			${listJsx}
 		</section>
 	)

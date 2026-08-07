@@ -18,6 +18,7 @@ import {
 import type { BoardDrop } from '@maxstack/ui'
 import {
 	Alert,
+	activeFilterCount,
 	addDays,
 	addTheFirst,
 	BoardView,
@@ -26,24 +27,35 @@ import {
 	type ColumnOverrides,
 	dayKeyOf,
 	daysInMonth,
+	EMPTY_FILTERS,
 	type EmptySlotProps,
 	EmptyState,
 	FeedList,
 	type FieldSlotProps,
+	type FilterValues,
+	filtersFromSearchParams,
+	filtersToSearchParams,
 	type HeaderSlotProps,
 	heatmapGrid,
 	isDayKey,
+	ListControls,
 	type ListSlotProps,
 	monthGrid,
 	monthStart,
+	narrowFilters,
 	ResourceList,
 	type RowSlotProps,
 	Slot,
+	type SortState,
+	searchableFields,
+	sortableFields,
+	sortFromSearchParams,
+	sortToSearchParams,
 	TimelineView,
 	weekGrid,
 } from '@maxstack/ui'
 import type { ComponentType } from 'react'
-import { Form, Link, useFetcher } from 'react-router'
+import { Form, Link, useFetcher, useSearchParams } from 'react-router'
 import { boardMoveValues } from '~/board-move'
 import { inlineEditValues } from '~/inline-edit'
 import { hasLiveSurface, LiveSurface, withRowIds } from '~/live-surface'
@@ -77,6 +89,48 @@ export function tableColumns(
 			.map((name) => visible.find((c) => c.name === name))
 			.filter((c) => c !== undefined)
 	return visible.slice(0, 6)
+}
+
+/**
+ * What the list's controls resolve to for one request — search, facets and
+ * ordering, narrowed to what this page may actually honour.
+ *
+ * Pure, exported and tested on its own for the same reason `viewListOptions`
+ * is: it is the loader's one non-obvious decision, and it is a **security**
+ * decision. `search`, `filter.*`, `sort` and `dir` all arrive from the query
+ * string of a page an end user is looking at. Ordering by a column they were
+ * never shown is a comparison oracle over its values — the caller sees no
+ * value, but the *permutation* of the rows they can see reconstructs the
+ * ordering in a few dozen requests — and an equality filter on one is the
+ * blunter version of the same thing. Core refuses exactly this for a portal
+ * identity (`assertPortalReadShape`); this is the same rule arriving through a
+ * different door, for every identity.
+ *
+ * So the allow-list is derived, never declared: **a page controls exactly the
+ * columns it renders**. `shown` is the page's visible columns
+ * ({@link tableColumns}), so a `hidden` field, a field outside a declared
+ * `fields` subset, and a column past the six-column cap are all equally
+ * un-sortable and un-filterable, without anybody having to remember to say so.
+ *
+ * A date- or board-arranged view resolves to nothing at all: its rows are a
+ * window chosen by {@link viewListOptions}, and layering a search over that
+ * would silently change which days the grid is even asking about.
+ */
+export function listControls(
+	url: URL,
+	shown: { primaryKey: string; columns: SproutColumn[] },
+	view: ProjectRoute['view'],
+): { filters: FilterValues; sort?: SortState; searchFields: string[] } {
+	if (view) return { filters: EMPTY_FILTERS, searchFields: [] }
+	const resource = { name: '', ...shown }
+	return {
+		filters: narrowFilters(
+			filtersFromSearchParams(url.searchParams),
+			shown.columns.map((c) => c.name),
+		),
+		sort: sortFromSearchParams(url.searchParams, sortableFields(resource)),
+		searchFields: searchableFields(resource),
+	}
 }
 
 /**
@@ -275,7 +329,14 @@ export default function ProjectListPage({
 		liveSlot,
 		can,
 		editable,
+		filters,
+		sort,
+		referenceOptions,
 	} = loaderData
+	// The URL is the single source of truth for the list's controls — search,
+	// facets and ordering — so a filtered, sorted list is a link somebody can
+	// send. The loader read these back with the same codec (#342).
+	const [, setSearchParams] = useSearchParams()
 	// Declared live queries updating derived surfaces. The loader's
 	// rows stay the source of truth — the hook re-seeds from them on every
 	// navigation and revalidation — and pushed changes are merged on top. With no
@@ -364,7 +425,33 @@ export default function ProjectListPage({
 	// with no rows is never a dead end. A filled `empty` block slot owns this
 	// region instead — the one place a product's voice matters most and the
 	// generated copy is most obviously generic.
-	const emptyState = EmptySlot ? (
+	// Nothing matched, as distinct from nothing exists. A filtered list that
+	// came back empty is not an empty app: "Add the first book" is the wrong
+	// offer (there are books) and "load sample data" is worse, so the two
+	// states are two states. `demoAvailable` is already false here — the loader
+	// refuses to offer a seed against an active filter — and this says what
+	// actually happened and what to do about it.
+	const filtered = activeFilterCount(filters) > 0
+	const emptyState = filtered ? (
+		<EmptyState
+			title="No matches"
+			description={`No ${noun} matches the current search and filters.`}
+			action={
+				<button
+					type="button"
+					onClick={() =>
+						setSearchParams(sortToSearchParams(sort), {
+							replace: true,
+							preventScrollReset: true,
+						})
+					}
+					className="inline-flex h-9 items-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-accent"
+				>
+					Clear filters
+				</button>
+			}
+		/>
+	) : EmptySlot ? (
 		<EmptySlot
 			resource={resourceShape}
 			columns={columns}
@@ -437,7 +524,48 @@ export default function ProjectListPage({
 		// it, through the same per-column override seam the eject path uses.
 		columns: fieldSlots,
 		renderRow: RowSlot,
+		// Ordering is server-side, and it has to be: this list is the first 100
+		// rows of a table, so sorting what arrived would reorder a page rather
+		// than the list. Passing `onSort` is what puts `<ResourceList>` in
+		// controlled mode — it stops sorting the array it was handed and asks for
+		// the right rows instead. `sort` is what the loader actually honoured, so
+		// the arrow on the header can never point at an ordering the rows are not
+		// in.
+		sort,
+		onSort: (next: SortState) =>
+			setSearchParams(
+				{ ...filtersToSearchParams(filters), ...sortToSearchParams(next) },
+				{ replace: true, preventScrollReset: true },
+			),
 	}
+	/**
+	 * The list's control bar — search, the derived facets, CSV export.
+	 *
+	 * All of it existed and all of it was mounted on `/admin` and the workbench,
+	 * the two surfaces a generated app's users never see (#342). It is built here,
+	 * once, and handed to the *ejected* module as `toolbar` as well, so owning a
+	 * page does not silently cost you its search box — the exact third shape #356
+	 * removed.
+	 *
+	 * A view page gets none: a calendar's rows are a window on a date column and
+	 * a board's are ordered by a rank key, so the loader does not read filters
+	 * there and a bar that changed nothing would be a lie.
+	 */
+	const toolbar = page.view ? undefined : (
+		<ListControls
+			resource={resourceShape}
+			rows={rows}
+			value={filters}
+			references={references}
+			referenceOptions={referenceOptions}
+			onChange={(next) =>
+				setSearchParams(
+					{ ...filtersToSearchParams(next), ...sortToSearchParams(sort) },
+					{ replace: true, preventScrollReset: true },
+				)
+			}
+		/>
+	)
 	// Inline editing is the table's alone. A card and a feed row are
 	// compositions, not cells: there is no rectangle a click could turn into an
 	// editor without inventing one, and inventing one is how a presentation
@@ -477,6 +605,7 @@ export default function ProjectListPage({
 				<OwnedRoute
 					list={{ ...listProps, editable, can, onCellSave }}
 					newHref={newHref}
+					toolbar={toolbar}
 					Link={link}
 				/>
 				<WriteRefusal data={cellEdit.data} />
@@ -505,6 +634,12 @@ export default function ProjectListPage({
 						</Link>
 					</header>
 				)}
+
+				{/* Search, facets and export — the capabilities the admin had and the
+				    generated app did not (#342). Rendered above whichever surface
+				    follows, because every one of them lists the same loader rows,
+				    which are the ones these controls narrowed. */}
+				{toolbar}
 
 				{/* The admin's inferred table — enum chips, resolved FK titles, and
 				    formatted dates come from the shared field library.

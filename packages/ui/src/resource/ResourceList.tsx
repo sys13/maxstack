@@ -6,9 +6,11 @@
  * What it infers from `ColumnMetadata`:
  *   - `hidden` columns are skipped; the primary key is skipped by default
  *     (an override can force it back).
- *   - `sortable` columns get clickable, toggling sort headers. Sorting is
- *     client-side by default; pass `onSort` (+ `sort`) to drive the server's
- *     `table` ordering op instead.
+ *   - headers sort. Sorting is client-side by default; pass `onSort` (+ `sort`)
+ *     to drive the server's ordering instead. Which columns offer it is derived
+ *     (`isSortableColumn`), not opted into — it was gated on `meta.sortable ===
+ *     true` until #342, a key nothing ever wrote, so no list in the product had
+ *     a sortable header.
  *   - each cell renders via `<Field>`, so dates/emails/enums/etc. present
  *     correctly without per-column code.
  *
@@ -44,6 +46,7 @@ import { cn } from '../lib/cn.ts'
 import type { RowSlotProps } from '../slots/block-slots.ts'
 import { addTheFirst, EmptyState } from './EmptyState.tsx'
 import { EditableCell } from './edit-in-place.tsx'
+import { isSortableColumn } from './filterable.ts'
 import {
 	type CellRenderer,
 	type ColumnOverrides,
@@ -221,7 +224,10 @@ function resolveColumns(
 			column,
 			label: override.label ?? column.meta?.label ?? humanizeLabel(column.name),
 			render: override.render,
-			sortable: column.meta?.sortable === true,
+			// Sortable by default, not on an opt-in nobody ever wrote — see
+			// `isSortableColumn`. Every list in the product had unclickable headers
+			// because `meta.sortable === true` was never true anywhere (#342).
+			sortable: isSortableColumn(column),
 		})
 	}
 	return out
@@ -451,11 +457,27 @@ export function ResourceList({
 												: ' ↓'
 											: ''
 										return (
-											<th key={c.column.name} className={HEADER_CLASS}>
+											<th
+												key={c.column.name}
+												className={HEADER_CLASS}
+												// Which way this column is sorted, for a reader who
+												// cannot see the arrow. Now that headers sort by
+												// default (#342) that reader meets one on every list
+												// in the product, rather than on the zero columns
+												// that had ever opted in.
+												aria-sort={
+													sorted
+														? activeSort?.dir === 'asc'
+															? 'ascending'
+															: 'descending'
+														: undefined
+												}
+											>
 												{c.sortable ? (
 													<button
 														type="button"
 														onClick={() => toggleSort(c.column.name)}
+														aria-label={`Sort by ${c.label}`}
 														className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
 													>
 														{c.label}

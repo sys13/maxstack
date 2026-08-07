@@ -107,6 +107,53 @@ export function searchableFields(resource: IntrospectedResource): string[] {
 		.map((c) => c.name)
 }
 
+/**
+ * The kinds of column an `ORDER BY` cannot say anything useful about.
+ *
+ * Sorting is defined for anything the database can compare, which is nearly
+ * every column — but a JSON blob, a stored file key and an array of foreign
+ * keys all sort by an encoding the reader never sees, so a header that offered
+ * it would be a control whose result looks random. A password column is
+ * excluded for the reason it is never rendered at all.
+ */
+const UNORDERED_TYPES = new Set(['json'])
+
+/**
+ * Whether a column's header sorts the list — the sort dual of
+ * {@link deriveFacets}, and the same three-state rule: `meta.sortable === false`
+ * opts out, `=== true` forces in, and absent means the type-based default
+ * below.
+ *
+ * The default is **on**, which is the change issue #342 is about. `sortable`
+ * was a declared-but-never-written metadata key, so `sortable === true` was
+ * never true for any column of any resource, so no list in the product had a
+ * sortable header — the capability was implemented in `<ResourceList>` and
+ * unreachable. Defaults that are off are discovered by reading the schema
+ * reference; defaults that are on are discovered by using the app.
+ */
+export function isSortableColumn(column: IntrospectedColumn): boolean {
+	if (column.meta?.sortable !== undefined) return column.meta.sortable
+	if (column.meta?.hidden === true) return false
+	// A stored file is a storage key and an array reference is a list of ids:
+	// both are `string`/`json` columns whose text is an encoding, not a value.
+	if (column.meta?.isFile === true || column.meta?.arrayReference) return false
+	return !UNORDERED_TYPES.has(column.type)
+}
+
+/**
+ * The columns of a resource whose headers sort it. A route uses this to decide
+ * whether a `?sort=` param off the URL names something it will honour — an
+ * ordering by a column the page does not show is a comparison oracle over a
+ * value the viewer was never handed (the same reasoning `assertPortalReadShape`
+ * applies in core), so the answer has to be derived from the *visible* columns
+ * rather than trusted from the query string.
+ */
+export function sortableFields(resource: IntrospectedResource): string[] {
+	return resource.columns
+		.filter((c) => c.name !== resource.primaryKey && isSortableColumn(c))
+		.map((c) => c.name)
+}
+
 const BOOLEAN_OPTIONS: FacetOption[] = [
 	{ label: 'Yes', value: 'true' },
 	{ label: 'No', value: 'false' },

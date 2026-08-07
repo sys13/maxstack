@@ -144,8 +144,11 @@ describe('resolveView / renderViewModule (pure)', () => {
 		// emits against (#356): the loader's payload arrives as props and the
 		// list is drawn by spreading it.
 		expect(src).toContain(
-			'export default function PostView({ list, newHref, Link }: OwnedRouteProps)',
+			'export default function PostView({\n\tlist,\n\tnewHref,\n\ttoolbar,\n\tLink,\n}: OwnedRouteProps)',
 		)
+		// The list's control bar reaches an `add view` module on the same prop,
+		// in the same place, as an ejected one (#342/#356).
+		expect(src).toContain('{toolbar}')
 		expect(src).toContain('type OwnedRouteProps')
 		expect(src).toContain(
 			'<ResourceList {...list} columns={{ ...list.columns, ...columns }} />',

@@ -9,7 +9,8 @@
  * error, and would have been a data leak if it were not.
  */
 
-import { listHandler } from '@maxstack/core'
+import { listHandler, opSearch, type SproutResource } from '@maxstack/core'
+import { activeFilterCount } from '@maxstack/ui'
 import { data } from 'react-router'
 import { inlineEditableFields } from '~/inline-edit'
 import { liveQueryKeyFor, liveSlotFor } from '~/live.server'
@@ -21,13 +22,16 @@ import {
 import {
 	demoSeedManifest,
 	getContext,
+	getSprout,
 	hasDemoData,
+	referenceFieldOptions,
 	resolveCapabilities,
 	resolveRowFiles,
 	resolveRowReferences,
 } from '~/sprout.server'
 import {
 	anchorDay,
+	listControls,
 	tableColumns,
 	viewLimit,
 	viewListOptions,
@@ -47,15 +51,72 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 	// a calendar is a window on a date column rather than the first page of one.
 	const view = resolved.page.view
 	const anchor = anchorDay(request, view)
-	const res = await listHandler(ctx, resolved.resource, {
-		...(view
-			? viewListOptions(view, anchor)
-			: {
+	const columns = tableColumns(resolved.introspection, resolved.page.fields)
+	// The resource *as this page shows it* — the visible columns, not the whole
+	// table. Every list control below derives from this one object: which
+	// columns the search box scans, which facets the filter bar offers, which
+	// headers sort, and which columns the CSV carries. One rule, and it is
+	// statable: **a page controls exactly the columns it renders**.
+	//
+	// That is also the security boundary. `search`, `filter.*`, `sort` and `dir`
+	// all arrive from the query string of a page an end user is looking at, and
+	// ordering or filtering by a column they were never shown is a comparison
+	// oracle over its values (the same attack `assertPortalReadShape` refuses in
+	// core, arriving through a different door). Deriving the allow-list from the
+	// rendered columns closes it without a declaration.
+	const shown: SproutResource = { ...resolved.introspection, columns }
+	// Search, facets and ordering, narrowed to the columns above — see
+	// `listControls`, which is where the reasoning and the tests live.
+	const { filters, sort, searchFields } = listControls(
+		new URL(request.url),
+		shown,
+		view,
+	)
+	const { registry } = await getSprout()
+	// A declared full-text index upgrades this exact search box in place: same
+	// URL, same `?search=`, same page underneath — the rows just come back
+	// ranked, stemmed and word-aware instead of in table order from an
+	// unanchored ILIKE. Same rule the admin follows, so the two surfaces cannot
+	// drift on what "search" means. A blank query still lists: an empty search
+	// box means "show me everything", which is the one thing a search endpoint
+	// deliberately does not do.
+	const ranked =
+		registry.get(resolved.resource)?.config.search && filters.search?.trim()
+			? await opSearch(ctx, resolved.resource, filters.search, {
 					limit: 100,
-					orderBy: resolved.page.order?.field,
-					orderDir: resolved.page.order?.direction,
-				}),
-	})
+					filter:
+						Object.keys(filters.filter).length > 0 ? filters.filter : undefined,
+					range:
+						filters.range && Object.keys(filters.range).length > 0
+							? filters.range
+							: undefined,
+				})
+			: null
+	const res = ranked
+		? { status: 200, body: ranked.map((hit) => hit.row) }
+		: await listHandler(ctx, resolved.resource, {
+				...(view
+					? viewListOptions(view, anchor)
+					: {
+							limit: 100,
+							// A sort the viewer chose wins over the spec-declared `order`,
+							// which is the page's *default* ordering rather than its only
+							// one. With no `?sort=` the declared order is exactly what it
+							// always was.
+							orderBy: sort?.field ?? resolved.page.order?.field,
+							orderDir: sort?.dir ?? resolved.page.order?.direction,
+							search: filters.search,
+							searchFields: searchFields.length > 0 ? searchFields : undefined,
+							filter:
+								Object.keys(filters.filter).length > 0
+									? filters.filter
+									: undefined,
+							range:
+								filters.range && Object.keys(filters.range).length > 0
+									? filters.range
+									: undefined,
+						}),
+			})
 	if (res.status !== 200) throw data(res.body, { status: res.status })
 	// Derived values — computed fields evaluated per row, rollups
 	// aggregated in SQL — already rode out of `listHandler` on the op context.
@@ -69,8 +130,24 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 		// Sample-data notice — the frame renders it on every surface.
 		demoRows: chrome.demoRows,
 		primaryKey: resolved.primaryKey,
-		columns: tableColumns(resolved.introspection, resolved.page.fields),
+		columns,
 		rows,
+		// The list-control state, read back off the URL with the same codec the
+		// bar encodes with, so the two can never drift. Narrowed to the page's own
+		// columns before it gets here — what comes back is what was *honoured*,
+		// not what was asked for, which is what the bar must render to stay
+		// truthful about the rows below it.
+		filters,
+		// Ranked search orders by relevance, so it *replaces* a chosen ordering
+		// rather than composing with it. Reporting the sort anyway would draw an
+		// arrow on a header the rows are not ordered by, which is the one thing a
+		// sort indicator must never do.
+		sort: ranked ? undefined : sort,
+		// The option sets for reference facets (the referenced records) — the one
+		// thing a facet cannot derive from the schema alone. Skipped entirely when
+		// the page shows no FK column, so an ordinary list does not pay a query
+		// for a control it will not render.
+		referenceOptions: view ? {} : await referenceFieldOptions(ctx, shown),
 		// What this session may do to this resource (task 22/35). The server
 		// enforces it either way — `opUpdate` is the wall, not this — but a list
 		// that offers an inline editor to a viewer whose every save will 403 is a
@@ -91,7 +168,14 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 		files: resolveRowFiles(resolved.introspection, rows, ctx.user?.id ?? null),
 		// Empty-state guidance (task 63 / issue #60): only offer "load demo data"
 		// when a bundle actually has sample rows for this project.
-		demoAvailable: rows.length === 0 ? await hasDemoData() : false,
+		// A filtered list that matched nothing is not an empty app: offering "load
+		// demo data" there answers a question nobody asked and hides the one the
+		// user has ("clear the filter"). The component renders the no-matches
+		// state instead, and this stays false so it cannot offer the seed button.
+		demoAvailable:
+			rows.length === 0 && activeFilterCount(filters) === 0
+				? await hasDemoData()
+				: false,
 		// Which of these rows are sample data. A seeded row is an
 		// ordinary row — no marker column, by design — so the id set is the only
 		// thing that can tell them apart, and it has to reach the list component.

@@ -110,6 +110,29 @@ because an ejected module replaces the framework's whole surface, ejecting a
 board today trades a working board for that placeholder. Fill a block slot
 instead until they materialize.
 
+**A generated list surface is featureful by default.** Search, the derived
+filter facets, sortable column headers and CSV export are on every list page
+without a spec op, a declaration or an eject — the whole set derives from
+introspection, exactly as the field widgets do. This is a correction, not a
+feature: every one of those components had shipped and was mounted only on
+`/admin` and the workbench, so the app a user actually generated was a
+second-class citizen of its own component library, and "let me search my books"
+was an eject.
+
+Two rules make it safe to have on by default. Search, filters and ordering are
+**server-side** — a list page is the first hundred rows of a table, so sorting
+what arrived would reorder a page rather than the list — and they are confined
+to **exactly the columns the page renders**, because ordering or filtering by a
+column the viewer was never shown is a comparison oracle over its values. Every
+control's state lives in the query string, so a searched, filtered, sorted list
+is a link somebody can send. Export writes the rows on screen, under the same
+read policy, tenant scope and portal bound that produced them, rather than
+opening a second bulk-read path with its own limit to get wrong.
+
+The controls reach an *ejected* page too, on the same props contract as the
+rows: `toolbar` is one element the owned module places. Owning a page must not
+silently cost you its search box.
+
 The manifest records, per file, whether it is generated, ejected or user-written,
 plus a content hash. `maxstack drift` reports what you own and how far it has
 moved from what would be derived today.

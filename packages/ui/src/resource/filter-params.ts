@@ -10,9 +10,12 @@
  */
 
 import { EMPTY_FILTERS, type FilterValues } from './filterable.ts'
+import type { SortState } from './ResourceList.tsx'
 
 const FILTER_PREFIX = 'filter.'
 const SEARCH_KEY = 'search'
+const SORT_KEY = 'sort'
+const DIR_KEY = 'dir'
 
 type ParamsLike =
 	| URLSearchParams
@@ -83,4 +86,73 @@ export function filtersFromSearchParams(params: ParamsLike): FilterValues {
 	return search === undefined && Object.keys(filter).length === 0 && !hasRange
 		? EMPTY_FILTERS
 		: { search, filter, ...(hasRange ? { range } : {}) }
+}
+
+/**
+ * Encode a chosen sort as URL params (`?sort=title&dir=desc`).
+ *
+ * Sort lives in the URL for the same reason filters do: a list somebody sorted
+ * and then linked to has to arrive sorted. It is a *separate* codec from
+ * {@link filtersToSearchParams} because the two are set independently — picking
+ * a facet must not reset the ordering, and clicking a header must not clear the
+ * filters — so a caller merges both maps into the one param set.
+ *
+ * `undefined` yields an empty map, so "no explicit sort" drops out of the URL
+ * and the page falls back to its spec-declared `order`.
+ */
+export function sortToSearchParams(
+	sort: SortState | undefined,
+): Record<string, string> {
+	if (!sort?.field) return {}
+	return { [SORT_KEY]: sort.field, [DIR_KEY]: sort.dir }
+}
+
+/**
+ * Decode `?sort=&dir=` back into a {@link SortState}, or `undefined`.
+ *
+ * `allowed` is required, not optional, and that is the point: the field arrives
+ * from the query string, and an `ORDER BY` over a column the page does not
+ * render is a comparison oracle over a value the viewer was never shown — a few
+ * dozen requests reconstruct its ordering exactly. So a name that is not in the
+ * page's own sortable set is dropped rather than passed to the store, which
+ * would silently ignore it *for a column that does not exist* and honour it for
+ * a hidden one that does.
+ */
+export function sortFromSearchParams(
+	params: ParamsLike,
+	allowed: readonly string[],
+): SortState | undefined {
+	let field: string | undefined
+	let dir: string | undefined
+	for (const [key, value] of entriesOf(params)) {
+		if (key === SORT_KEY) field = value
+		else if (key === DIR_KEY) dir = value
+	}
+	if (!field || !allowed.includes(field)) return undefined
+	return { field, dir: dir === 'desc' ? 'desc' : 'asc' }
+}
+
+/**
+ * Drop every filter naming a column outside `allowed` — the filter half of the
+ * same rule {@link sortFromSearchParams} applies to ordering. An equality
+ * filter on a column the page does not show answers "is this row's `salary`
+ * equal to X?" one guess at a time, and a range bound does it in binary search.
+ */
+export function narrowFilters(
+	values: FilterValues,
+	allowed: readonly string[],
+): FilterValues {
+	const permitted = new Set(allowed)
+	const filter: Record<string, string> = {}
+	for (const [key, value] of Object.entries(values.filter))
+		if (permitted.has(key)) filter[key] = value
+	const range: Record<string, { gte?: string; lte?: string }> = {}
+	for (const [key, value] of Object.entries(values.range ?? {}))
+		if (permitted.has(key)) range[key] = value
+	const hasRange = Object.keys(range).length > 0
+	return values.search === undefined &&
+		Object.keys(filter).length === 0 &&
+		!hasRange
+		? EMPTY_FILTERS
+		: { search: values.search, filter, ...(hasRange ? { range } : {}) }
 }
