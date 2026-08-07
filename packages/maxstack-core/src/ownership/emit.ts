@@ -23,8 +23,30 @@ import {
 
 /** Everything the page generator needs. Derived upstream from a Sprout resource. */
 export interface PageDescriptor {
-	/** Resource id, e.g. `task`. Drives file names and the manifest id. */
+	/**
+	 * Resource id, e.g. `task` — the *type* behind the page. Drives the loader
+	 * identity (`meta.resource`), the user-owned slot file, and, unless
+	 * {@link PageDescriptor.module} says otherwise, the route module's file name.
+	 */
 	resource: string
+	/**
+	 * The route module's own identity, when it cannot be the resource: file stem
+	 * of `routes/<module>.tsx` and the manifest entry id.
+	 *
+	 * A spec may declare **several pages over one entity** — a list and a board
+	 * over the same records is the first thing anyone reaches for — and every one
+	 * of those pages folded to the same `resource`, so every one emitted into the
+	 * same `routes/<resource>.tsx`. Each run overwrote the last, `validate`
+	 * reported `unsafe regen overwritten` forever, and the manifest kept only the
+	 * last writer's route (issue #337).
+	 *
+	 * Set **only on a collision**, by `pageDescriptors` in `@maxstack/mcp`: the
+	 * first page over a resource keeps the bare `routes/<resource>.tsx` it has
+	 * always had, so the overwhelmingly common one-page-per-entity project sees
+	 * no rename and no orphaned file. The slot file stays keyed by `resource`
+	 * regardless — block slots are a property of the resource, not of the page.
+	 */
+	module?: string
 	/** Plural human label rendered as the page heading, e.g. `Tasks`. */
 	title: string
 	/** The app route path, e.g. `/admin/tasks`. */
@@ -81,6 +103,16 @@ export function slotIdHint(blockId: string): string {
 	return /^[a-zA-Z_]/.test(stem) ? stem : `s_${stem}`
 }
 
+/**
+ * The route module's file stem and manifest id — `module` when the page had to
+ * be disambiguated from a sibling over the same entity, the resource otherwise.
+ * The ONE place that fold happens, so the emitter, the writer, the manifest and
+ * the drift report cannot disagree about which file a page owns.
+ */
+export function pageModuleKey(descriptor: PageDescriptor): string {
+	return descriptor.module ?? descriptor.resource
+}
+
 /** `task` → `TaskListPage`. */
 function pageComponentName(resource: string): string {
 	const pascal = resource
@@ -114,9 +146,15 @@ function newProject(): Project {
  */
 export function emitResourcePage(descriptor: PageDescriptor): string {
 	const { resource, title, slots } = descriptor
-	const component = pageComponentName(resource)
+	// The component is named for the *module* — two pages over one entity are two
+	// modules, and naming both `BookListPage` would make a stack trace or an
+	// import in owned code ambiguous about which route it came from. `meta` and
+	// `data-resource` below stay the resource: those are the loader's identity,
+	// which both pages genuinely share.
+	const key = pageModuleKey(descriptor)
+	const component = pageComponentName(key)
 	const project = newProject()
-	const sf = project.createSourceFile(`${resource}.tsx`)
+	const sf = project.createSourceFile(`${key}.tsx`)
 
 	// Both imports are conditional on the page actually declaring slots: `<Slot>`
 	// is only ever emitted by `slotJsx` below, which is empty at zero slots. An

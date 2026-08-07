@@ -47,6 +47,7 @@ import {
 	type LiveDescriptor,
 	liveFilePaths,
 	pageFilePaths,
+	pageModuleKey,
 	type RegenTarget,
 	type ScheduleDescriptor,
 	type SourceDescriptor,
@@ -63,7 +64,7 @@ import {
 	originOf,
 	type SpecSystem,
 } from '@maxstack/spec'
-import { pageDescriptor } from './generators.ts'
+import { pageDescriptors } from './generators.ts'
 
 /**
  * Descriptors for every declared schedule — the same projection `generateSchedules`
@@ -129,16 +130,22 @@ export function liveDescriptors(spec: SpecSystem): LiveDescriptor[] {
 	})
 }
 
-/** What the generator would emit for every page in `spec`, keyed by resource. */
+/**
+ * What the generator would emit for every page in `spec`, keyed by the page's
+ * route module — the same key `generateResourcePage` writes the manifest entry
+ * under, which is what lets a drift report be matched against it. The slot file
+ * stays keyed by resource, as it is on disk.
+ */
 function pageTargets(spec: SpecSystem): RegenTarget[] {
-	return spec.pages.pages.map((page) => {
-		const descriptor = pageDescriptor(page)
-		const paths = pageFilePaths(descriptor.resource)
+	return pageDescriptors(spec.pages.pages).map((descriptor) => {
+		const key = pageModuleKey(descriptor)
 		return {
-			id: descriptor.resource,
-			file: paths.routeFile,
+			id: key,
+			file: pageFilePaths(key).routeFile,
 			routePath: descriptor.routePath,
-			...(descriptor.slots.length > 0 ? { slotFile: paths.slotFile } : {}),
+			...(descriptor.slots.length > 0
+				? { slotFile: pageFilePaths(descriptor.resource).slotFile }
+				: {}),
 			nextContent: emitResourcePage(descriptor),
 		}
 	})

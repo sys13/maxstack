@@ -21,6 +21,7 @@ import {
 	emitUserSlotStub,
 	exportedSlotNames,
 	type PageDescriptor,
+	pageModuleKey,
 } from './emit.ts'
 import {
 	MANIFEST_FILENAME,
@@ -247,7 +248,16 @@ export async function generateResourcePage(
 	fs: Fs,
 	descriptor: PageDescriptor,
 ): Promise<GenerateResult> {
-	const paths = pageFilePaths(descriptor.resource)
+	// Two keys, deliberately. The route module is the *page's* — a spec with two
+	// pages over one entity used to emit both into one file and overwrite it on
+	// every run (#337). The slot file stays the *resource's*: block slots are
+	// derived from the entity, `maxstack slots` looks them up by resource, and
+	// splitting them per page would strand a fill the moment a second page
+	// appeared.
+	const paths = {
+		...pageFilePaths(pageModuleKey(descriptor)),
+		slotFile: pageFilePaths(descriptor.resource).slotFile,
+	}
 	let manifest = await loadManifest(fs)
 	const results: WriteResult[] = []
 
@@ -265,7 +275,7 @@ export async function generateResourcePage(
 		fs,
 		manifest,
 		{
-			id: descriptor.resource,
+			id: pageModuleKey(descriptor),
 			routePath: descriptor.routePath,
 			file: paths.routeFile,
 			slotFile: hasSlotFile ? paths.slotFile : undefined,

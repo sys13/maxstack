@@ -28,7 +28,7 @@ import {
 	defaultGeneratorRunner,
 	importerDescriptors,
 	liveDescriptors,
-	pageDescriptor,
+	pageDescriptors,
 	regenTargets,
 	scheduleDescriptors,
 	sourceDescriptors,
@@ -51,8 +51,11 @@ export async function generateProject(project: Project): Promise<GenerateSummary
 	const fs = createNodeFs(project.appPath)
 	const writes: WriteResult[] = []
 
-	for (const page of spec.pages.pages) {
-		const { results } = await generateResourcePage(fs, pageDescriptor(page))
+	// Descriptors for the whole page list at once — a page's route module is a
+	// fact about its siblings (two pages over one entity are two modules, #337),
+	// which a per-page fold cannot see.
+	for (const descriptor of pageDescriptors(spec.pages.pages)) {
+		const { results } = await generateResourcePage(fs, descriptor)
 		writes.push(...results)
 	}
 

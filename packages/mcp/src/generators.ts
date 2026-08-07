@@ -208,6 +208,12 @@ export const e2eTestsGenerator: RegisteredGenerator = {
  * scaffolded render-fn stub always agree with what `OWNED_SLOTS` is keyed by
  * at request time. Other block types (`table`, `form`, …) have no
  * runtime slot seam and no longer get dead-code stubs scaffolded for them.
+ *
+ * Says nothing about which **file** the page emits into: one page in isolation
+ * cannot know whether a sibling claims the same resource. Anything that writes
+ * or derives a route module must go through {@link pageDescriptors}, which sees
+ * the whole page list. This stays the fold for callers that only want the
+ * page's *resource* (the review surfaces group rows by it).
  */
 export function pageDescriptor(page: PageSpec): PageDescriptor {
 	const resource = (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
@@ -219,6 +225,65 @@ export function pageDescriptor(page: PageSpec): PageDescriptor {
 			.filter((b) => isSlotBlockType(b.type))
 			.map((b) => slotBlockName(b.type)),
 	}
+}
+
+/** `pg-my-shelf` → `my-shelf`; anything else → a file-safe stem. */
+function moduleStem(pageId: string): string {
+	return (
+		pageId
+			.replace(/^pg-/, '')
+			.replace(/[^a-zA-Z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.toLowerCase() || 'page'
+	)
+}
+
+/**
+ * Descriptors for a whole page list, each carrying the route module it owns —
+ * the fold every *writing* or *deriving* caller uses (`maxstack gen`, the `page`
+ * generator, `regenTargets`).
+ *
+ * Module identity has to be decided over the list, not per page: before #337
+ * each page folded to its entity's resource, so two pages over `e-book` both
+ * emitted `routes/book.tsx`. Every run overwrote the other's file, so
+ * `validate`'s regen-safety check reported `unsafe regen overwritten` on every
+ * run forever — which also made a *genuine* clobber invisible — and the manifest
+ * kept only the last writer while `routes.ts` kept both.
+ *
+ * **Disambiguate only on collision.** The first page over a resource keeps the
+ * bare `routes/<resource>.tsx` it has always had; only a second (third, …) page
+ * over that same resource takes a module named for the page. The overwhelmingly
+ * common one-page-per-entity project therefore regenerates byte-identically and
+ * grows no orphaned files, and even the broken two-page project only *gains* a
+ * module — the file the first page has been writing all along keeps its name,
+ * its manifest entry and its `routes.ts` line. (Nothing prunes a module that
+ * genuinely does go stale — a page deleted, or a resource's first page removed
+ * so the second inherits the bare name. That is issue #338's job.)
+ *
+ * Names are taken from the page id, not from a counter, so they are stable
+ * against a later page being added or removed. Collisions with an unrelated
+ * resource (a page `pg-author` over `e-book`, in a spec that also has an
+ * `author` page) fall back to `<resource>-<stem>`, then a numeric suffix.
+ */
+export function pageDescriptors(pages: readonly PageSpec[]): PageDescriptor[] {
+	// Every bare resource is claimed up front: a later page's id-derived stem
+	// must not steal a name a page further down the list is going to want.
+	const taken = new Set(pages.map((p) => pageDescriptor(p).resource))
+	const claimed = new Set<string>()
+	return pages.map((page) => {
+		const descriptor = pageDescriptor(page)
+		if (!claimed.has(descriptor.resource)) {
+			claimed.add(descriptor.resource)
+			return descriptor
+		}
+		const stem = moduleStem(page.id)
+		let candidate = taken.has(stem) ? `${descriptor.resource}-${stem}` : stem
+		for (let n = 2; taken.has(candidate); n++) {
+			candidate = `${descriptor.resource}-${stem}-${n}`
+		}
+		taken.add(candidate)
+		return { ...descriptor, module: candidate }
+	})
 }
 
 /**
@@ -236,23 +301,28 @@ export const pageGenerator: RegisteredGenerator = {
 		'Emit route/slot/manifest code for the spec pages via the ownership ts-morph generator.',
 	async run(spec, args): Promise<GeneratorResult> {
 		const targetId = typeof args.pageId === 'string' ? args.pageId : undefined
-		const pages = targetId
-			? spec.pages.pages.filter((p) => p.id === targetId)
-			: spec.pages.pages
-		if (targetId && pages.length === 0)
+		// Descriptors are derived over the WHOLE page list even when one page is
+		// requested: module identity is a fact about the page's siblings, so a
+		// single-page preview must not hand back the file name the page would only
+		// have had if it were alone in the spec.
+		const all = spec.pages.pages
+		const descriptors = pageDescriptors(all).filter(
+			(_, i) => !targetId || all[i]?.id === targetId,
+		)
+		if (targetId && descriptors.length === 0)
 			throw new Error(`Unknown page "${targetId}"`)
 
 		const fs = createMemFs()
 		const notes: string[] = []
-		for (const page of pages) {
-			const { results } = await generateResourcePage(fs, pageDescriptor(page))
+		for (const descriptor of descriptors) {
+			const { results } = await generateResourcePage(fs, descriptor)
 			for (const r of results) notes.push(`${r.action}: ${r.file}`)
 		}
 		const artifacts = [...fs.snapshot()].map(([path, content]) => ({
 			path,
 			content,
 		}))
-		if (pages.length === 0)
+		if (descriptors.length === 0)
 			notes.push('No pages in the spec — nothing to emit.')
 		return { generator: 'page', artifacts, notes }
 	},
