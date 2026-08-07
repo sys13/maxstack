@@ -1,0 +1,61 @@
+{
+	"$comment": "The owned-code write registry (issue #361), the filesystem half of scripts/write-paths.config.json. Every destructive write that can land inside a user's app tree from outside the ownership layer is declared here, and scripts/check-owned-writes.mjs refuses one that is not. It exists because issue #360 shipped: `maxstack add view` wrote its scaffold with a bare `fs.write`, so the one command whose output says THIS FILE IS YOURS was the one command that silently overwrote it. Read alongside packages/maxstack-core/src/ownership/write.ts (the never-clobber writers) and CONTRIBUTING.md (why the gate exists at all).",
+	"$fields": {
+		"layer": "The ownership layer. Unrestricted, because it *is* the never-clobber rule — every writer in it consults the manifest before it writes.",
+		"layerFsAdapter": "The one file inside the layer allowed to call node:fs directly. Everything else in the layer goes through the injected Fs port, which is what keeps the layer testable in memory and keeps the port the only door into a project.",
+		"writers": "The sanctioned entry points. A violation is told to route through one of these, and the checker asserts each is still exported — advice pointing at a renamed function is worse than none.",
+		"exceptions": "Writers outside the layer that may still land a file in the app tree.",
+		"exceptions[].id": "Stable identifier, used in the checker's output.",
+		"exceptions[].file": "Workspace-relative file holding the write.",
+		"exceptions[].kind": "`fs-port` for a `.write()`/`.remove()` on a disk-backed Fs port; `raw-fs` for a node:fs call whose destination derives from `project.appPath`.",
+		"exceptions[].targets": "The exact target expressions this file may write, as they appear in the source. NOT a file-level exemption: `commands/view.ts` may write MANIFEST_FILENAME and nothing else, so the line #360 deleted is still a failure even though its file is on this list. A gate whose escape hatch is `add your file` is one that gets added to; one whose escape hatch is `name the path` is one somebody has to lie in a diff to get past. The checker also fails a target that no longer appears — a permission nobody exercises is one the next write inherits for free.",
+		"exceptions[].why": "Why this write cannot go through a never-clobber writer. Required, and checked for substance rather than presence."
+	},
+	"layer": "packages/maxstack-core/src/ownership",
+	"layerFsAdapter": "packages/maxstack-core/src/ownership/nodefs.ts",
+	"writers": ["writeGenerated", "writeUserFileOnce", "writeOwned", "eject"],
+	"exceptions": [
+		{
+			"id": "manifest-persist-gen",
+			"file": "apps/maxstack/src/lib/generate.ts",
+			"kind": "fs-port",
+			"targets": ["MANIFEST_FILENAME"],
+			"why": "The generation watermark. The manifest is the ownership record itself, not owned code — it is what the never-clobber writers consult, so it cannot be written through them without circularity. Every writer here is pure w.r.t. the manifest and returns it for the caller to persist, which is the one write this is."
+		},
+		{
+			"id": "manifest-persist-eject",
+			"file": "apps/maxstack/src/commands/eject.ts",
+			"kind": "fs-port",
+			"targets": ["MANIFEST_FILENAME"],
+			"why": "Persisting the manifest `eject()` returned. The layer flipped the entry to `ejected` and handed back the new manifest; landing it is the caller's half of that contract. The route module itself is written inside `eject()`, never here."
+		},
+		{
+			"id": "manifest-persist-view",
+			"file": "apps/maxstack/src/commands/view.ts",
+			"kind": "fs-port",
+			"targets": ["MANIFEST_FILENAME"],
+			"why": "Persisting the manifest `writeOwned()` returned. This is the #360 file, and the single target is the whole point: the module write on the line above it goes through `writeOwned`, and if it ever stops, this entry does not cover it."
+		},
+		{
+			"id": "manifest-persist-slots",
+			"file": "apps/maxstack/src/commands/slots.ts",
+			"kind": "fs-port",
+			"targets": ["MANIFEST_FILENAME"],
+			"why": "Persisting the manifest the slot writer returned. The slot stub itself lands through `writeUserFileOnce`, which refuses any file already on disk — a slot is user code from the moment it exists."
+		},
+		{
+			"id": "gen-derived-artifacts",
+			"file": "apps/maxstack/src/lib/generate.ts",
+			"kind": "fs-port",
+			"targets": ["artifact.path"],
+			"why": "`maxstack gen`'s docs, types and e2e artifacts. These are not route modules and the manifest does not track them, so there is no ownership entry for a never-clobber writer to consult. Never-clobber is enforced at the call site instead: `e2e-tests` is skipped when the file exists, because the filled-in test bodies are the only part of the declare->generate->run chain that is not derivable; docs and types are fully derived and a stale copy is worse than a fresh one."
+		},
+		{
+			"id": "mcp-disk-e2e-generator",
+			"file": "apps/maxstack/src/commands/mcp.ts",
+			"kind": "raw-fs",
+			"targets": ["path"],
+			"why": "The stdio host's disk-backed `e2e-tests` and `types` generators. Same artifacts as `gen-derived-artifacts` and the same reasoning, reached through node:fs rather than the Fs port because the generator contract hands the host a `{path, content}` and no manifest. `e2e-tests` checks `access()` first and reports `skipped-user-owned`; `types` is fully derived. Both resolve under `project.appPath` deliberately, so the two writers cannot land the same test in two places."
+		}
+	]
+}

@@ -42,6 +42,17 @@ const steps = [
 	// CI's ownership-safety job because it costs milliseconds and the failure it
 	// catches — a write path nobody attributed — is cheapest to see before pushing.
 	{ name: 'write-paths', cmd: 'node', args: ['scripts/check-write-paths.mjs'] },
+	// The filesystem half of the same idea: a destructive write to a path a
+	// user's owned code can live at may only come from the ownership layer or
+	// from a target this registry names. The spec-op registry above could never
+	// have caught issue #360 — `add view` clobbered an ejected module with a bare
+	// `fs.write`, which touches no op at all — and an overwritten owned file is
+	// worse than an unattributed op, because an op is logged and revertible.
+	{
+		name: 'owned-writes',
+		cmd: 'node',
+		args: ['scripts/check-owned-writes.mjs'],
+	},
 	// A braceless `if`/`else` may not guard an empty statement:
 	// biome rewrites `if (cond) ;(expr)` into two statements and the expression
 	// stops being guarded. It formats, typechecks and lints — only a diff read

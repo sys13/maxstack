@@ -82,6 +82,20 @@ specific bug shipped green. That history is the argument for keeping them:
   covered by an invariant test. It is an allowlist, so a new way to write the
   spec fails until somebody accounts for it.
 
+- **`check-owned-writes`** — the filesystem half of the same idea, and it exists
+  because the spec-op registry above could not have caught the bug. `maxstack add
+  view` wrote its scaffold with a bare `fs.write`, so the one command whose output
+  is stamped `THIS FILE IS YOURS` was also the one command that silently
+  overwrote it, and then re-flipped the manifest entry it had itself set to
+  `ejected`. It touched no op, so nothing was watching; the existing suite ran the
+  verb three times and never noticed. An unattributed op is at least logged and
+  revertible — an overwritten ejected module is gone. So a destructive write into
+  a project's app tree, whether through the `Fs` port or `node:fs`, must come
+  from `packages/maxstack-core/src/ownership/` or be declared in
+  `scripts/owned-writes.config.json`. The registry exempts a **target
+  expression**, never a file: `commands/view.ts` may write the manifest and
+  nothing else, so the exact line the fix removed is still a failure today.
+
 - **`check-boundaries`** — the layering in [ARCHITECTURE.md](ARCHITECTURE.md),
   enforced. Remediate by moving code down the stack or extracting the shared
   piece — changing the policy file is a last resort and belongs in its own

@@ -18,6 +18,7 @@
 		"format": "biome format --write .",
 		"check:boundaries": "node scripts/check-boundaries.mjs",
 		"check:write-paths": "node scripts/check-write-paths.mjs",
+		"check:owned-writes": "node scripts/check-owned-writes.mjs",
 		"check:guarded-statements": "node scripts/check-guarded-statements.mjs",
 		"check:client-safe-imports": "node scripts/check-client-safe-imports.mjs",
 		"check:test-integrity": "node scripts/check-test-integrity.mjs",
