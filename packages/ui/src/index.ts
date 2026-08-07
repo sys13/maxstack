@@ -390,6 +390,7 @@ export {
 	suggestColumnMapping,
 	validateImportRows,
 } from './resource/import.ts'
+export type { OwnedRouteProps } from './resource/owned-route.ts'
 export {
 	pickDate,
 	pickDescription,
@@ -416,6 +417,7 @@ export {
 } from './resource/RelatedRecords.tsx'
 export {
 	type BulkActionContext,
+	type LinkLike,
 	ResourceList,
 	type ResourceListProps,
 	type SortDir,

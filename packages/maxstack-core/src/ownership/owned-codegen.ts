@@ -127,7 +127,15 @@ export function renderOwnedManifest(
 			!SEAM_REGISTRIES.some((s) => s.entryId === e.id),
 	)
 
-	const imports: string[] = ["import type { ComponentType } from 'react'"]
+	// `OwnedRouteProps` is what an ejected page is *rendered with* — the rows,
+	// introspection and capabilities its loader produced. Before #349 this map
+	// was `Record<string, ComponentType>` and the runtime mounted an owned route
+	// with no props at all, which is why the emitted page could only ever be a
+	// heading: it had no way to reach the data it was supposed to be rendering.
+	const imports: string[] = [
+		"import type { OwnedRouteProps } from '@maxstack/ui'",
+		"import type { ComponentType } from 'react'",
+	]
 	// A seam type is imported whether or not the project declared that seam: the
 	// empty registry is annotated too, so the module's shape does not depend on
 	// what the spec happens to contain.
@@ -175,7 +183,7 @@ export function renderOwnedManifest(
 		...slotEntries,
 		'}',
 		'',
-		'export const OWNED_ROUTES: Record<string, ComponentType> = {',
+		'export const OWNED_ROUTES: Record<string, ComponentType<OwnedRouteProps>> = {',
 		...routeEntries,
 		'}',
 		...seamExports,

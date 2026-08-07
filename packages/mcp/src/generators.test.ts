@@ -66,6 +66,105 @@ describe('pageDescriptor (issue #42 — agrees with the runtime slot derivation)
 })
 
 /**
+ * Issue #349: which list surface the emitter is allowed to materialize.
+ *
+ * `pageDescriptor.list` decides whether the emitted route module is the page or
+ * a placeholder. It has to reach the same verdict as the runtime's `getRoutes`
+ * (`apps/web/app/project-routes.ts`) about which block wins the surface —
+ * otherwise the generator writes a `<ResourceList>` for a page the runtime
+ * arranges as a board, and ejecting it silently replaces a working board with a
+ * table over the wrong shape. The runtime half of this agreement is pinned in
+ * `apps/web/app/project-routes.test.ts`.
+ */
+describe('pageDescriptor list surface (#349)', () => {
+	const base: PageSpec = {
+		id: 'pg-subscriptions',
+		name: 'Subscriptions',
+		route: '/subscriptions',
+		entityId: 'e-subscription',
+		provenance: suggested(),
+		blocks: [{ id: 'blk-table', type: 'table', provenance: suggested() }],
+	}
+
+	it('materializes an ordinary list page, defaulting the variant to table', () => {
+		expect(pageDescriptor(base).list).toEqual({ variant: 'table' })
+	})
+
+	it('carries the declared variant and fields', () => {
+		const cards: PageSpec = {
+			...base,
+			blocks: [
+				{
+					id: 'blk-table',
+					type: 'table',
+					variant: 'cards',
+					fields: ['title', 'renewsAt'],
+					provenance: suggested(),
+				},
+			],
+		}
+		expect(pageDescriptor(cards).list).toEqual({
+			variant: 'cards',
+			fields: ['title', 'renewsAt'],
+		})
+	})
+
+	it('materializes a page that declares no blocks at all', () => {
+		// The runtime renders a table for one — `blocks.find(type === 'table')`
+		// misses and every field falls back to its default. A page the runtime
+		// lists is a page the emitter must be able to write.
+		expect(pageDescriptor({ ...base, blocks: [] }).list).toEqual({
+			variant: 'table',
+		})
+	})
+
+	it('refuses a page arranged by a view block', () => {
+		for (const type of ['calendar', 'timeline', 'board']) {
+			const view: PageSpec = {
+				...base,
+				blocks: [
+					{ id: 'blk-table', type: 'table', provenance: suggested() },
+					{ id: `blk-${type}`, type, provenance: suggested() },
+				],
+			}
+			expect(pageDescriptor(view).list, type).toBeUndefined()
+		}
+	})
+
+	it('refuses a page whose list a slot replaces', () => {
+		const replaced: PageSpec = {
+			...base,
+			blocks: [
+				{ id: 'blk-table', type: 'table', provenance: suggested() },
+				{
+					id: 'blk-player',
+					type: 'slot:player',
+					mode: 'replace',
+					provenance: suggested(),
+				},
+			],
+		}
+		expect(pageDescriptor(replaced).list).toBeUndefined()
+		// An *appending* slot is not a replacement, and must not disable the list.
+		const appended: PageSpec = {
+			...base,
+			blocks: [
+				{ id: 'blk-table', type: 'table', provenance: suggested() },
+				{ id: 'blk-notes', type: 'slot:notes', provenance: suggested() },
+			],
+		}
+		expect(pageDescriptor(appended).list).toEqual({ variant: 'table' })
+	})
+
+	it('refuses a page with no entity behind it', () => {
+		// No entity ⇒ no rows ⇒ nothing to list. The runtime resolves such a page
+		// to `resource: null` and never reaches a list.
+		const { entityId: _, ...pageless } = base
+		expect(pageDescriptor(pageless).list).toBeUndefined()
+	})
+})
+
+/**
  * Issue #344: the generated `docs/OVERVIEW.md` read "## Data model (1 entities)".
  * One entity is the state every project is in right after `maxstack init` plus
  * one op, so the first generated docs most people ever see were ungrammatical

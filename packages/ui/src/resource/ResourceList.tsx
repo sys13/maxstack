@@ -178,7 +178,13 @@ export interface ResourceListProps {
 	className?: string
 }
 
-type LinkLike = (props: {
+/**
+ * A router's link component, structurally. Exported because an *ejected* route
+ * module has to render its own "+ New" link and cannot import the host router
+ * (it compiles inside the vendored runtime but is written to be independent of
+ * it) — so the runtime hands one down as {@link OwnedRouteProps.Link}.
+ */
+export type LinkLike = (props: {
 	to: string
 	children: ReactNode
 	className?: string

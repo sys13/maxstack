@@ -28,6 +28,7 @@ import {
 	generateResourcePage,
 	isSlotBlockType,
 	type PageDescriptor,
+	type PageListSurface,
 	slotBlockName,
 } from '@maxstack/core/ownership'
 import type { PageSpec, SpecSystem } from '@maxstack/spec'
@@ -238,6 +239,7 @@ export const e2eTestsGenerator: RegisteredGenerator = {
  */
 export function pageDescriptor(page: PageSpec): PageDescriptor {
 	const resource = (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
+	const list = listSurfaceOf(page)
 	return {
 		resource,
 		title: page.name,
@@ -245,6 +247,46 @@ export function pageDescriptor(page: PageSpec): PageDescriptor {
 		slots: page.blocks
 			.filter((b) => isSlotBlockType(b.type))
 			.map((b) => slotBlockName(b.type)),
+		...(list ? { list } : {}),
+	}
+}
+
+/** Block types that arrange rows by something other than a list (#172). */
+const VIEW_BLOCK_TYPES = ['calendar', 'timeline', 'board']
+
+/**
+ * The page's list surface as far as the generator can materialize it, or
+ * `undefined` when it cannot (issue #349).
+ *
+ * **This mirrors the runtime's own derivation** in `apps/web/app/project-routes.ts`
+ * (`getRoutes`): same `blocks.find(b => b.type === 'table')` for the variant and
+ * fields, same view-block precedence, same `mode: 'replace'` slot rule. It is a
+ * deliberate duplicate rather than an import — `@maxstack/mcp` cannot reach into
+ * `apps/web`, and the runtime cannot depend on the generator — and it is pinned
+ * by an agreement test (`generators.test.ts`) so the two cannot drift into
+ * emitting a list for a page the runtime arranges as a board.
+ *
+ * The two `undefined` cases are not "no list": they are surfaces the emitter
+ * cannot write yet, and it says so in the file instead of emitting a plausible
+ * list that would replace a working board.
+ */
+function listSurfaceOf(page: PageSpec): PageListSurface | undefined {
+	// A view replaces the list rather than sitting beside it, so a page with one
+	// has no list surface to materialize.
+	if (page.blocks.some((b) => VIEW_BLOCK_TYPES.includes(b.type))) return
+	// A `mode: 'replace'` slot owns the list region the moment it is filled.
+	// Emitting a list here would contradict a declaration the user already made.
+	if (page.blocks.some((b) => isSlotBlockType(b.type) && b.mode === 'replace'))
+		return
+	// No entity behind the page ⇒ no rows, so nothing to list.
+	if (!page.entityId) return
+	const table = page.blocks.find((b) => b.type === 'table')
+	const variant = table?.variant ?? 'table'
+	return {
+		variant,
+		...(table?.fields && table.fields.length > 0
+			? { fields: [...table.fields] }
+			: {}),
 	}
 }
 

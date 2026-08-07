@@ -80,6 +80,24 @@ Three levels, in increasing order of commitment:
 - **Eject** — take a whole generated route. It is copied with a banner, marked
   owned in the manifest, and never regenerated.
 
+**What eject hands over is the page's render, not the whole page.** The route
+module is the real thing — it composes the declared list from the props the
+runtime passes it, so editing it changes what you see, and an ejected page keeps
+its rows, its inline editing and its permission gating. What it does *not* take
+over is the loader: rows, introspected columns, capabilities and resolved
+reference titles are still produced by framework code that resolves this page
+from `spec/` on every request, so an ejected page still needs its spec entry.
+The banner in the file says exactly this, because "you own it now" was being
+read as "this file is the whole app" and it is not.
+
+One surface is not materialized yet: a page arranged by a `calendar`,
+`timeline` or `board` block, or one whose list a `mode: 'replace'` slot owns.
+The generator cannot write those as owned code, so their route module is a
+placeholder that says so, and `maxstack eject` warns before handing one over —
+because an ejected module replaces the framework's whole surface, ejecting a
+board today trades a working board for that placeholder. Fill a block slot
+instead until they materialize.
+
 The manifest records, per file, whether it is generated, ejected or user-written,
 plus a content hash. `maxstack drift` reports what you own and how far it has
 moved from what would be derived today.

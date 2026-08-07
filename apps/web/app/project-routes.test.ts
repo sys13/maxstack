@@ -1,3 +1,4 @@
+import { pageDescriptor } from '@maxstack/mcp'
 import {
 	accept,
 	manual,
@@ -765,5 +766,117 @@ describe('pagePath', () => {
 		expect(pagePath('')).toBe('/')
 		expect(pagePath('', 'new')).toBe('/new')
 		expect(pagePath('', '42')).toBe('/42')
+	})
+})
+
+/**
+ * Issue #349, the runtime half of the materialization agreement.
+ *
+ * `pageDescriptor.list` (`@maxstack/mcp`'s `generators.ts`) decides whether
+ * `maxstack gen` emits a real `<ResourceList>` into a page's route module or a
+ * placeholder that says it is one. `getRoutes` decides what the runtime
+ * actually renders. They are separate derivations — the generator cannot import
+ * `apps/web`, and the runtime must not depend on the generator — so they are
+ * pinned against each other here.
+ *
+ * The direction that matters: **the generator must never claim a list where the
+ * runtime arranges a view**. An ejected module replaces the page's whole
+ * surface, so a generator that emitted a table for a board page would hand the
+ * user a file that silently replaces their working board with the wrong shape.
+ * The reverse — refusing to materialize something the runtime does list — is
+ * only a missed opportunity, and is asserted separately so a future widening of
+ * the emitter fails loudly here instead of drifting.
+ */
+describe('list materialization agrees with the runtime (#349)', () => {
+	const calendarPage: PageSpec = {
+		id: 'pg-due',
+		name: 'Due',
+		route: '/due',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{ id: 'blk-table', type: 'table', provenance: suggested() },
+			{
+				id: 'blk-cal',
+				type: 'calendar',
+				calendar: { dateField: 'dueAt', display: 'month', timezone: 'UTC' },
+				provenance: suggested(),
+			},
+		],
+	}
+	const replacedPage: PageSpec = {
+		id: 'pg-player',
+		name: 'Player',
+		route: '/player',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{ id: 'blk-table', type: 'table', provenance: suggested() },
+			{
+				id: 'blk-player',
+				type: 'slot:player',
+				mode: 'replace',
+				provenance: suggested(),
+			},
+		],
+	}
+	const cardsPage: PageSpec = {
+		id: 'pg-shelf',
+		name: 'Shelf',
+		route: '/shelf',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-table',
+				type: 'table',
+				variant: 'cards',
+				fields: ['title', 'author'],
+				provenance: suggested(),
+			},
+		],
+	}
+
+	const pages = [
+		subscriptions,
+		reading,
+		cardsPage,
+		calendarPage,
+		replacedPage,
+		// A page with no entity: the runtime resolves it to `resource: null`.
+		{
+			id: 'pg-about',
+			name: 'About',
+			route: '/about',
+			provenance: suggested(),
+			blocks: [],
+		} satisfies PageSpec,
+	]
+
+	it('materializes exactly the pages the runtime renders as a plain list', () => {
+		const routes = getRoutes(specWith(pages))
+		for (const [i, page] of pages.entries()) {
+			const route = routes[i]
+			if (!route) throw new Error(`no route for ${page.id}`)
+			// The runtime's own "this is a plain list" test, read off the route it
+			// composed: an entity behind it, no arranged view, no list-replacing
+			// slot. That is precisely the branch of `ProjectListPage` that reaches
+			// `<ResourceList>` / `<CardGrid>` / `<FeedList>`.
+			const runtimeLists =
+				route.resource !== null &&
+				route.view === null &&
+				route.replacesList === null
+			expect(
+				pageDescriptor(page).list !== undefined,
+				`${page.id}: generator and runtime disagree about the surface`,
+			).toBe(runtimeLists)
+		}
+	})
+
+	it('emits the variant and fields the runtime would have rendered with', () => {
+		const route = resolveRoute(specWith(pages), 'shelf')
+		const list = pageDescriptor(cardsPage).list
+		expect(list?.variant).toBe(route?.variant)
+		expect(list?.fields).toEqual(route?.fields)
 	})
 })

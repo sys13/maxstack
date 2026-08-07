@@ -12,13 +12,14 @@
 import type { ImportParser } from '@maxstack/core'
 import type { ScheduleHandler } from '@maxstack/features/jobs'
 import type { SourceRefiner } from '@maxstack/features/sources'
+import type { OwnedRouteProps } from '@maxstack/ui'
 import type { ComponentType } from 'react'
 
 /** `{ [resource]: { [slotName]: OwnedSlotComponent } }` — filled `*.slots.tsx`. */
 export const OWNED_SLOTS: Record<string, Record<string, ComponentType>> = {}
 
 /** `{ [resource]: EjectedRouteComponent }` — a project's ejected `<r>.tsx`. */
-export const OWNED_ROUTES: Record<string, ComponentType> = {}
+export const OWNED_ROUTES: Record<string, ComponentType<OwnedRouteProps>> = {}
 
 // The non-page seams. Each is the registry its generator wrote
 // into the project — `jobs/schedules.generated.ts` and friends — re-exported so

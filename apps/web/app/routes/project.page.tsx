@@ -303,14 +303,9 @@ export default function ProjectListPage({
 
 	// Bar 2: if the project ejected this page's route, its owned module fully
 	// replaces the generic list — the ejected TSX executes in the deployed app.
+	// The *render* is deferred to the bottom of this function, after the list
+	// props are built, because an owned route is handed exactly them (#349).
 	const OwnedRoute = page.resource ? OWNED_ROUTES[page.resource] : undefined
-	if (OwnedRoute) {
-		return (
-			<ProjectFrame pages={nav} title={title} theme={theme} demoRows={demoRows}>
-				<OwnedRoute />
-			</ProjectFrame>
-		)
-	}
 
 	const ownedSlots = page.resource ? OWNED_SLOTS[page.resource] : undefined
 
@@ -443,6 +438,52 @@ export default function ProjectListPage({
 		columns: fieldSlots,
 		renderRow: RowSlot,
 	}
+	// Inline editing is the table's alone. A card and a feed row are
+	// compositions, not cells: there is no rectangle a click could turn into an
+	// editor without inventing one, and inventing one is how a presentation
+	// variant grows a write path of its own.
+	//
+	// Lifted out of the JSX so an *ejected* page can be handed the identical
+	// handler. #349: an owned module is given exactly the props the framework's
+	// own list would have rendered with, not a subset — otherwise "you own this
+	// page" quietly costs you inline editing.
+	const onCellSave = (
+		row: Record<string, unknown>,
+		name: string,
+		value: unknown,
+	) => {
+		const values = inlineEditValues(columns, editable, row, name, value)
+		if (!values) return
+		// The same cast the move fetcher makes: `submit`'s JSON target is typed
+		// as a JSON value while a cell's parsed value is `unknown`. The wire
+		// encoding is JSON either way, and the server re-validates every key it
+		// receives.
+		cellEdit.submit(values as Parameters<typeof cellEdit.submit>[0], {
+			method: 'post',
+			action: rowEditRoute(page.slug, String(row[primaryKey])),
+			encType: ROW_EDIT_ENCTYPE,
+		})
+	}
+
+	// Bar 2, the render half: the project's ejected module owns this page's
+	// whole surface. It is handed the list props above so it can render the
+	// real list rather than a heading — see `OwnedRouteProps`. The write-refusal
+	// banner stays outside it: a refused cell edit has to be visible whether or
+	// not the page was ejected, and no owned module should have to remember to
+	// render it.
+	if (OwnedRoute) {
+		return (
+			<ProjectFrame pages={nav} title={title} theme={theme} demoRows={demoRows}>
+				<OwnedRoute
+					list={{ ...listProps, editable, can, onCellSave }}
+					newHref={newHref}
+					Link={link}
+				/>
+				<WriteRefusal data={cellEdit.data} />
+			</ProjectFrame>
+		)
+	}
+
 	return (
 		<ProjectFrame pages={nav} title={title} theme={theme} demoRows={demoRows}>
 			<section data-resource={page.resource}>
@@ -546,38 +587,13 @@ export default function ProjectListPage({
 					<>
 						<ResourceList
 							{...listProps}
-							// Inline editing is the table's alone. A card and a
-							// feed row are compositions, not cells: there is no rectangle a
-							// click could turn into an editor without inventing one, and
-							// inventing one is how a presentation variant grows a write path
-							// of its own.
+							// Inline editing is the table's alone; see `onCellSave` above.
 							editable={editable}
 							// The affordance follows the permission (task 22/35). The wall is
 							// `opUpdate` either way — this only keeps the list from offering an
 							// editor whose every save would be refused.
 							can={can}
-							onCellSave={(row, name, value) => {
-								const values = inlineEditValues(
-									columns,
-									editable,
-									row,
-									name,
-									value,
-								)
-								if (!values) return
-								// The same cast the move fetcher makes: `submit`'s JSON
-								// target is typed as a JSON value while a cell's parsed
-								// value is `unknown`. The wire encoding is JSON either
-								// way, and the server re-validates every key it receives.
-								cellEdit.submit(
-									values as Parameters<typeof cellEdit.submit>[0],
-									{
-										method: 'post',
-										action: rowEditRoute(page.slug, String(row[primaryKey])),
-										encType: ROW_EDIT_ENCTYPE,
-									},
-								)
-							}}
+							onCellSave={onCellSave}
 						/>
 						<WriteRefusal data={cellEdit.data} />
 					</>

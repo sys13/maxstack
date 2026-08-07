@@ -34,6 +34,20 @@ describe('renderOwnedManifest', () => {
 		expect(out).toContain('"reading-item": route_reading_item,')
 	})
 
+	// Issue #349. `OWNED_ROUTES` was `Record<string, ComponentType>` and the
+	// runtime mounted an ejected page as `<OwnedRoute />` — with no props. That
+	// is the reason the emitted page could only ever be a heading: it had no way
+	// to reach the rows, columns or capabilities its own loader had produced.
+	// Typing the map by what a route is *rendered with* is what makes a
+	// materialized ejected page compile.
+	it('types owned routes by the props they are rendered with', () => {
+		const out = renderOwnedManifest(manifest)
+		expect(out).toContain("import type { OwnedRouteProps } from '@maxstack/ui'")
+		expect(out).toContain(
+			'export const OWNED_ROUTES: Record<string, ComponentType<OwnedRouteProps>> = {',
+		)
+	})
+
 	it('produces empty registries when nothing is owned', () => {
 		const out = renderOwnedManifest({ version: 1, entries: [] })
 		expect(out).toContain('export const OWNED_SLOTS')

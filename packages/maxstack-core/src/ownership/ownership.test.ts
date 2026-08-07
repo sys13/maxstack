@@ -4,7 +4,10 @@ import {
 	EMPTY_ROUTES_MANIFEST,
 	emitResourcePage,
 	emitUserSlotStub,
+	isMaterializedPage,
 	type PageDescriptor,
+	type PageListSurface,
+	UNMATERIALIZED_MARKER,
 } from './emit.ts'
 import { generateResourcePage, pageFilePaths } from './generate.ts'
 import {
@@ -26,7 +29,7 @@ import {
 	type RegenTarget,
 	regenerateAsDiff,
 } from './regen.ts'
-import { eject, writeGenerated } from './write.ts'
+import { EJECT_BANNER, eject, writeGenerated } from './write.ts'
 
 const TASK: PageDescriptor = {
 	resource: 'task',
@@ -66,25 +69,140 @@ describe('emit (ts-morph generator-side emission)', () => {
 
 	it('never emits an import binding the module does not use', () => {
 		// Generic guard so the next unconditional import cannot land the same way.
+		// Swept across the list variants too (#349): each pulls a different
+		// component out of `@maxstack/ui`, so this is where an emitter that
+		// imports `ResourceList` and renders `CardGrid` gets caught.
+		const surfaces: (PageListSurface | undefined)[] = [
+			undefined,
+			{ variant: 'table' },
+			{ variant: 'cards', fields: ['title'] },
+			{ variant: 'feed' },
+		]
 		for (const slots of [[], ['afterList'], ['afterList', 'beforeList']]) {
-			const src = emitResourcePage({ ...TASK, slots })
-			const lines = src.split('\n')
-			const bindings = lines.flatMap((line) => {
-				const named = /^import \{ ([^}]+) \} from /.exec(line)
-				if (named?.[1]) return named[1].split(',').map((n) => n.trim())
-				const ns = /^import \* as (\w+) from /.exec(line)
-				return ns?.[1] ? [ns[1]] : []
-			})
-			const body = lines
-				.filter((line) => !line.startsWith('import '))
-				.join('\n')
-			for (const binding of bindings) {
-				expect(
-					new RegExp(`\\b${binding}\\b`).test(body),
-					`unused import \`${binding}\` at slots=[${slots.join(',')}]`,
-				).toBe(true)
+			for (const list of surfaces) {
+				const src = emitResourcePage({
+					...TASK,
+					slots,
+					...(list ? { list } : {}),
+				})
+				const lines = src.split('\n')
+				const bindings = lines.flatMap((line) => {
+					const named = /^import \{ ([^}]+) \} from /.exec(line)
+					// `type X` is one binding written two words; the name is what the
+					// body has to mention.
+					if (named?.[1])
+						return named[1]
+							.split(',')
+							.map((n) => n.trim().replace(/^type /, ''))
+					const ns = /^import \* as (\w+) from /.exec(line)
+					return ns?.[1] ? [ns[1]] : []
+				})
+				const body = lines
+					.filter((line) => !line.startsWith('import '))
+					.join('\n')
+				for (const binding of bindings) {
+					expect(
+						new RegExp(`\\b${binding}\\b`).test(body),
+						`unused import \`${binding}\` at slots=[${slots.join(',')}] variant=${list?.variant ?? 'none'}`,
+					).toBe(true)
+				}
 			}
 		}
+	})
+
+	/**
+	 * Issue #349. `maxstack eject` is the escape hatch, and what it handed over
+	 * was a heading, a comment and the slot mounts — 17 lines that had never
+	 * rendered the user's page. The page came from the runtime's own
+	 * `project.page.tsx`, resolving the spec at request time, and it kept coming
+	 * from there after the eject.
+	 *
+	 * These assert the emitted module is the page: it takes the loader's output
+	 * as props and renders the declared list from them.
+	 */
+	describe('materialized list surface (#349)', () => {
+		const LIST: PageDescriptor = { ...TASK, list: { variant: 'table' } }
+
+		it('renders the real list from the props the runtime hands down', () => {
+			const src = emitResourcePage(LIST)
+			// The failing-before-#349 assertion: the module takes props at all.
+			expect(src).toContain(
+				'export default function TaskListPage({ list, newHref, Link }: OwnedRouteProps)',
+			)
+			expect(src).toContain('<ResourceList {...list} />')
+			expect(src).toContain('type OwnedRouteProps')
+			// …and the placeholder that stood in for the page is gone.
+			expect(src).not.toContain('generated resource list renders here')
+			expect(src).not.toContain(UNMATERIALIZED_MARKER)
+			expect(isMaterializedPage(src)).toBe(true)
+		})
+
+		it('gives the page its own header and "+ New" affordance', () => {
+			// An ejected module replaces the framework's whole surface, header
+			// included. Emitting the list alone would silently drop the only way to
+			// create a record on a page the user was told they now own.
+			const src = emitResourcePage(LIST)
+			expect(src).toContain('<h1 className="text-2xl font-semibold">Tasks</h1>')
+			expect(src).toContain('to={newHref}')
+			expect(src).toContain('+ New')
+		})
+
+		it('inlines the declared fields for the card and feed variants', () => {
+			// The spec-derived half, as a literal in a file the user owns — no
+			// `resolveProjectResource` at render time for this decision.
+			const cards = emitResourcePage({
+				...TASK,
+				list: { variant: 'cards', fields: ['title', 'due'] },
+			})
+			expect(cards).toContain("const LIST_FIELDS = ['title', 'due']")
+			expect(cards).toContain('<CardGrid')
+			expect(cards).toContain('primaryField={LIST_FIELDS[0]}')
+			expect(cards).toContain('secondaryFields={LIST_FIELDS}')
+			expect(cards).not.toContain('ResourceList')
+
+			const feed = emitResourcePage({ ...TASK, list: { variant: 'feed' } })
+			expect(feed).toContain('<FeedList {...list} />')
+			// No declared fields ⇒ no literal, rather than an empty one.
+			expect(feed).not.toContain('LIST_FIELDS')
+		})
+
+		it('says so, in the file, when the surface cannot be materialized', () => {
+			// A view page (calendar/timeline/board) has no `list`. Ejecting one
+			// trades a working board for this stub, so the file names the trade
+			// rather than looking like an ordinary page that happens to be empty.
+			const src = emitResourcePage(TASK)
+			expect(isMaterializedPage(src)).toBe(false)
+			expect(src).toContain(UNMATERIALIZED_MARKER)
+			expect(src).toContain('placeholder, not the page')
+			// No props: a placeholder that destructured them would trip the
+			// scaffold's own unused-binding lint.
+			expect(src).toContain('export default function TaskListPage()')
+		})
+
+		it('keeps the note where eject cannot strip it', async () => {
+			// `eject()` drops the leading comment block when it swaps in its own
+			// banner. A header comment would therefore vanish at exactly the moment
+			// the warning matters, so it lives in the JSX.
+			const fs = createMemFs()
+			const { manifest } = await generateResourcePage(fs, TASK)
+			const routeFile = pageFilePaths('task').routeFile
+			await eject(fs, manifest, 'task', routeFile)
+			const after = await fs.read(routeFile)
+			expect(after).toContain('EJECTED')
+			expect(after).not.toContain('AUTO-GENERATED')
+			expect(after).toContain(UNMATERIALIZED_MARKER)
+		})
+
+		it('is deterministic across every variant', () => {
+			for (const list of [
+				{ variant: 'table' as const },
+				{ variant: 'cards' as const, fields: ['a', 'b'] },
+				{ variant: 'feed' as const },
+			]) {
+				const d = { ...TASK, list }
+				expect(emitResourcePage(d)).toBe(emitResourcePage(d))
+			}
+		})
 	})
 
 	it('is deterministic — same descriptor yields byte-identical output', () => {
@@ -170,6 +288,25 @@ describe('emit (ts-morph generator-side emission)', () => {
 })
 
 describe('never-clobber writer + eject', () => {
+	/**
+	 * Issue #349: the banner has to say which half is yours.
+	 *
+	 * Eject is advertised as whole-page ownership. What it hands over owns the
+	 * render; the loader behind it is still framework code that resolves this
+	 * page from `spec/` on every request. Three lines that said only "you own
+	 * this file now" read as "this file is the whole page", and users found out
+	 * otherwise by deleting the spec entry and watching the route disappear.
+	 */
+	it('names the half of the page the ejected file does NOT own', () => {
+		expect(EJECT_BANNER).toContain('EJECTED')
+		expect(EJECT_BANNER).toMatch(/LOADER/)
+		expect(EJECT_BANNER).toMatch(/spec\//)
+		// Every line is a comment — this is prepended to a source file.
+		for (const line of EJECT_BANNER.split('\n')) {
+			expect(line.startsWith('//')).toBe(true)
+		}
+	})
+
 	it('creates then leaves an unchanged generated file alone', async () => {
 		const fs = createMemFs()
 		let m = emptyManifest()

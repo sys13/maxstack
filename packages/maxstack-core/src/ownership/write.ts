@@ -134,10 +134,29 @@ export async function writeUserFileOnce(
 	}
 }
 
+/**
+ * The banner an ejected module carries.
+ *
+ * The second paragraph is the honesty fix from #349, and it is not decoration.
+ * Eject is advertised as whole-page ownership, and the file it hands over owns
+ * the page's *composition* only: what renders, in what order, with which props
+ * overridden. The rows, the introspected columns, the viewer's capabilities and
+ * the resolved FK titles are still produced by the framework's loader, which
+ * resolves this page from `spec/` on every request. Users were reading the old
+ * three lines as "this file is now the whole page" and then discovering — by
+ * deleting the spec entry, or by trying to build the tree standalone — that it
+ * was not. Saying which half is theirs costs five lines and no ambiguity.
+ */
 export const EJECT_BANNER = [
 	'// EJECTED — you own this file now. maxstack will never overwrite or',
 	'// regenerate it, and it no longer receives framework improvements',
 	'// (the "eject tax"). Prefer a slot or a spec op where one exists.',
+	'//',
+	'// What you own is this page RENDER: the markup, and which props the list',
+	'// is given. What still runs framework code is the LOADER — rows, columns,',
+	'// permissions and reference titles are resolved from `spec/` at request',
+	'// time and handed to this module as props. This page therefore still',
+	"// depends on its spec entry; removing that entry removes the page's route.",
 ].join('\n')
 
 /**
