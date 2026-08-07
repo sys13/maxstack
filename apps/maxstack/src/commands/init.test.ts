@@ -5,10 +5,25 @@ import { join, resolve } from 'node:path'
 import { readSpecDir } from '@maxstack/mcp'
 import { suggested } from '@maxstack/spec'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as cliResolution from '../lib/cli-resolution.ts'
+import type * as cliResolution from '../lib/cli-resolution.ts'
 import { loadProject } from '../lib/project.ts'
 import { projectCheckRunner } from '../lib/project-checks.ts'
 import { BIOME_VERSION, initCommand, scaffoldPackageJson } from './init.ts'
+
+// `init` ends by probing PATH for a usable global `maxstack` and warning when
+// there is none — and that warning names `.mcp.json`, one of the strings the
+// report assertions below require to be absent. Whether it fires is a property
+// of the machine.
+//
+// It must be neutralised at the seam `init.ts` actually imports. Spying on
+// `probePathCli` — the first attempt at this — does nothing, because
+// `warnOnPathCliMismatch` calls it as an intra-module reference that no
+// namespace spy or partial `vi.mock` can reach. It looked like it worked, on a
+// laptop where the real probe already returned "usable". See issue #363.
+vi.mock('../lib/cli-resolution.ts', async (importOriginal) => ({
+	...(await importOriginal<typeof cliResolution>()),
+	warnOnPathCliMismatch: async () => false,
+}))
 
 describe('maxstack init naming', () => {
 	const originalCwd = process.cwd()
@@ -81,6 +96,9 @@ describe('what init prints leads with what to type next (#331)', () => {
 	afterEach(async () => {
 		process.chdir(originalCwd)
 		vi.restoreAllMocks()
+		// `stubEnv` is not covered by `restoreAllMocks`, and the pinned PATH would
+		// otherwise leak into every later test in this file.
+		vi.unstubAllEnvs()
 		for (const d of dirs.splice(0))
 			await rm(d, { recursive: true, force: true })
 	})
@@ -99,15 +117,13 @@ describe('what init prints leads with what to type next (#331)', () => {
 		}
 		vi.spyOn(console, 'log').mockImplementation(capture)
 		vi.spyOn(console, 'warn').mockImplementation(capture)
-		// What `init` prints must not depend on whose machine runs the test. The
-		// PATH-CLI warning names `.mcp.json` and `.claude/settings.json`, and it
-		// fires only when no usable global `maxstack` is installed — true on a CI
-		// runner, false on a maintainer's laptop. Left alone, the assertions below
-		// pass locally and fail in CI, which is exactly what happened.
-		vi.spyOn(cliResolution, 'probePathCli').mockResolvedValue({
-			found: '0.0.0-test',
-			usable: true,
-		})
+		// Stand this test on a CI runner's PATH, not the maintainer's. A global
+		// `maxstack` is what makes the PATH warning silent on a laptop, and a
+		// warning that is silent locally is a warning whose stub is never
+		// exercised — the `vi.mock` above would rot unnoticed the moment it stopped
+		// working, which is exactly how #363 lasted fifteen commits. With PATH
+		// pinned, removing the mock fails here as loudly as it fails in CI.
+		vi.stubEnv('PATH', '/nonexistent-so-nothing-resolves')
 
 		await initCommand(
 			arg,

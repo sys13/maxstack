@@ -52,12 +52,25 @@ maxstack runtime unlink ~/scratch-project
 ## The gate
 
 Nothing lands unless `pnpm validate` is green. It runs, in order: lint,
-boundaries, write-paths, guarded-statements, client-safe-imports,
+boundaries, write-paths, owned-writes, guarded-statements, client-safe-imports,
 test-integrity, docs-reference, test-shards, typecheck, test.
 
 `--skip=name,name` drops steps; an unknown name is a hard error, because a skip
 list that silently matches nothing would quietly stop running a step while still
 reporting green.
+
+### Read the last line
+
+A green gate proves the tree is good **on this machine**. CI runs on a Linux
+runner, sharded, with no global `maxstack` on PATH and none of your environment,
+so a test that reads the machine passes here and fails there. That is not
+hypothetical: it once hid for fifteen consecutive commits, every one of them
+behind a green local gate, because nobody was looking at CI.
+
+So `pnpm validate` ends by printing how the last CI run on `origin/main` did.
+It is a report, not a gate — it can never fail your run, and it degrades to a
+dimmed "unknown" line when `gh` is missing or the network is not there. A red
+line means open the URL before you push over it.
 
 ## Why the checks exist
 

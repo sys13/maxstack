@@ -136,9 +136,23 @@ for (const step of selected) {
 }
 
 console.log('')
-if (failed.length === 0) {
+if (failed.length === 0)
 	console.log(`${c.green}✓ validate gate green${c.reset}`)
-	process.exit(0)
+else
+	console.log(`${c.red}✗ validate gate failed: ${failed.join(', ')}${c.reset}`)
+
+// The second opinion, last thing on screen. A green gate here proves the tree is
+// good *on this machine*; CI runs on a Linux runner with none of a developer's
+// environment, and when a test reads the machine the two disagree while this
+// line keeps saying green. That is not hypothetical — #363 is fifteen
+// consecutive commits of red CI behind a green local gate, unnoticed because
+// looking at CI was a habit rather than a step.
+//
+// It is a report, never a gate: it cannot fail this run, and it cannot hang it.
+// Skipped under CI, where it would only be reporting on itself.
+if (!process.env.CI) {
+	console.log('')
+	await run({ cmd: 'node', args: ['scripts/report-ci-status.mjs'] })
 }
-console.log(`${c.red}✗ validate gate failed: ${failed.join(', ')}${c.reset}`)
-process.exit(1)
+
+process.exit(failed.length === 0 ? 0 : 1)
