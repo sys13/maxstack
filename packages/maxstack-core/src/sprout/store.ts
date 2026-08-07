@@ -158,6 +158,39 @@ export interface SproutStore {
 	 * `count(child, { filter: { [fk]: parentId } })` counts a parent's children.
 	 */
 	count(resource: string, opts?: ListOptions): Promise<number>
+	/**
+	 * Whether this store could *ever* hold a row under this key — a shape test,
+	 * not a lookup.
+	 *
+	 * A key that cannot exist and a key that does not exist are the same answer
+	 * to the caller: 404. But against Postgres they were not the same *event* —
+	 * `GET /api/book/nonsense` on a `uuid` primary key failed inside the driver
+	 * (SQLSTATE 22P02), so an id nobody would recognise came back as a 500 while
+	 * a well-formed absent uuid came back as a 404 (#354). #336 stopped the 500
+	 * leaking the statement; it was still a 500, and a 500 says "come back later"
+	 * about a URL that will never work.
+	 *
+	 * **It is a property of the store, not of the op.** Whether `'r1'` is a key
+	 * that cannot exist or a perfectly ordinary one is a fact about the schema
+	 * behind the store: it is malformed against a `uuid` column and completely
+	 * valid against a `text` one, and an in-memory store keyed by a JS `Map` has
+	 * no notion of malformed at all. An op that decided this itself would either
+	 * have to learn what a column type is or 404 every hand-written test id — so
+	 * the ops ask, and only a store that knows answers.
+	 *
+	 * **Optional, and its absence means "yes".** A store that does not implement
+	 * it refuses nothing, so adding the question changed no existing behaviour:
+	 * the ops treat `undefined` and `true` alike, and only an explicit `false`
+	 * short-circuits to `NotFoundError`. That is the safe direction — the failure
+	 * mode of a missing implementation is the 500 we already had, never a 404 on
+	 * a row that exists.
+	 *
+	 * Implementations must be a **pure shape test over the primary key**. It runs
+	 * before authorization on a read path, so anything it can distinguish it
+	 * distinguishes to an anonymous caller — which is fine for "that is not a
+	 * uuid" and would not be for anything touching the rows.
+	 */
+	acceptsId?(resource: string, id: string): boolean
 	get(resource: string, id: string): Promise<Row | null>
 	/**
 	 * Fetch many rows by primary key in one round-trip — the batch primitive

@@ -74,6 +74,31 @@ async function project(): Promise<OpContext> {
 	return { registry, store, user: admin }
 }
 
+/** A well-formed key that no row holds — the id the tests below travel with. */
+const ABSENT_ID = '00000000-0000-4000-8000-000000000000'
+
+/**
+ * A project whose table has gone out from under the registry, so a *real*
+ * driver error reaches `fail()` end to end.
+ *
+ * The three tests below used to reach the driver with the issue's own
+ * `GET /api/book/nonsense`, whose id is not a uuid. Since #354 a key that cannot
+ * exist is answered as a miss before any query runs, so that call is a 404 and
+ * no longer produces a driver failure to report — but what #336 pins is what
+ * happens when one *does*, and that must keep being asserted against a genuine
+ * driver error rather than a hand-written `Error`. Dropping the table is the
+ * cheapest way to keep one: the id is valid, the authorization passes, and
+ * Postgres refuses the statement itself (SQLSTATE 42P01) with the projection in
+ * the message — which is exactly the class of failure the boundary exists for.
+ */
+async function projectWithMissingTable(): Promise<OpContext> {
+	const registry = new ResourceRegistry()
+	registerSpecEntities(registry, [BOOK])
+	const { client, store } = await createSpecDb(registry, [BOOK])
+	await client.exec('DROP TABLE "book"')
+	return { registry, store, user: admin }
+}
+
 /**
  * Every exported handler, called with arguments that are well-formed *for that
  * handler* — so the only thing that varies across the list is how the call
@@ -114,7 +139,14 @@ function expectNoStatementLeak(body: unknown): void {
 function throwingStore(error: unknown): SproutStore {
 	const boom = () => Promise.reject(error)
 	return new Proxy({} as SproutStore, {
-		get: () => boom,
+		// `acceptsId` is the one member that is *not* async and not a query: it is
+		// a synchronous shape test the ops consult before touching the store
+		// (#354). Fabricating a rejected promise for it would be this proxy lying
+		// about the interface — the ops would discard the promise unread and the
+		// run would collect an unhandled rejection per call. Absent is the honest
+		// answer, and it is the one that keeps every handler below reaching the
+		// store, which is what this fixture exists to make them do.
+		get: (_target, property) => (property === 'acceptsId' ? undefined : boom),
 	})
 }
 
@@ -136,11 +168,11 @@ afterEach(() => {
 })
 
 describe('a driver failure is reported, not republished', () => {
-	it('answers the issue’s own request with a generic body and a correlation id', async () => {
-		const ctx = await project()
-		// A non-uuid id against a uuid primary key: the exact call in #336, failing
-		// inside the driver rather than in anything we constructed.
-		const res = await getHandler(ctx, 'book', 'nonsense')
+	it('answers a driver failure with a generic body and a correlation id', async () => {
+		const ctx = await projectWithMissingTable()
+		// A failure raised inside the driver rather than in anything we
+		// constructed — see `projectWithMissingTable` for why it is this one.
+		const res = await getHandler(ctx, 'book', ABSENT_ID)
 
 		expect(res.status).toBe(500)
 		expect(res.body).toEqual({
@@ -151,8 +183,8 @@ describe('a driver failure is reported, not republished', () => {
 	})
 
 	it('prints the statement to stderr, keyed by the id the caller was given', async () => {
-		const ctx = await project()
-		const res = await getHandler(ctx, 'book', 'nonsense')
+		const ctx = await projectWithMissingTable()
+		const res = await getHandler(ctx, 'book', ABSENT_ID)
 		const { errorId } = res.body as { errorId: string }
 
 		const line = stderr.mock.calls
@@ -165,7 +197,8 @@ describe('a driver failure is reported, not republished', () => {
 		expect(logged.operation).toBe('get')
 		// The half that must NOT be lost: an operator reading stderr still gets the
 		// failing statement, which is the whole reason it was ever in the body.
-		expect(String(logged.message)).toContain('nonsense')
+		expect(String(logged.message)).toContain('select ')
+		expect(String(logged.message)).toContain(ABSENT_ID)
 	})
 
 	it('leaks nothing from any handler, whatever the store throws', async () => {
@@ -200,13 +233,13 @@ describe('a driver failure is reported, not republished', () => {
 	})
 
 	it('gives each failure its own id, so two reports are distinguishable', async () => {
-		const ctx = await project()
-		const a = (await getHandler(ctx, 'book', 'nonsense')).body as {
+		const ctx = await projectWithMissingTable()
+		const a = (await getHandler(ctx, 'book', ABSENT_ID)).body as {
 			errorId: string
 		}
-		const b = (await getHandler(ctx, 'book', 'other-nonsense')).body as {
-			errorId: string
-		}
+		const b = (
+			await getHandler(ctx, 'book', '11111111-1111-4111-8111-111111111111')
+		).body as { errorId: string }
 		expect(a.errorId).not.toBe(b.errorId)
 	})
 })

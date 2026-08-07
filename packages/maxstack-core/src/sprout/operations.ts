@@ -414,6 +414,39 @@ export function tenantOf(
 
 /** Row-level tenant check for get/update/delete: a row from another org reads
  * as absent (404), never as forbidden — resource existence must not leak. */
+/**
+ * Refuse an id the store could never hold, as a miss rather than as a failure.
+ *
+ * A key that *cannot* exist and a key that *does not* exist are the same answer
+ * to the caller — but they were not the same event: against Postgres a
+ * malformed literal for a `uuid` primary key is rejected inside the driver, so
+ * `GET /api/book/nonsense` was a 500 while `GET /api/book/<absent uuid>` was a
+ * 404 (#354). #336 stopped that 500 republishing the statement; it was still a
+ * 500, and a 500 tells a client to come back later about a URL that will never
+ * work. So a key that cannot exist now takes the `NotFoundError` path these ops
+ * already have, before any query runs.
+ *
+ * The *classification* is asked of the store rather than decided here, because
+ * "malformed" is a fact about the schema and not about the operation: `'r1'` is
+ * impossible against a `uuid` column, ordinary against a `text` one, and
+ * meaningless to a store with no columns at all. `acceptsId` is optional and its
+ * absence means yes, so `=== false` is load-bearing — a store that has not
+ * implemented it refuses nothing, which keeps every hand-written test id and
+ * every non-Postgres store working exactly as before.
+ *
+ * It runs before `authorize()`, deliberately: what it can distinguish is "that
+ * is not the shape of a key", which is a property of the URL the caller already
+ * has, and it reveals nothing about which rows exist.
+ */
+function assertIdCouldExist(
+	store: SproutStore,
+	resource: string,
+	id: string,
+): void {
+	if (store.acceptsId?.(resource, id) === false)
+		throw new NotFoundError(resource, id)
+}
+
 function assertRowInTenant(
 	tenant: { field: string; orgId: string } | null,
 	row: Row,
@@ -986,7 +1019,15 @@ export async function opGetMany(
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
 	const bound = user?.portal?.filter
-	const rows = await store.getMany(resource, ids)
+	// A batch drops the impossible ids rather than refusing the whole call — the
+	// same "cannot exist == does not exist" rule `assertIdCouldExist` applies to
+	// a single read, in the shape `getMany` already has: it answers with the rows
+	// it found and says nothing about the ids it did not. One malformed id in a
+	// `<ReferenceField>`'s batch previously failed the entire round-trip, so a
+	// single bad FK value blanked every reference on the page.
+	const accepts = store.acceptsId?.bind(store)
+	const reachable = accepts ? ids.filter((id) => accepts(resource, id)) : ids
+	const rows = await store.getMany(resource, reachable)
 	const visible = rows.filter((row) => {
 		if (tenant && row[tenant.field] !== tenant.orgId) return false
 		if (softField && !opts.includeDeleted && row[softField] != null)
@@ -1023,6 +1064,7 @@ export async function opGet(
 		throw new NotFoundError(resource, id)
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
+	assertIdCouldExist(store, resource, id)
 	const row = await store.get(resource, id)
 	if (!row) throw new NotFoundError(resource, id)
 	assertRowInTenant(tenant, row, resource, id)
@@ -1455,6 +1497,7 @@ export async function opUpdate(
 	const portal = user?.portal
 	if (portal?.scope === 'row' && portal.rowId !== id)
 		throw new NotFoundError(resource, id)
+	assertIdCouldExist(store, resource, id)
 	const existing = await store.get(resource, id)
 	if (!existing) throw new NotFoundError(resource, id)
 	assertRowInTenant(tenant, existing, resource, id)
@@ -1521,6 +1564,7 @@ export async function opDelete(
 	const entry = resolve(registry, resource)
 	const tenant = tenantOf(entry, user, resource, 'delete')
 	const softField = softDeleteFieldOf(entry)
+	assertIdCouldExist(store, resource, id)
 	const existing = await store.get(resource, id)
 	if (!existing) throw new NotFoundError(resource, id)
 	assertRowInTenant(tenant, existing, resource, id)
@@ -1586,6 +1630,7 @@ export async function opRestore(
 		)
 	}
 	const tenant = tenantOf(entry, user, resource, 'update')
+	assertIdCouldExist(store, resource, id)
 	const existing = await store.get(resource, id)
 	if (!existing) throw new NotFoundError(resource, id)
 	assertRowInTenant(tenant, existing, resource, id)

@@ -45,6 +45,7 @@ import type {
 	SearchOptions,
 	SproutStore,
 } from '../sprout/store.ts'
+import type { SproutColumnType } from '../sprout/types.ts'
 import { DEMO_DDL } from './schema.ts'
 
 type AnyDb = ReturnType<typeof drizzle>
@@ -257,6 +258,24 @@ async function classifyingWrite<T>(
 	}
 }
 
+/**
+ * Values a Postgres primary key can be compared against without the *driver*
+ * rejecting the literal.
+ *
+ * Only the two column types where a malformed literal is a hard parse error
+ * (SQLSTATE 22P02) are listed. A `text` key takes anything, so it is absent and
+ * {@link SproutStore.acceptsId} answers `true` for it — the same "absence means
+ * yes" rule the interface states, applied one level down. Deliberately narrow:
+ * a shape this does not recognise keeps today's behaviour rather than inventing
+ * a new 404.
+ */
+const KEY_SHAPES: Partial<Record<SproutColumnType, RegExp>> = {
+	uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+	// `serial`/`integer` keys introspect as `number`. Postgres rejects a
+	// non-integer literal for them exactly as it rejects a non-uuid for a uuid.
+	number: /^-?\d+$/,
+}
+
 export function createDrizzleStore(
 	db: AnyDb,
 	registry: ResourceRegistry,
@@ -324,6 +343,17 @@ export function createDrizzleStore(
 
 	return {
 		...searchable,
+		acceptsId(resource, id) {
+			const entry = registry.get(resource)
+			if (!entry) return true
+			const pk = entry.resource.columns.find(
+				(c) => c.name === entry.resource.primaryKey,
+			)
+			const shape = pk ? KEY_SHAPES[pk.type] : undefined
+			// No declared shape for this key type — the store has nothing to say, so
+			// it says yes and the read proceeds exactly as it did before #354.
+			return shape ? shape.test(id) : true
+		},
 		async list(resource, opts: ListOptions = {}) {
 			const { table } = tableFor(registry, resource)
 			// Order by a real column only — an unknown `orderBy` (e.g. a stale spec
