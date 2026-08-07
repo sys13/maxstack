@@ -59,6 +59,23 @@ export function createGeneratorRegistry(
 	}
 }
 
+/**
+ * A count and its noun, agreeing in number: `1 entity`, `2 entities`.
+ *
+ * Every generator here prints counted nouns, and a one-of-anything spec is the
+ * state every project is in right after `maxstack init` plus one op — so "1
+ * entities" in the generated docs is the first thing most people read. The
+ * `thing(s)` dodge is the same bug wearing a hat. One helper, used at every
+ * site, so a new heading can't reintroduce it.
+ */
+export function counted(
+	n: number,
+	singular: string,
+	plural = `${singular}s`,
+): string {
+	return `${n} ${n === 1 ? singular : plural}`
+}
+
 // ===========================================================================
 // docs — project-tailored Markdown, derived from the spec
 // ===========================================================================
@@ -85,7 +102,10 @@ function docsOverview(spec: SpecSystem): string {
 		}
 	}
 
-	lines.push(`## Data model (${data.entities.length} entities)`, '')
+	lines.push(
+		`## Data model (${counted(data.entities.length, 'entity', 'entities')})`,
+		'',
+	)
 	for (const e of data.entities) {
 		const fields = e.fields
 			.map((f) => `${f.name}: ${f.type}${f.required ? '' : '?'}`)
@@ -96,7 +116,9 @@ function docsOverview(spec: SpecSystem): string {
 
 	lines.push(`## Pages (${pages.pages.length})`, '')
 	for (const p of pages.pages) {
-		lines.push(`- **${p.name}** \`${p.route}\` (${p.blocks.length} blocks)`)
+		lines.push(
+			`- **${p.name}** \`${p.route}\` (${counted(p.blocks.length, 'block')})`,
+		)
 	}
 	lines.push('')
 
@@ -119,7 +141,7 @@ export const docsGenerator: RegisteredGenerator = {
 			generator: 'docs',
 			artifacts: [{ path: 'docs/OVERVIEW.md', content: docsOverview(spec) }],
 			notes: [
-				`Generated docs/OVERVIEW.md from ${spec.product.requirements.length} requirements.`,
+				`Generated docs/OVERVIEW.md from ${counted(spec.product.requirements.length, 'requirement')}.`,
 			],
 		}
 	},
@@ -165,7 +187,7 @@ export const e2eTestsGenerator: RegisteredGenerator = {
 			generator: 'e2e-tests',
 			artifacts,
 			notes: artifacts.length
-				? [`Scaffolded ${artifacts.length} e2e spec file(s).`]
+				? [`Scaffolded ${counted(artifacts.length, 'e2e spec file')}.`]
 				: ['No pages declare e2eTests — nothing to scaffold.'],
 		}
 	},
@@ -429,7 +451,7 @@ export const typesGenerator: RegisteredGenerator = {
 				},
 			],
 			notes: [
-				`Generated types for ${resources.length} resource(s): ${resources.map((r) => r.name).join(', ') || '(none)'}.`,
+				`Generated types for ${counted(resources.length, 'resource')}: ${resources.map((r) => r.name).join(', ') || '(none)'}.`,
 			],
 		}
 	},
