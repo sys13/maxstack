@@ -115,7 +115,10 @@ export async function scaffoldProject(opts: {
 		resolve(root, SPEC_DIRNAME),
 		seedSpec(name, opts.desc ?? ''),
 	)
-	await writeFile(resolve(root, 'package.json'), await packageJson(packageName))
+	await writeFile(
+		resolve(root, 'package.json'),
+		await scaffoldPackageJson(packageName),
+	)
 	await writeFile(resolve(root, '.gitignore'), GITIGNORE)
 	// The compiler config the scaffolded `typecheck` script needs. Without it
 	// the script exists and cannot run, which is the same hollow green one step
@@ -407,7 +410,7 @@ function kebabCase(name: string): string {
 	)
 }
 
-async function packageJson(name: string): Promise<string> {
+export async function scaffoldPackageJson(name: string): Promise<string> {
 	// Pin the maxstack toolchain the scripts drive as devDependencies at this
 	// CLI's own version: `maxstack` (the CLI) and `maxstack-runtime` (the web
 	// runtime `dev`/`build` need). Both are published, so `pnpm install` here
@@ -441,6 +444,28 @@ async function packageJson(name: string): Promise<string> {
 			maxstack: `^${version}`,
 			'maxstack-runtime': `^${version}`,
 			typescript: '^5.9.0',
+			// What the code in `app/` actually imports, and therefore what the
+			// scaffolded `typecheck` script needs on disk to mean anything (#347).
+			//
+			// `react` + `@types/react`: every route module and every user-owned
+			// `*.slots.tsx` is JSX. Without them `tsc` cannot resolve
+			// `react/jsx-runtime`, so every element in the one file the user
+			// actually writes is `any` — the gate runs, passes, and has checked
+			// nothing. `@playwright/test`: `maxstack gen` writes Playwright specs
+			// into `app/e2e/`, which are the author's from the moment they land.
+			//
+			// The `@maxstack/*` packages those files also import are NOT here, and
+			// cannot be: they are workspace-internal and unpublished. `tsconfig`'s
+			// `paths` points them at the source snapshot `maxstack-runtime` already
+			// ships — see RUNTIME_TYPE_PATHS.
+			react: '^19.2.8',
+			'@types/react': '^19.2.17',
+			'@playwright/test': '^1.62.0',
+			// A job handler, a source refiner and an import parser are server code,
+			// and so is every module of the runtime snapshot `tsconfig`'s `paths`
+			// send the compiler into. Without this the type surface those files sit
+			// on does not compile at all.
+			'@types/node': '^26.1.1',
 		},
 		...(overrides ? { overrides } : {}),
 	}
@@ -489,14 +514,76 @@ export async function scaffoldOverrides(): Promise<Record<string, string>> {
 const GITIGNORE = `node_modules\n.maxstack\ndist\n.env\n.env.*\n!.env.example\n`
 
 /**
+ * Where `tsc` in a scaffolded project finds the `@maxstack/*` types the code in
+ * `app/` imports — the fix for #347, where a project with one entity failed its
+ * own `typecheck` script with two dozen unresolved-module errors.
+ *
+ * Those packages are workspace-internal and are not published to npm, so
+ * "declare them as dependencies" is not an option that exists. What *is*
+ * published is `maxstack-runtime`, which already ships the whole workspace as a
+ * source snapshot under `workspace/` (it is the tree `maxstack build` vendors
+ * from, and its layout mirrors the checkout exactly). Each package there carries
+ * its own `exports` map, and — because the snapshot sits *inside* the
+ * `maxstack-runtime` package directory — its own third-party imports resolve
+ * against `maxstack-runtime`'s dependencies under both npm's hoisted layout and
+ * pnpm's strict one. So the types are already on disk after `install`; all that
+ * was missing was telling the compiler where.
+ *
+ * Mapping rather than rewriting the generated imports is deliberate. The emitted
+ * specifier stays `@maxstack/ui`, which is what it must be for the vendored
+ * build that actually compiles these files — this table only affects the
+ * project's own `tsc` run.
+ *
+ * Keys are every non-relative `@maxstack/*` specifier the generators emit into a
+ * project tree (`packages/maxstack-core/src/ownership/`: routes and block slots
+ * import from `@maxstack/ui`, import parsers from `@maxstack/core`, schedule
+ * handlers and source refiners from `@maxstack/features/*`). A new seam that
+ * emits a new specifier must be added here or the project it generates into
+ * stops typechecking — `scaffold-typecheck.test.ts` runs the compiler over a
+ * tree built by the real emitters, so the two halves cannot drift apart.
+ */
+export const RUNTIME_TYPE_PATHS: Record<string, string> = {
+	// What the generated and owned files themselves import.
+	'@maxstack/ui': 'packages/ui/src/index.ts',
+	'@maxstack/core': 'packages/maxstack-core/src/index.ts',
+	'@maxstack/features/*': 'packages/features/src/*/index.ts',
+	// Not imported by a project — imported by the three above. The compiler
+	// follows a mapped specifier into real source, so the snapshot's own
+	// cross-package imports have to resolve as well or the user sees the failure
+	// as dozens of errors inside `node_modules`.
+	'@maxstack/spec': 'packages/spec/src/index.ts',
+	'@maxstack/spec-derive': 'packages/spec-derive/src/index.ts',
+}
+
+/** The `paths` block {@link RUNTIME_TYPE_PATHS} becomes, rooted at the installed
+ * runtime's source snapshot. */
+export function runtimeTypePaths(): Record<string, string[]> {
+	return Object.fromEntries(
+		Object.entries(RUNTIME_TYPE_PATHS).map(([specifier, file]) => [
+			specifier,
+			[`./node_modules/maxstack-runtime/workspace/${file}`],
+		]),
+	)
+}
+
+/**
  * The compiler config behind the scaffolded `typecheck` script.
  *
  * Deliberately strict: the point of generating types for owned code is to turn
  * knowledge an agent would otherwise have to carry (hook shapes, resource names,
  * null-vs-empty-string payloads) into errors it cannot ignore, and a loose
  * config gives that up for nothing.
+ *
+ * `include` covers the whole app tree rather than only the user-owned files in
+ * it. Narrowing it to `*.slots.tsx` &co was tempting — the gate is *for* owned
+ * code — but ownership is a fact in the route manifest, not a fact about a path:
+ * an ejected route keeps the file name the generated one had, so no glob can
+ * tell them apart, and the narrow config would silently stop checking a file the
+ * moment its owner took responsibility for it. Checking everything costs nothing
+ * once the imports resolve, and a generated file that does not compile is a bug
+ * in this repo that its user should not be the last to hear about.
  */
-const TSCONFIG = `${JSON.stringify(
+export const TSCONFIG = `${JSON.stringify(
 	{
 		compilerOptions: {
 			target: 'ES2023',
@@ -511,6 +598,14 @@ const TSCONFIG = `${JSON.stringify(
 			skipLibCheck: true,
 			allowImportingTsExtensions: true,
 			resolveJsonModule: true,
+			paths: runtimeTypePaths(),
+			// Spelled out rather than left to the automatic sweep of
+			// `node_modules/@types`, because the two compilers a project can be
+			// holding disagree about that sweep: TypeScript 5 picks `@types/node`
+			// up on its own and TypeScript 7 does not, so an upgrade that should
+			// have been invisible instead turns the runtime's server-side source
+			// into a wall of "Cannot find name 'process'".
+			types: ['node', 'react'],
 		},
 		include: ['app/**/*.ts', 'app/**/*.tsx'],
 	},
