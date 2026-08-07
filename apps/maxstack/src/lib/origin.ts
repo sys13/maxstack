@@ -82,6 +82,50 @@ export function resolveOrigin(
 }
 
 /**
+ * *Who* is driving this process, with no claim about which surface carried it —
+ * the `agent` / `session` / `keyId` third of an {@link OpActor}.
+ *
+ * Split out of {@link resolveActor} for the MCP host (issue #279). `surface` and
+ * `path` are facts the write path knows about itself, so a host that is not the
+ * CLI cannot use `resolveActor` — but the identity fields are read from the
+ * *process environment*, and an MCP server spawned from `.mcp.json` inherits the
+ * agent client's environment exactly as a shelled-out `maxstack add-field` does.
+ * Before this split the stdio host supplied no `actor` identity at all, so the
+ * single most agent-driven write path in the product logged
+ * `{surface: 'mcp', path: 'mcp-apply-spec-change'}` and nothing else, while the
+ * *same shell* running the CLI recorded `agent` and `session`. Two surfaces
+ * disagreeing about who is at the keyboard is the bug this file exists to stop.
+ *
+ * Every value is read from the environment or the flags, never inferred:
+ *   - `agent`   `--agent`, else `MAXSTACK_AGENT`, else a recognised harness
+ *   - `session` `MAXSTACK_SESSION` — an opaque id the caller chooses, so a batch
+ *               of ops from one agent run can be reviewed as one piece of work
+ *   - `keyId`   `MAXSTACK_KEY_ID` — the api-key row id, never the secret
+ *
+ * Absent beats invented: an unidentifiable agent yields an absent field rather
+ * than a placeholder, so "we recorded nothing" stays distinguishable from "we
+ * recorded `unknown`".
+ */
+export function resolveAgentIdentity(
+	opts: { agent?: string } = {},
+	env: NodeJS.ProcessEnv = process.env,
+): Pick<OpActor, 'agent' | 'session' | 'keyId'> {
+	const trimmed = (value: string | undefined): string | undefined => {
+		const v = value?.trim()
+		return v ? v : undefined
+	}
+	const detected = AGENT_NAMES.find(([name]) => isSet(env[name]))?.[1]
+	const identity: Pick<OpActor, 'agent' | 'session' | 'keyId'> = {}
+	const agent = trimmed(opts.agent) ?? trimmed(env.MAXSTACK_AGENT) ?? detected
+	if (agent) identity.agent = agent
+	const session = trimmed(env.MAXSTACK_SESSION)
+	if (session) identity.session = session
+	const keyId = trimmed(env.MAXSTACK_KEY_ID)
+	if (keyId) identity.keyId = keyId
+	return identity
+}
+
+/**
  * Resolve the full {@link OpActor} to stamp on ops this invocation lands — the
  * `cli` surface plus whatever the environment actually identified.
  *
@@ -92,27 +136,16 @@ export function resolveOrigin(
  * refuses an invalid `--origin`), while an unidentifiable agent is simply an
  * absent field.
  *
- * Every value is read from the environment or the flags, never inferred:
- *   - `agent`   `--agent`, else `MAXSTACK_AGENT`, else a recognised harness
- *   - `session` `MAXSTACK_SESSION` — an opaque id the caller chooses, so a batch
- *               of ops from one agent run can be reviewed as one piece of work
- * - `keyId` `MAXSTACK_KEY_ID` — the api-key row id, never the secret
+ * The identity two-thirds is {@link resolveAgentIdentity}; this adds the two
+ * fields only the write path itself can know.
  */
 export function resolveActor(
 	opts: { path: string; agent?: string },
 	env: NodeJS.ProcessEnv = process.env,
 ): OpActor {
-	const trimmed = (value: string | undefined): string | undefined => {
-		const v = value?.trim()
-		return v ? v : undefined
+	return {
+		surface: 'cli',
+		path: opts.path,
+		...resolveAgentIdentity({ agent: opts.agent }, env),
 	}
-	const detected = AGENT_NAMES.find(([name]) => isSet(env[name]))?.[1]
-	const actor: OpActor = { surface: 'cli', path: opts.path }
-	const agent = trimmed(opts.agent) ?? trimmed(env.MAXSTACK_AGENT) ?? detected
-	if (agent) actor.agent = agent
-	const session = trimmed(env.MAXSTACK_SESSION)
-	if (session) actor.session = session
-	const keyId = trimmed(env.MAXSTACK_KEY_ID)
-	if (keyId) actor.keyId = keyId
-	return actor
 }

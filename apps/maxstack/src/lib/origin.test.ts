@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { resolveOrigin } from './origin.ts'
+import { resolveActor, resolveAgentIdentity, resolveOrigin } from './origin.ts'
 
 describe('resolveOrigin', () => {
 	it('defaults to human in a plain shell', () => {
@@ -53,5 +53,53 @@ describe('resolveOrigin', () => {
 
 	it('treats an empty MAXSTACK_ORIGIN as unset rather than invalid', () => {
 		expect(resolveOrigin(undefined, { MAXSTACK_ORIGIN: '' })).toBe('human')
+	})
+})
+
+/**
+ * Issue #279 — the identity two-thirds, split out of `resolveActor` so a host
+ * that is not the CLI can read it. `surface`/`path` are the write path's own
+ * facts; everything here comes from the environment the process was handed.
+ */
+describe('resolveAgentIdentity', () => {
+	it('records nothing rather than a placeholder in a plain shell', () => {
+		expect(resolveAgentIdentity({}, {})).toEqual({})
+	})
+
+	it('resolves --agent > MAXSTACK_AGENT > a recognised harness', () => {
+		const env = { MAXSTACK_AGENT: 'from-env', CLAUDECODE: '1' }
+		expect(resolveAgentIdentity({ agent: 'from-flag' }, env).agent).toBe(
+			'from-flag',
+		)
+		expect(resolveAgentIdentity({}, env).agent).toBe('from-env')
+		expect(resolveAgentIdentity({}, { CLAUDECODE: '1' }).agent).toBe(
+			'claude-code',
+		)
+	})
+
+	it('carries session and keyId through, trimmed, blank treated as absent', () => {
+		expect(
+			resolveAgentIdentity(
+				{},
+				{ MAXSTACK_SESSION: ' sess-1 ', MAXSTACK_KEY_ID: 'key-1' },
+			),
+		).toEqual({ session: 'sess-1', keyId: 'key-1' })
+		expect(
+			resolveAgentIdentity({}, { MAXSTACK_SESSION: '  ', MAXSTACK_KEY_ID: '' }),
+		).toEqual({})
+	})
+
+	it('is exactly the non-surface part of resolveActor', () => {
+		// The split must not become a second derivation: whatever a CLI op records
+		// about *who*, the MCP host records about the same shell.
+		const env = {
+			CLAUDECODE: '1',
+			MAXSTACK_SESSION: 'sess-1',
+			MAXSTACK_KEY_ID: 'key-1',
+		}
+		const { surface, path, ...identity } = resolveActor({ path: 'cli-op' }, env)
+		expect(surface).toBe('cli')
+		expect(path).toBe('cli-op')
+		expect(identity).toEqual(resolveAgentIdentity({}, env))
 	})
 })

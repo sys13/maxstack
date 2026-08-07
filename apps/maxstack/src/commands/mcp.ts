@@ -47,6 +47,7 @@ import {
 	projectDrift,
 	projectGenerationWatermark,
 } from '../lib/generate.ts'
+import { resolveAgentIdentity } from '../lib/origin.ts'
 import { loadProject, type Project } from '../lib/project.ts'
 import { projectCheckRunner } from '../lib/project-checks.ts'
 import { projectReviewCost } from '../lib/review-cost.ts'
@@ -164,9 +165,18 @@ export function diskTypesGenerator(project: Project): RegisteredGenerator {
 	}
 }
 
-function platformContext(
+/**
+ * The stdio host's {@link PlatformContext}.
+ *
+ * Exported (like the disk generators above) so the attribution it declares is
+ * testable without spawning a server, and `env` is injectable for the same
+ * reason `resolveOrigin`'s is: the resolution order is a rule, and a rule
+ * checked by mutating `process.env` is a rule checked once per process.
+ */
+export function platformContext(
 	project: Project,
 	checks: CheckRunner,
+	env: NodeJS.ProcessEnv = process.env,
 ): PlatformContext {
 	return {
 		spec: project.spec,
@@ -181,7 +191,24 @@ function platformContext(
 		// omitted, so `ok: true` can never mean "one check passed and nothing
 		// looked at your code".
 		checks,
+		// Hardcoded, not resolved: on this host the *transport* is the signal.
+		// Nothing reaches a stdio MCP server except an agent client that spawned
+		// it, so there is no human-at-a-terminal case to get wrong — and it errs
+		// the safe way regardless. Mis-stamping an agent op `human` is the
+		// expensive mistake (it hides the op from review, which is the whole
+		// point of the ledger); mis-stamping a human op `ai` only adds a row to
+		// the queue. `MAXSTACK_ORIGIN` deliberately does NOT override here: the
+		// CLI reads it because an agent shelling out is indistinguishable from a
+		// person typing, which is exactly the ambiguity this transport removes.
 		origin: 'ai',
+		// *Which* agent, from the same environment the CLI reads (issue #279).
+		// An MCP server registered in `.mcp.json` is spawned by the agent client
+		// and inherits its env, so `CLAUDECODE` / `MAXSTACK_AGENT` /
+		// `MAXSTACK_SESSION` are as available here as they are to a shelled-out
+		// `maxstack add-field`. Without this the two surfaces disagreed about the
+		// same session: the CLI recorded `agent: "claude-code"` and the op log's
+		// busiest write path recorded no identity at all.
+		actor: resolveAgentIdentity({}, env),
 		now: () => new Date().toISOString().slice(0, 10) as never,
 		nextOpId: () => `op-${crypto.randomUUID()}` as never,
 		// Catalog discovery + install preview. Wired by the host
