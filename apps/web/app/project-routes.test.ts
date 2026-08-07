@@ -697,6 +697,50 @@ describe('a page declared at the root', () => {
 		})
 	})
 
+	it('404s a single segment that cannot be a record id', () => {
+		// The regression this guards: with a page at `/` — the shape `maxstack
+		// init` scaffolds — every undeclared single-segment path became a record
+		// lookup, reached the store and died there, so the app had no 404 at all
+		// and every typo was a 500.
+		const spec = specWith([root])
+		expect(matchProjectPath(spec, '/nonsense')).toBeUndefined()
+		expect(matchProjectPath(spec, '/books')).toBeUndefined()
+		expect(matchProjectPath(spec, '/pricing')).toBeUndefined()
+		// Not a uuid, just uuid-ish: still a word as far as the store is concerned.
+		expect(
+			matchProjectPath(spec, '/00000000-0000-0000-0000-00000000000'),
+		).toBeUndefined()
+	})
+
+	it('still opens a record whose id is shaped like a key', () => {
+		// The other direction: the narrowing must not cost the legitimate case.
+		const spec = specWith([root])
+		const uuid = '3f1a2b4c-5d6e-4f70-8a91-b2c3d4e5f607'
+		expect(matchProjectPath(spec, `/${uuid}`)).toMatchObject({
+			kind: 'edit',
+			page: { slug: '' },
+			id: uuid,
+		})
+		expect(matchProjectPath(spec, '/42')).toMatchObject({
+			kind: 'edit',
+			id: '42',
+		})
+		expect(matchProjectPath(spec, '/new')).toMatchObject({ kind: 'new' })
+		expect(matchProjectPath(spec, '/parse')).toMatchObject({ kind: 'parse' })
+	})
+
+	it('leaves a declared page own record space unnarrowed', () => {
+		// Only the *root* reading competes with the app's whole URL space. Under a
+		// declared page the author asked for the record space, so a text primary
+		// key keeps working there.
+		const spec = specWith([root, subscriptions])
+		expect(matchProjectPath(spec, '/subscriptions/abc')).toMatchObject({
+			kind: 'edit',
+			page: { slug: 'subscriptions' },
+			id: 'abc',
+		})
+	})
+
 	it('treats a trailing slash as the same page, not a new one', () => {
 		expect(
 			matchProjectPath(specWith([subscriptions]), '/subscriptions/'),

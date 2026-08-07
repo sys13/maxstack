@@ -253,6 +253,27 @@ export function resolveRoute(
 	return getRoutes(spec, flags).find((r) => r.slug === slug)
 }
 
+/**
+ * Whether a bare segment may be read as a record id *of the root page*.
+ *
+ * A page declared at `/` claims the whole single-segment URL space, so this is
+ * the one place where "record id" competes with every path the app does not
+ * declare. Shape is the only available discriminator, and it is enough for the
+ * two key shapes a maxstack app actually has: a spec entity's table is always
+ * `id uuid primary key` (`tableFromSpecEntity`), and an integer key is the other
+ * thing an author might hand-roll. Anything else — `nonsense`, `books`,
+ * `pricing` — is a path nobody declared, and 404 is the honest answer.
+ *
+ * Deliberately a *shape* test rather than a store round-trip: the lookup is what
+ * turned the miss into a driver error in the first place, and 404ing before the
+ * store also means an undeclared path costs no query.
+ */
+const looksLikeRecordId = (segment: string): boolean =>
+	/^\d+$/.test(segment) ||
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+		segment,
+	)
+
 /** What a URL under the project surface turned out to mean. */
 export type ProjectMatch =
 	| { kind: 'list'; page: ProjectRoute }
@@ -288,6 +309,17 @@ export type ProjectMatch =
  * so an app without one keeps 404ing single-segment paths it never declared.
  * Note that the router's static routes still outrank the splat either way, so a
  * root page cannot own a record whose id is `login` or `admin`.
+ *
+ * **When a root page *is* declared, the trailing segment must still look like a
+ * key.** That is the case the paragraph above did not reason about, and it is
+ * the shape `maxstack init` scaffolds: with a page at `/`, the split below turns
+ * *every* undeclared single-segment path into a record id, so `/nonsense` and
+ * `/pricing` became record lookups that reached the store and failed there —
+ * every typo on the app was a 500 and the app had no 404 at all. So the root
+ * reading is narrowed by {@link looksLikeRecordId}: `/42` and `/<uuid>` still
+ * open their record, a word does not. Only the *root* reading is narrowed —
+ * under a declared page, `/users/<anything>` is a record space the author asked
+ * for, and narrowing it would break text primary keys for no gain.
  */
 export function matchProjectPath(
 	spec: SpecSystem,
@@ -314,6 +346,12 @@ export function matchProjectPath(
 
 	if (tail === 'new') return { kind: 'new', page }
 	if (tail === 'parse') return { kind: 'parse', page }
+	// A single-segment path (`cut === -1`) is a record on the root page only when
+	// the segment is shaped like a key — otherwise a root page would make every
+	// undeclared path a record lookup, and the app would have no 404 at all. See
+	// {@link looksLikeRecordId} for why shape is the discriminator, and why this
+	// narrowing applies to the root reading alone.
+	if (cut === -1 && !looksLikeRecordId(tail)) return undefined
 	// Anything else in the trailing position is a record id. Decoded, because a
 	// primary key is free-form text in the store and may legitimately arrive
 	// percent-encoded.
