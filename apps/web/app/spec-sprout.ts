@@ -767,6 +767,11 @@ export function groundedEntityShapes(
 				// here would leave the board drawing a limit nothing checks.
 				rank: field.rank,
 				limits: field.limits,
+				// A number field's declared presentation and scale (#345) —
+				// grounded like any other data declaration, since the widget an author
+				// asked for is not a fact the runtime is free to re-derive. Dropping it
+				// here would leave `data.setFieldDisplay` writing to a spec nothing reads.
+				display: field.display,
 				reference: field.reference
 					? groundReference(entities, field.reference, options.installedBundles)
 					: undefined,

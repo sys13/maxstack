@@ -110,6 +110,40 @@ describe('detectFieldKind', () => {
 		).toBe('markdown')
 	})
 
+	// Issue #345 — the name decided the widget and nothing could argue with it.
+	// An explicit format is the escape hatch, and it has to work in BOTH
+	// directions or `format: 'number'` would fix the read side and leave the form
+	// still editing with stars.
+	it('an explicit number format overrides the name heuristic both ways', () => {
+		const named = { name: 'rating', type: 'number' } as const
+		expect(detectFieldKind(col({ ...named, meta: { format: 'number' } }))).toBe(
+			'number',
+		)
+		expect(
+			detectInputWidget(col({ ...named, meta: { format: 'number' } })),
+		).toBeNull()
+		expect(
+			detectFieldKind(
+				col({
+					name: 'imdbRating',
+					type: 'number',
+					meta: { format: 'percent' },
+				}),
+			),
+		).toBe('number')
+		// …and the other direction still promotes a name the heuristic misses.
+		expect(
+			detectFieldKind(
+				col({ name: 'score', type: 'number', meta: { format: 'rating' } }),
+			),
+		).toBe('rating')
+		expect(
+			detectInputWidget(
+				col({ name: 'score', type: 'number', meta: { format: 'rating' } }),
+			),
+		).toBe('rating')
+	})
+
 	it('detects specialty kinds from format and name (task 39)', () => {
 		expect(detectFieldKind(col({ meta: { format: 'color' } }))).toBe('color')
 		expect(

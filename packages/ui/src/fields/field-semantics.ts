@@ -318,6 +318,14 @@ export function detectFieldKind(column: IntrospectedColumn): FieldKind {
 	if (type === 'boolean') return 'boolean'
 	if (type === 'date') return 'date'
 	if (type === 'number') {
+		// An explicit `format` beats the name, in both directions (#345). The
+		// specialty formats (`rating`, `duration`) are already resolved at step 2,
+		// so any format still standing here is a plain-number presentation —
+		// including `'number'` itself, which exists for exactly this: it is the
+		// escape hatch that keeps a column called `rating` a number input. Without
+		// it the name decided the widget unopposably, and an author who did not
+		// want stars had no sentence to say so.
+		if (meta.format) return 'number'
 		// A number's *name* can still ask for a richer read (`rating` → stars,
 		// `durationSeconds` → 3m 20s); otherwise a plain formatted number.
 		const s = specialtyHint(column.name)
@@ -387,6 +395,13 @@ export function detectInputWidget(
 	) {
 		return null
 	}
+
+	// The same escape hatch on the write side (#345): a number column whose format
+	// is stated has had every specialty format resolved above, so what is left is
+	// a plain number editor — and the name must not be allowed to overrule the
+	// declaration, or `format: 'number'` would fix the display and leave the form
+	// still editing with stars.
+	if (column.type === 'number' && fmt) return null
 
 	const specialty = specialtyHint(column.name)
 	if (specialty) return specialty

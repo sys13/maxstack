@@ -1168,3 +1168,48 @@ describe('a row round-trips on the nullability axis too', () => {
 		await client.close()
 	})
 })
+
+// ---------------------------------------------------------------------------
+// Issue #345 — a number field's declared presentation.
+//
+// `meta.min`/`max`/`step`/`format` already drove the rating, slider and duration
+// widgets; what was missing was any path to them from the spec, so the widget
+// was chosen by the column's *name* and the scale was fixed at the code default.
+// ---------------------------------------------------------------------------
+
+describe('a number field carries its declared presentation onto the column', () => {
+	const shelf: SpecEntityShape = {
+		name: 'book',
+		fields: [
+			{ name: 'title', type: 'string', required: true },
+			{
+				name: 'rating',
+				type: 'number',
+				required: false,
+				display: { format: 'rating', max: 10, step: 0.5 },
+			},
+			// The escape hatch: same name, stated as a plain number.
+			{
+				name: 'imdbRating',
+				type: 'number',
+				required: false,
+				display: { format: 'number' },
+			},
+			{ name: 'pages', type: 'number', required: false },
+		],
+	}
+
+	it('grounds display onto meta, and leaves an undeclared field alone', () => {
+		const resource = introspectTable(tableFromSpecEntity(shelf))
+		const col = (name: string) => resource.columns.find((c) => c.name === name)
+		expect(col('rating')?.meta).toMatchObject({
+			format: 'rating',
+			max: 10,
+			step: 0.5,
+		})
+		expect(col('imdbRating')?.meta.format).toBe('number')
+		// An undeclared number is unchanged — inference still applies to it.
+		expect(col('pages')?.meta.format).toBeUndefined()
+		expect(col('pages')?.meta.max).toBeUndefined()
+	})
+})

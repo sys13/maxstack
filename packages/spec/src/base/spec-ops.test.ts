@@ -46,8 +46,8 @@ const entity: SpecOp = {
 }
 
 describe('the vocabulary', () => {
-	it('is the first 10 ops + the set-ops + theme.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(61)
+	it('is the first 10 ops + the set-ops + theme.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + provenance.review, one metadata entry each', () => {
+		expect(SPEC_OP_NAMES).toHaveLength(62)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -4066,5 +4066,168 @@ describe('sources.setMapping / setLimits / pause / remove', () => {
 				/unknown source "src-nope"/,
 			)
 		}
+	})
+})
+
+/**
+ * Issue #345 — a number field's *name* used to pick its widget, unopposably,
+ * and the scale that widget drew on was unreachable from the spec: `meta.max`
+ * existed in the runtime and no op wrote field metadata, so an app rating books
+ * out of 10 got a 5-star widget and no sentence that could say otherwise.
+ */
+describe('number field presentation — data.setFieldDisplay', () => {
+	const book: SpecOp = {
+		op: 'data.addEntity',
+		args: {
+			entity: {
+				id: 'e-book',
+				name: 'Book',
+				description: 'A book on the shelf',
+				fields: [
+					{
+						id: 'fld-book-title',
+						name: 'title',
+						type: 'string',
+						required: true,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-book-rating',
+						name: 'rating',
+						type: 'number',
+						required: false,
+						provenance: suggested(),
+					},
+				],
+				provenance: suggested(),
+			},
+		},
+	}
+	const withBook = () => applyOp(base(), book, meta(1))
+	const setDisplay = (
+		display: Record<string, unknown>,
+		fieldId = 'fld-book-rating',
+	): SpecOp =>
+		({
+			op: 'data.setFieldDisplay',
+			args: { entityId: 'e-book', fieldId, display },
+		}) as SpecOp
+
+	it('declares a scale the field library can read', () => {
+		const s = applyOp(
+			withBook(),
+			setDisplay({ format: 'rating', max: 10 }),
+			meta(2),
+		)
+		const field = s.data.entities
+			.find((e) => e.id === 'e-book')
+			?.fields.find((f) => f.id === 'fld-book-rating')
+		expect(field?.display).toEqual({ format: 'rating', max: 10 })
+		expect(validateSpecSystem(s)).toBe(s)
+	})
+
+	it('is the escape hatch from the name heuristic', () => {
+		const s = applyOp(withBook(), setDisplay({ format: 'number' }), meta(2))
+		expect(
+			s.data.entities
+				.find((e) => e.id === 'e-book')
+				?.fields.find((f) => f.id === 'fld-book-rating')?.display,
+		).toEqual({ format: 'number' })
+	})
+
+	it('is last-wins, and {} returns the field to inference', () => {
+		const declared = applyOp(
+			withBook(),
+			setDisplay({ format: 'rating', max: 10 }),
+			meta(2),
+		)
+		// An omitted `max` on a second call means "no declared max" — merging
+		// would make removing a bound impossible without knowing what it was.
+		const narrowed = applyOp(
+			declared,
+			setDisplay({ format: 'slider' }),
+			meta(3),
+		)
+		const find = (spec: SpecSystem) =>
+			spec.data.entities
+				.find((e) => e.id === 'e-book')
+				?.fields.find((f) => f.id === 'fld-book-rating')
+		expect(find(narrowed)?.display).toEqual({ format: 'slider' })
+		const cleared = applyOp(narrowed, setDisplay({}), meta(4))
+		// The key is deleted rather than set to `{}`, so a field returned to
+		// inference encodes exactly as it did before it was ever declared.
+		const back = find(cleared)
+		expect(back && 'display' in back).toBe(false)
+	})
+
+	it('refuses display on a field that is not a number', () => {
+		expect(
+			validateOp(
+				withBook(),
+				setDisplay({ format: 'rating' }, 'fld-book-title'),
+			),
+		).toContain(
+			'data.setFieldDisplay: field "fld-book-title" -> only a "number" field may declare display (got "string") — every declarable format is a way of drawing a number',
+		)
+	})
+
+	it('refuses an unknown format and a range that is not one', () => {
+		expect(
+			validateOp(withBook(), setDisplay({ format: 'stars' })).join(),
+		).toMatch(/display.format "stars" is not one of number, grouped/)
+		expect(
+			validateOp(withBook(), setDisplay({ min: 10, max: 1 })).join(),
+		).toMatch(/display.min \(10\) must be below display.max \(1\)/)
+		expect(validateOp(withBook(), setDisplay({ step: 0 })).join()).toMatch(
+			/display.step must be positive/,
+		)
+		expect(
+			validateOp(withBook(), setDisplay({ format: 'rating', max: 0 })).join(),
+		).toMatch(/a rating's display.max must be positive/)
+	})
+
+	it('names an unknown entity or field rather than failing silently', () => {
+		expect(
+			validateOp(withBook(), setDisplay({ format: 'number' }, 'fld-nope')),
+		).toContain('data.setFieldDisplay: unknown field "fld-nope" on e-book')
+	})
+
+	it('validates a display declared inline on data.addField', () => {
+		expect(
+			validateOp(withBook(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-book',
+					field: {
+						id: 'fld-book-pages',
+						name: 'pages',
+						type: 'number',
+						required: false,
+						display: { format: 'grouped' },
+					},
+				},
+			}),
+		).toEqual([])
+	})
+
+	it('round-trips through the spec directory codec', () => {
+		const s = applyOp(
+			withBook(),
+			setDisplay({ format: 'rating', max: 10, step: 0.5 }),
+			meta(2),
+		)
+		const back = decodeSpecSystem(encodeSpecSystem(s))
+		expect(
+			back.data.entities
+				.find((e) => e.id === 'e-book')
+				?.fields.find((f) => f.id === 'fld-book-rating')?.display,
+		).toEqual({ format: 'rating', max: 10, step: 0.5 })
+	})
+
+	it('summarizes the declaration in the diff', () => {
+		expect(diffOp(setDisplay({ format: 'rating', max: 10 })).summary).toBe(
+			'Display field "fld-book-rating" as a rating max 10',
+		)
+		expect(diffOp(setDisplay({})).summary).toMatch(/falls back to inference/)
 	})
 })

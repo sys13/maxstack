@@ -115,6 +115,25 @@ export interface SpecFieldShape {
 	 * binds REST and MCP callers exactly as it binds the UI.
 	 */
 	limits?: Record<string, number>
+	/**
+	 * A number column's declared presentation — the spec's `field.display`
+	 * (#345). Carried into `meta.format` / `meta.min` / `meta.max` / `meta.step`,
+	 * which is where the field library already looked: the rating, slider and
+	 * duration widgets read exactly these, and the only thing that was missing
+	 * was a path from the spec to them.
+	 *
+	 * `format` also *opposes* the widget inference the field library does from a
+	 * column's name — `format: 'number'` keeps a column called `rating` a plain
+	 * number input. Dropping this here would leave the author's declaration
+	 * written down and silently ignored, which is the failure the whole key
+	 * exists to end.
+	 */
+	display?: {
+		format?: string
+		min?: number
+		max?: number
+		step?: number
+	}
 }
 
 /**
@@ -239,6 +258,19 @@ function columnFor(
 	// one declaration rather than two that agree today.
 	if (field.limits && Object.keys(field.limits).length > 0)
 		meta.valueLimits = { ...field.limits }
+	// A number column's declared presentation (#345). These four keys are the
+	// ones the field library already consults; what was missing was any way for
+	// the spec to set them, so the widget was decided by the column's *name* and
+	// the scale was fixed at the code's default. Only applied to `number` fields
+	// — every declarable format is a way of drawing a number, and the spec-op
+	// validator refuses the combination anywhere else, so this is not the place
+	// to re-litigate it.
+	if (field.display && field.type === 'number') {
+		if (field.display.format !== undefined) meta.format = field.display.format
+		if (field.display.min !== undefined) meta.min = field.display.min
+		if (field.display.max !== undefined) meta.max = field.display.max
+		if (field.display.step !== undefined) meta.step = field.display.step
+	}
 	// A rank key is a text column with a database default, hidden and
 	// read-only in the UI: it is written by moving a row, never by typing.
 	// `readOnly` is a rendering hint only — the validation schema still accepts the

@@ -291,6 +291,85 @@ export interface FieldSpec extends Provenanced {
 	 * see `docs/board-views.md`.
 	 */
 	limits?: Record<string, number>
+	/**
+	 * How a `number` field is *presented*, and the scale it is presented on.
+	 * Only meaningful on `number` fields, and rejected everywhere else.
+	 *
+	 * ## Why this exists (#345)
+	 *
+	 * The read/write field library infers a widget from a column's **name** when
+	 * its type carries no signal — a number called `rating` renders as stars, one
+	 * called `durationSeconds` as `3m 20s`. The inference is usually right and it
+	 * is the reason a spec that says almost nothing still produces a usable app.
+	 * But before this key it was **unopposable and unreachable**: there was no way
+	 * to say "this number named `rating` is a plain number", and no way to say
+	 * "this rating is out of 10" — `meta.min`/`max`/`step` existed in the runtime
+	 * and drove the rating, slider and duration widgets, but no spec op wrote
+	 * field metadata, so the only layer a user is supposed to write in could not
+	 * reach them. A `reader` app rating books out of 10 got a 5-star widget with
+	 * no declaration that could correct it.
+	 *
+	 * So: {@link format} states the widget outright and **wins over the name in
+	 * both directions** — `'number'` keeps a column called `rating` a plain
+	 * number, and `'rating'` makes a column called `score` a star widget.
+	 * {@link min}/{@link max}/{@link step} state the scale.
+	 *
+	 * ## Presentation only
+	 *
+	 * Nothing here constrains what may be *stored*: the column stays a `real`, and
+	 * a value outside `min`/`max` is accepted by the API and displayed honestly
+	 * rather than clamped into a lie. A declared range is what the editor offers
+	 * and what the read side measures against, not a check. Enforcement of value
+	 * ranges is a separate question from how a number is drawn, and conflating the
+	 * two would make "show this out of 10" silently start rejecting rows.
+	 */
+	display?: FieldDisplaySpec
+}
+
+/**
+ * The number presentations a field may declare. Deliberately closed, and
+ * deliberately number-only: every member is a way of drawing a number, and the
+ * validator refuses `display` on any other field type. The string-side
+ * heuristics (`multiline`, `email`/`url`/`image`) have their own escape hatches
+ * or none, and widening this to cover them is a separate design.
+ *
+ *  - `number` — a plain formatted number. **The escape hatch**: the one value
+ *    whose whole job is to say "no widget, whatever this column is called".
+ *  - `grouped` / `percent` / `currency` — the same plain number, formatted.
+ *  - `rating` — stars, on the declared {@link FieldDisplaySpec.max} (default 5).
+ *  - `slider` — a range input over `min`/`max`/`step`; reads as a number.
+ *  - `duration` — seconds, read as `1h 2m 3s`.
+ */
+export type NumberDisplayFormat =
+	| 'number'
+	| 'grouped'
+	| 'percent'
+	| 'currency'
+	| 'rating'
+	| 'slider'
+	| 'duration'
+
+/** Runtime guard for {@link NumberDisplayFormat} — same rationale as {@link FIELD_TYPES}. */
+export const NUMBER_DISPLAY_FORMATS: readonly NumberDisplayFormat[] = [
+	'number',
+	'grouped',
+	'percent',
+	'currency',
+	'rating',
+	'slider',
+	'duration',
+]
+
+/** A `number` field's declared presentation. See {@link FieldSpec.display}. */
+export interface FieldDisplaySpec {
+	/** The widget, stated rather than guessed from the field's name. */
+	format?: NumberDisplayFormat
+	/** Low end of the declared scale — the slider's floor. */
+	min?: number
+	/** High end of the declared scale — the star count, the slider's ceiling. */
+	max?: number
+	/** Granularity of the declared scale — the slider's step. */
+	step?: number
 }
 
 /**

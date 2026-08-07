@@ -207,6 +207,7 @@ import {
 	FIELD_TYPES,
 	FILE_DERIVATIVE_MAX_DIMENSION,
 	FILE_MAX_SIZE_CEILING,
+	type FieldDisplaySpec,
 	type FieldOption,
 	type FieldSpec,
 	isAcceptPattern,
@@ -215,6 +216,7 @@ import {
 	MAX_ROLLUP_HOPS,
 	MAX_ROLLUP_LIMIT,
 	MAX_VALUE_LIMIT,
+	NUMBER_DISPLAY_FORMATS,
 	NUMERIC_AGG_FNS,
 	type PageSpec,
 	type PricingTier,
@@ -643,6 +645,40 @@ export type SpecOp =
 				entityId: EntityId
 				fieldId: FieldId
 				limits: Record<string, number>
+			}
+	  }
+	| {
+			/**
+			 * Issue #345 — state how a `number` field is drawn, and on what
+			 * scale.
+			 *
+			 * The field library infers a widget from a column's **name** when its
+			 * type carries no signal, so a number called `rating` renders as five
+			 * stars. Before this op that inference was unopposable and its scale was
+			 * unreachable: `meta.min`/`max`/`step` drove the rating, slider and
+			 * duration widgets, but nothing in the spec vocabulary wrote field
+			 * metadata, so an app rating books out of 10 got a 5-star widget and no
+			 * way to say otherwise.
+			 *
+			 * `display.format` wins over the name **in both directions** —
+			 * `"number"` is the escape hatch that keeps a column called `rating` a
+			 * plain number, and `"rating"` promotes a column called `score`.
+			 *
+			 * Last-wins rather than merged, like `data.setFieldLimits`: the edit a
+			 * person actually performs is *changing* a presentation, and an omitted
+			 * `max` on a second call has to mean "no declared max" rather than
+			 * silently keeping the first one. Passing `{}` clears the declaration
+			 * and returns the field to inference.
+			 *
+			 * **Presentation only.** Nothing here constrains what may be stored: the
+			 * column stays a `real` and a value outside the declared range is
+			 * accepted and then displayed honestly rather than clamped into a lie.
+			 */
+			op: 'data.setFieldDisplay'
+			args: {
+				entityId: EntityId
+				fieldId: FieldId
+				display: FieldDisplaySpec
 			}
 	  }
 	| {
@@ -1271,6 +1307,7 @@ export const SPEC_OP_NAMES = [
 	'data.setFieldReference',
 	'data.setFieldOpenReference',
 	'data.setFieldLimits',
+	'data.setFieldDisplay',
 	'data.addComputed',
 	'data.addRollup',
 	'page.addPage',
@@ -2440,6 +2477,48 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['entityId', 'fieldId', 'limits'],
+		},
+	},
+	'data.setFieldDisplay': {
+		name: 'data.setFieldDisplay',
+		layer: 'data',
+		summary:
+			'State how a NUMBER field is drawn and on what scale, instead of letting its NAME decide. A number called "rating" or "stars" otherwise renders as a 5-star widget and one called "duration" as 3m 20s. format wins over the name in both directions: "number" is the escape hatch that keeps a column called rating a plain number; "rating" promotes a column called score. min/max/step declare the scale (a rating out of 10, a 0–100 score). Presentation only — nothing here constrains what may be stored, and a value outside the range is displayed honestly rather than clamped. Last-wins; {} clears the declaration and returns the field to inference.',
+		args: {
+			type: 'object',
+			properties: {
+				entityId: {
+					type: 'string',
+					description: 'entity that owns the field, prefix "e-".',
+				},
+				fieldId: {
+					type: 'string',
+					description:
+						'the number field to present, prefix "fld-". Refused on any other field type.',
+				},
+				display: {
+					type: 'object',
+					properties: {
+						format: {
+							type: 'string',
+							enum: [...NUMBER_DISPLAY_FORMATS],
+							description:
+								'"number" (plain — the escape hatch from the name heuristic), "grouped", "percent", "currency", "rating" (stars, out of max), "slider" (range over min/max/step), "duration" (seconds, read as 1h 2m 3s).',
+						},
+						min: { type: 'number', description: 'low end of the scale.' },
+						max: {
+							type: 'number',
+							description:
+								'high end of the scale — the star count for a rating (default 5 when unstated).',
+						},
+						step: {
+							type: 'number',
+							description: 'granularity of the scale; must be positive.',
+						},
+					},
+				},
+			},
+			required: ['entityId', 'fieldId', 'display'],
 		},
 	},
 	'data.addComputed': {
@@ -4655,6 +4734,69 @@ function fieldLimitsErrors(
 	return errors
 }
 
+/**
+ * Issue #345 — a `number` field's declared presentation. Two things are being
+ * refused here, and both are about keeping the key honest about what it is:
+ *
+ *  - **Number fields only.** Every member of {@link NUMBER_DISPLAY_FORMATS} is a
+ *    way of drawing a number, so `display` on a string or a date names a widget
+ *    that does not exist for it. A silently-ignored declaration is worse than a
+ *    refusal: the author reads the spec back and believes it.
+ *  - **A range that is a range.** `min` must be below `max` and `step` must be
+ *    positive, because the widgets divide by them — a `max` of 0 is a rating
+ *    with no stars and a `step` of 0 is a slider that cannot move.
+ *
+ * What is deliberately *not* checked: nothing here is a constraint on stored
+ * values. `display` says how a number is drawn, and the API keeps accepting
+ * numbers outside it (see {@link FieldSpec.display}).
+ */
+function fieldDisplayErrors(
+	field: { id: string; type: string; display?: unknown },
+	opName: SpecOpName,
+): string[] {
+	const where = `${opName}: field "${field.id}"`
+	const raw = field.display
+	if (raw === undefined) return []
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return [`${where} -> "display" must be an object`]
+	if (field.type !== 'number')
+		return [
+			`${where} -> only a "number" field may declare display (got "${field.type}") — every declarable format is a way of drawing a number`,
+		]
+
+	const errors: string[] = []
+	const { format, min, max, step } = raw as Record<string, unknown>
+	if (
+		format !== undefined &&
+		!(NUMBER_DISPLAY_FORMATS as readonly unknown[]).includes(format)
+	)
+		errors.push(
+			`${where} -> display.format "${String(format)}" is not one of ${NUMBER_DISPLAY_FORMATS.join(', ')}`,
+		)
+	for (const [key, value] of [
+		['min', min],
+		['max', max],
+		['step', step],
+	] as const) {
+		if (value === undefined) continue
+		if (typeof value !== 'number' || !Number.isFinite(value))
+			errors.push(`${where} -> display.${key} must be a finite number`)
+	}
+	if (typeof min === 'number' && typeof max === 'number' && min >= max)
+		errors.push(
+			`${where} -> display.min (${min}) must be below display.max (${max})`,
+		)
+	if (typeof step === 'number' && step <= 0)
+		errors.push(
+			`${where} -> display.step must be positive — a step of ${step} is a control that cannot move`,
+		)
+	if (format === 'rating' && typeof max === 'number' && max <= 0)
+		errors.push(
+			`${where} -> a rating's display.max must be positive (got ${max}) — that is the number of stars`,
+		)
+	return errors
+}
+
 /** The values an enum field's options declare, or `undefined` when it has none
  * (a permissive text column — there is nothing to check a limit against). */
 function optionValuesOf(field: {
@@ -5138,6 +5280,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				errors.push(...fieldTypeErrors(f, op.op))
 				errors.push(...fieldOptionErrors(f, op.op))
 				errors.push(...fieldFileErrors(f, op.op))
+				errors.push(...fieldDisplayErrors(f, op.op))
 			}
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -5167,6 +5310,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(...fieldOptionErrors(op.args.field, op.op))
 			errors.push(...fieldFileErrors(op.args.field, op.op))
 			errors.push(...fieldRankErrors(op.args.field, op.op))
+			errors.push(...fieldDisplayErrors(op.args.field, op.op))
 			errors.push(
 				...fieldLimitsErrors(
 					op.args.field,
@@ -5237,6 +5381,27 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 					{ id: op.args.fieldId, type: field.type, limits: op.args.limits },
 					op.op,
 					values,
+				),
+			)
+			break
+		}
+		case 'data.setFieldDisplay': {
+			const entity = system.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			if (!entity) {
+				errors.push(`${op.op}: unknown entity "${op.args.entityId}"`)
+				break
+			}
+			if (!field) {
+				errors.push(
+					`${op.op}: unknown field "${op.args.fieldId}" on ${op.args.entityId}`,
+				)
+				break
+			}
+			errors.push(
+				...fieldDisplayErrors(
+					{ id: op.args.fieldId, type: field.type, display: op.args.display },
+					op.op,
 				),
 			)
 			break
@@ -6527,6 +6692,29 @@ export function diffOp(op: SpecOp): SpecDiff {
 								.join(', ')}`,
 			}
 		}
+		case 'data.setFieldDisplay': {
+			const { format, min, max, step } = op.args.display
+			const scale = [
+				min !== undefined ? `min ${min}` : null,
+				max !== undefined ? `max ${max}` : null,
+				step !== undefined ? `step ${step}` : null,
+			]
+				.filter(Boolean)
+				.join(', ')
+			const parts = [format ? `as a ${format}` : null, scale || null]
+				.filter(Boolean)
+				.join(' ')
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.fieldId,
+				parentId: op.args.entityId,
+				summary: parts
+					? `Display field "${op.args.fieldId}" ${parts}`
+					: `Clear the declared display of field "${op.args.fieldId}" — it falls back to inference from the field's name`,
+			}
+		}
 		case 'data.addComputed':
 			return add(
 				op.args.computed.id,
@@ -7104,6 +7292,24 @@ export function applyOp(
 			if (field) {
 				if (Object.keys(op.args.limits).length === 0) delete field.limits
 				else field.limits = { ...op.args.limits }
+			}
+			break
+		}
+		case 'data.setFieldDisplay': {
+			const entity = next.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			// Last-wins, like `data.setFieldLimits` above: a second call with no
+			// `max` means "no declared max", not "keep the old one" — otherwise the
+			// only way to *remove* a bound would be to know what it used to be. An
+			// empty object deletes the key (rather than storing `{}`) so a field
+			// returned to inference encodes exactly as it did before it was ever
+			// declared, which is what keeps the upgrade gate's byte comparison honest.
+			if (field) {
+				const declared = Object.fromEntries(
+					Object.entries(op.args.display).filter(([, v]) => v !== undefined),
+				) as FieldDisplaySpec
+				if (Object.keys(declared).length === 0) delete field.display
+				else field.display = declared
 			}
 			break
 		}

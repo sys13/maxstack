@@ -383,19 +383,35 @@ export function RatingField({ value, column, className }: FieldProps) {
 	const num = typeof value === 'number' ? value : Number(value)
 	if (Number.isNaN(num)) return <>{String(value)}</>
 	const max = ratingMax(column?.meta)
+	// The *stars* are clamped because there are only `max` of them to draw. The
+	// *value* is not, and the two must not be conflated (#345): a row storing 8
+	// on a 5-point scale used to announce as "5 out of 5" and render pixel-identical
+	// to a genuine 5, so the accessible name stated something the data does not.
+	// The label always carries the stored number, and an out-of-range value is
+	// also written out visibly — a hover-only `title` is unavailable on touch and
+	// to exactly the users the `aria-label` exists for.
 	const filled = Math.max(0, Math.min(max, Math.round(num)))
+	const outOfRange = num < 0 || num > max
 	return (
-		<span
-			role="img"
-			// A rating star is gold by convention, the way a warning sign is
-			// yellow — it is not the theme's `warning`, which means "something
-			// needs attention" and would make five stars read as five problems.
-			className={cn('tabular-nums text-amber-500', className)}
-			aria-label={`${filled} out of ${max}`}
-			title={`${num} / ${max}`}
-		>
-			{'★'.repeat(filled)}
-			<span className="text-muted-foreground">{'☆'.repeat(max - filled)}</span>
+		<span className={cn('inline-flex items-baseline gap-1', className)}>
+			<span
+				role="img"
+				// A rating star is gold by convention, the way a warning sign is
+				// yellow — it is not the theme's `warning`, which means "something
+				// needs attention" and would make five stars read as five problems.
+				className="tabular-nums text-amber-500"
+				aria-label={`${num} out of ${max}`}
+			>
+				{'★'.repeat(filled)}
+				<span className="text-muted-foreground">
+					{'☆'.repeat(max - filled)}
+				</span>
+			</span>
+			{outOfRange ? (
+				<span className="text-muted-foreground text-xs tabular-nums">
+					{num} / {max}
+				</span>
+			) : null}
 		</span>
 	)
 }

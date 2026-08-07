@@ -34,11 +34,20 @@
  */
 
 import {
+	type FieldDisplaySpec,
 	getAcceptedOrAll,
 	type PageSpec,
 	type SpecOp,
 	type SpecSystem,
 } from '@maxstack/spec'
+
+/** The part of a field declaration the widget-inference warning reads. */
+interface FieldLike {
+	id: string
+	name: string
+	type: string
+	display?: FieldDisplaySpec
+}
 
 // ===========================================================================
 // Types
@@ -155,6 +164,88 @@ function shadowedListWarning(
 	return [
 		`${op.op} retunes the default list on "${page.name}" (${page.id}), but that page declares the replace-mode slot "${slot.id}". While that slot is filled it renders INSTEAD of the list, so this op changes the spec and changes nothing a user can see. Check \`query_spec {section:"slots"}\` for the slot, and either edit the owned component or set the block's mode to "append".`,
 	]
+}
+
+// ---------------------------------------------------------------------------
+// Issue #345 — a number field whose NAME picked its widget.
+// ---------------------------------------------------------------------------
+
+/**
+ * The number-field name tokens `@maxstack/ui`'s `specialtyHint` turns into a
+ * widget. **A deliberate duplicate**, kept for the same reason the spec↔features
+ * SSRF check is: `@maxstack/ui` has no workspace dependencies at all (it is the
+ * one package apps embed directly), so nothing here can import the authority.
+ *
+ * The duplication is pinned by an agreement test in `apps/web` — the one place
+ * that may import both — so a word added to the field library and not to this
+ * list fails the gate rather than quietly stopping the warning.
+ */
+const NUMBER_WIDGET_WORDS: Record<string, 'rating' | 'duration'> = {
+	rating: 'rating',
+	stars: 'rating',
+	duration: 'duration',
+}
+
+/** `@maxstack/ui`'s `tokenize`, duplicated under the same agreement as above. */
+function tokenizeName(name: string): string[] {
+	return name
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.split(/[^a-zA-Z0-9]+/)
+		.map((t) => t.toLowerCase())
+		.filter(Boolean)
+}
+
+/** The widget a number field's *name* alone would pick, or `null`. */
+export function inferredNumberWidget(
+	name: string,
+): 'rating' | 'duration' | null {
+	for (const token of tokenizeName(name)) {
+		const widget = NUMBER_WIDGET_WORDS[token]
+		if (widget) return widget
+	}
+	return null
+}
+
+/**
+ * Issue #345 — the field is a plain number and the app renders a widget.
+ *
+ * A number called `rating` displays and edits as a five-star control, on both
+ * surfaces, because of its name. The inference is usually right — it is part of
+ * why a spec that says almost nothing produces a usable app — but it used to be
+ * *invisible*: nothing in the spec recorded it and nothing reported it, so the
+ * first time an author learned their 0–10 score was a 5-star widget was by
+ * looking at the running app, and even then there was no sentence that could
+ * change it. This is exactly the `warnings` contract: what you just did is not
+ * what you think you did.
+ *
+ * Silent once the author has *stated* a presentation — a declared `display` is
+ * the answer to this warning, and repeating it afterwards would train the agent
+ * to stop reading the list.
+ */
+function inferredWidgetWarning(input: SteeringInput): string[] {
+	const op = input.op
+	if (!op || input.succeeded === false) return []
+	const added: { entityId: string; field: FieldLike }[] =
+		op.op === 'data.addField'
+			? [{ entityId: op.args.entityId, field: op.args.field }]
+			: op.op === 'data.addEntity'
+				? op.args.entity.fields.map((field) => ({
+						entityId: op.args.entity.id,
+						field,
+					}))
+				: []
+	const warnings: string[] = []
+	for (const { entityId, field } of added) {
+		if (field.type !== 'number' || field.display?.format) continue
+		const widget = inferredNumberWidget(field.name)
+		if (!widget) continue
+		warnings.push(
+			widget === 'rating'
+				? `Field "${field.name}" (${field.id}) on ${entityId} is a plain number, but maxstack picks a widget from a number field's NAME when the spec does not state one — so it renders and edits as a 5-star rating on every surface, out of 5, and nothing in the spec says so. If you meant a number, say so: \`data.setFieldDisplay {entityId:"${entityId}", fieldId:"${field.id}", display:{format:"number"}}\`. If you meant a rating on another scale, declare it: \`display:{format:"rating", max:10}\`.`
+				: `Field "${field.name}" (${field.id}) on ${entityId} is a plain number, but maxstack picks a widget from a number field's NAME when the spec does not state one — so it is read as a count of SECONDS and displayed as "1h 2m 3s", not as the number stored. If you meant a number, say so: \`data.setFieldDisplay {entityId:"${entityId}", fieldId:"${field.id}", display:{format:"number"}}\`.`,
+		)
+	}
+	return warnings
 }
 
 /**
@@ -315,6 +406,7 @@ export function steer(spec: SpecSystem, input: SteeringInput): Steering {
 	return {
 		warnings: [
 			...shadowedListWarning(spec, input.op),
+			...inferredWidgetWarning(input),
 			...inertOpWarning(input),
 			...ledgerMisfileWarning(input),
 			...unverified.warnings,

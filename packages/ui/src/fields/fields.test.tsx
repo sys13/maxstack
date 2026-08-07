@@ -176,6 +176,52 @@ describe('specialty display fields (task 39)', () => {
 		expect(parseLatLng('nonsense')).toBeNull()
 	})
 
+	// Issue #345 — two books, one rated 5 and one rated 8 on a 5-point scale,
+	// rendered pixel-identically and BOTH announced as "5 out of 5": the
+	// `aria-label` reported the clamped star count as if it were the datum, and
+	// the honest readout was hover-only. The stars are clamped because there are
+	// only five of them; the value never is.
+	it('RatingField names the stored value, not the clamped star count', () => {
+		const column = col({ name: 'rating', type: 'number' })
+		const { rerender } = render(<Field value={8} column={column} />)
+		expect(screen.getByLabelText('8 out of 5')).toBeInTheDocument()
+		expect(screen.queryByLabelText('5 out of 5')).not.toBeInTheDocument()
+		// …and an out-of-range value is legible without a pointer, so a touch user
+		// can tell the two rows apart at all.
+		expect(screen.getByText('8 / 5')).toBeInTheDocument()
+
+		rerender(<Field value={5} column={column} />)
+		expect(screen.getByLabelText('5 out of 5')).toBeInTheDocument()
+		expect(screen.queryByText('5 / 5')).not.toBeInTheDocument()
+	})
+
+	it('RatingField honors a declared scale', () => {
+		render(
+			<Field
+				value={8}
+				column={col({ name: 'rating', type: 'number', meta: { max: 10 } })}
+			/>,
+		)
+		expect(screen.getByLabelText('8 out of 10')).toBeInTheDocument()
+		expect(screen.queryByText('8 / 10')).not.toBeInTheDocument()
+	})
+
+	// Issue #345 — the name used to pick the widget unopposably.
+	it('an explicit number format keeps a field called "rating" a number', () => {
+		render(
+			<Field
+				value={8}
+				column={col({
+					name: 'rating',
+					type: 'number',
+					meta: { format: 'number' },
+				})}
+			/>,
+		)
+		expect(screen.queryByRole('img')).not.toBeInTheDocument()
+		expect(screen.getByText('8')).toBeInTheDocument()
+	})
+
 	it('dispatches color / rating / password / geo / json by inference', () => {
 		const { rerender } = render(
 			<Field value="#ff8800" column={col({ name: 'brandColor' })} />,

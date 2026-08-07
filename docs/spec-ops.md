@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 61 typed operations that can change a project spec — the whole
+The 62 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -46,6 +46,7 @@ keys or nothing.
 | [`data.setFieldReference`](#datasetfieldreference) | `data` | Declare that an existing string field is a foreign key to another entity. The one op that changes a shipped column’s type; the migration reconciles it behind a guard and fails loudly on a value that is not an id. |
 | [`data.setFieldOpenReference`](#datasetfieldopenreference) | `data` | Declare that a string field holds an id of one of several entities, and that the PROJECT decides which (billing’s "subject" is a user in a per-seat app and an organization in a per-workspace one). Declares the ambiguity; data.setFieldReference resolves it and refuses anything off the list. Emits the same text column, so it is additive on an installed bundle. |
 | [`data.setFieldLimits`](#datasetfieldlimits) | `data` | Set per-value row caps on an enum field — a Kanban WIP limit ({"doing": 3}). Enforced on every create/update (REST, MCP, forms and board drags alike), never only in the UI. Last-wins; {} clears every cap. |
+| [`data.setFieldDisplay`](#datasetfielddisplay) | `data` | State how a NUMBER field is drawn and on what scale, instead of letting its NAME decide. A number called "rating" or "stars" otherwise renders as a 5-star widget and one called "duration" as 3m 20s. format wins over the name in both directions: "number" is the escape hatch that keeps a column called rating a plain number; "rating" promotes a column called score. min/max/step declare the scale (a rating out of 10, a 0–100 score). Presentation only — nothing here constrains what may be stored, and a value outside the range is displayed honestly rather than clamped. Last-wins; {} clears the declaration and returns the field to inference. |
 | [`data.addComputed`](#dataaddcomputed) | `data` | Add a value computed from a row's own numeric fields (never stored; evaluated on read). |
 | [`data.addRollup`](#dataaddrollup) | `data` | Add an aggregate over a related entity's rows. With groupBy it yields a series (chart/list); without, a scalar. |
 | [`page.addPage`](#pageaddpage) | `page` | Add a page. |
@@ -303,6 +304,20 @@ Set per-value row caps on an enum field — a Kanban WIP limit ({"doing": 3}). E
 - `entityId` — `string` · **required** · entity that owns the field, prefix "e-".
 - `fieldId` — `string` · **required** · the enum field to cap, prefix "fld-". It must carry declared options.
 - `limits` — `object` · **required** · map of option VALUE -> cap, e.g. {"doing": 3}. Each cap is a positive integer ≤ 10000. An option with no entry is uncapped. Pass {} to clear.
+
+### `data.setFieldDisplay`
+
+State how a NUMBER field is drawn and on what scale, instead of letting its NAME decide. A number called "rating" or "stars" otherwise renders as a 5-star widget and one called "duration" as 3m 20s. format wins over the name in both directions: "number" is the escape hatch that keeps a column called rating a plain number; "rating" promotes a column called score. min/max/step declare the scale (a rating out of 10, a 0–100 score). Presentation only — nothing here constrains what may be stored, and a value outside the range is displayed honestly rather than clamped. Last-wins; {} clears the declaration and returns the field to inference.
+
+**Arguments**
+
+- `entityId` — `string` · **required** · entity that owns the field, prefix "e-".
+- `fieldId` — `string` · **required** · the number field to present, prefix "fld-". Refused on any other field type.
+- `display` — `object` · **required**
+  - `format` — `string` · one of `number`, `grouped`, `percent`, `currency`, `rating`, `slider`, `duration` · "number" (plain — the escape hatch from the name heuristic), "grouped", "percent", "currency", "rating" (stars, out of max), "slider" (range over min/max/step), "duration" (seconds, read as 1h 2m 3s).
+  - `min` — `number` · low end of the scale.
+  - `max` — `number` · high end of the scale — the star count for a rating (default 5 when unstated).
+  - `step` — `number` · granularity of the scale; must be positive.
 
 ### `data.addComputed`
 

@@ -55,6 +55,11 @@ export function groundedEntityShapes(spec: SpecSystem): SpecEntityShape[] {
 			// maintains, not one anybody is invited to write.
 			rank: field.rank,
 			limits: field.limits,
+			// A number field's declared presentation and scale (#345). It
+			// reaches a *column* (as `meta.format`/`min`/`max`/`step`), so by this
+			// module's own rule it belongs in the shared subset, not only in the web
+			// host's richer fold.
+			display: field.display,
 			reference: field.reference ? target(field.reference) : undefined,
 		})),
 	}))

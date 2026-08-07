@@ -1143,6 +1143,61 @@ describe('steering (warnings + next on every result)', () => {
 		expect(steering(res).warnings.join(' ')).not.toMatch(/replace-mode/)
 	})
 
+	// Issue #345 — a number field named `rating` silently became a 5-star widget.
+	// The inference is fine; its invisibility was not. `warnings` is the field
+	// whose whole contract is "what you just did is not what you think you did".
+	it('warns that a number field name picked a widget nothing declared', async () => {
+		const res = await executePlatformTool(
+			ctxFor(projectSpec()),
+			'apply_spec_change',
+			{
+				op: 'data.addField',
+				args: {
+					entityId: 'e-order',
+					field: {
+						id: 'fld-rating',
+						name: 'rating',
+						type: 'number',
+						required: false,
+					},
+				},
+			},
+		)
+		const joined = steering(res).warnings.join(' ')
+		expect(joined).toMatch(/renders and edits as a 5-star rating/)
+		expect(joined).toMatch(/data\.setFieldDisplay/)
+		expect(joined).toMatch(/format:"number"/)
+	})
+
+	it('goes quiet once the author has stated a presentation', async () => {
+		for (const [name, display] of [
+			['rating', { format: 'number' }],
+			['rating', { format: 'rating', max: 10 }],
+			['pages', undefined],
+		] as const) {
+			const res = await executePlatformTool(
+				ctxFor(projectSpec()),
+				'apply_spec_change',
+				{
+					op: 'data.addField',
+					args: {
+						entityId: 'e-order',
+						field: {
+							id: 'fld-x',
+							name,
+							type: 'number',
+							required: false,
+							...(display ? { display } : {}),
+						},
+					},
+				},
+			)
+			expect(steering(res).warnings.join(' '), name).not.toMatch(
+				/picks a widget from a number field/,
+			)
+		}
+	})
+
 	it('names the cheap verification chain for a page nothing verifies', async () => {
 		const spec = projectSpec({ e2eTests: [] })
 		const res = await executePlatformTool(ctxFor(spec), 'apply_spec_change', {
