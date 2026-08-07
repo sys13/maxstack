@@ -302,8 +302,14 @@ if (
 		`echo "installing into $T"; ` +
 		`npm install "${runtimeTgz}" "${cliTgz}" >/dev/null 2>&1; ` +
 		`echo -n "maxstack --version → "; ./node_modules/.bin/maxstack --version; ` +
-		`./node_modules/.bin/maxstack init demo >/dev/null && cd demo; ` +
-		`../node_modules/.bin/maxstack build --vendor-only >/dev/null && echo "✓ vendor-only build ok"; ` +
+		`./node_modules/.bin/maxstack init demo >/dev/null && (cd demo; ` +
+		`../node_modules/.bin/maxstack build --vendor-only >/dev/null && echo "✓ vendor-only build ok"); ` +
+		// Second pass, after re-resolving the tree. A dependency whose peer range
+		// nothing satisfies survives the FIRST install as an orphan npm placed but
+		// no edge points at, so one install proves nothing; the next install prunes
+		// it and the CLI dies at load. That is how 0.11.11 shipped broken (#348).
+		`npm install >/dev/null 2>&1; ` +
+		`./node_modules/.bin/maxstack init demo-after-reinstall >/dev/null && echo "✓ init still works after a reinstall"; ` +
 		`echo "smoke dir: $T"`
 	try {
 		await run('bash', ['-c', script])

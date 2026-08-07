@@ -164,6 +164,17 @@ jobs:
   # the only thing that catches a missing DEEP transitive dependency (esbuild's
   # metafile reports direct imports only — see docs/development.md), so it is
   # mandatory here and has no skip flag.
+  #
+  # It runs the CLI TWICE, with a plain `npm install` in between, and that second
+  # pass is not redundant (issue #348). A dependency whose peer range nothing in
+  # the tree satisfies is still *placed* by a first install — npm puts a copy on
+  # disk that no dependency edge points at — so the CLI imports it happily and a
+  # single-install smoke test goes green. The next `npm install` prunes it,
+  # because pruning walks edges, and only then does the CLI die at startup with
+  # `Cannot find package …`. That is exactly how 0.11.11 shipped: this job passed
+  # on it, and `npx maxstack init` was broken for anyone whose npx cache had been
+  # written to twice. Verified: with the 0.11.11 tarballs the first `init` below
+  # succeeds and the post-reinstall one fails; with 0.11.12 both pass.
   smoke:
     name: smoke (clean install)
     needs: [guard, stage]
@@ -187,8 +198,16 @@ jobs:
           got=$(./node_modules/.bin/maxstack --version)
           [ "$got" = "$V" ] || { echo "::error::installed CLI reports $got, expected $V"; exit 1; }
           ./node_modules/.bin/maxstack init demo >/dev/null
-          cd demo && ../node_modules/.bin/maxstack build --vendor-only >/dev/null
+          (cd demo && ../node_modules/.bin/maxstack build --vendor-only >/dev/null)
+          # Second pass: re-resolve the tree, then run the CLI again. See the
+          # comment above the job — this is the pass that catches an orphaned
+          # unsatisfiable-peer dependency, which a first install hides.
+          npm install >/dev/null
+          got=$(./node_modules/.bin/maxstack --version)
+          [ "$got" = "$V" ] || { echo "::error::after reinstall the CLI reports $got, expected $V"; exit 1; }
+          ./node_modules/.bin/maxstack init demo-after-reinstall >/dev/null
           echo "✓ clean-dir install, --version, init and vendor-only build all pass"
+          echo "✓ and again after a reinstall — no dependency the CLI loads was pruned"
 
   # ── publish 1/2: the runtime, FIRST ────────────────────────────────────────
   # The CLI pins this at an exact version, so it has to exist on the registry

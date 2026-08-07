@@ -179,9 +179,23 @@ The way to catch these is to **pack the tarball and install it in a clean dir**
 that has only the declared deps. Always do this before publishing. Current set:
 
 ```
-@electric-sql/pglite  better-auth  commander  diff
+@anthropic-ai/sdk  @electric-sql/pglite  commander  diff
 drizzle-orm  postgres  ts-morph  zod
 ```
+
+One install is not enough, and this is the second trap. A dependency that
+declares a **peer range nothing in the tree satisfies** is still placed by the
+first install — npm writes a copy on disk that no dependency edge points at — so
+the CLI loads it and the smoke test goes green. The next `npm install` prunes
+it, because pruning walks edges, and only then does the CLI die at load with
+`Cannot find package …`. That is exactly how 0.11.11 shipped: `npx maxstack
+init` threw `Cannot find package 'drizzle-orm' imported from
+@better-auth/drizzle-adapter` for anyone whose npx cache had been written twice
+(#348). So the smoke test **runs the CLI, reinstalls, and runs it again** — in
+`release.yml`, in `scripts/publish.ts`, and in the recipe below. The other half
+of that fix is `scripts/bundle-externals.mjs`, a two-directional ratchet on the
+external set that fails the build (and `pnpm test`) when the bundle gains or
+loses a dependency without the list being updated deliberately.
 
 The `@maxstack/*` packages are **build-only `devDependencies`** (`workspace:*`).
 They must NOT appear in the published manifest, so we publish from a **staging
@@ -207,7 +221,8 @@ npm**. The tag push triggers
 ```
 guard    version sites + tag agree; report what is already on the registry
 stage    pnpm install --frozen-lockfile → scripts/stage-npm.ts → upload both .tgz
-smoke    install both tarballs in a clean dir; --version, init, build --vendor-only
+smoke    install both tarballs in a clean dir; --version, init, build --vendor-only,
+         then reinstall and init again (catches a pruned unsatisfiable peer)
 publish  maxstack-runtime FIRST, then maxstack (separate jobs, OIDC, no token)
 verify   npm view both versions + the CLI's runtime pin
 release  gh release create vX.Y.Z with the changelog section + both .tgz attached
@@ -299,6 +314,8 @@ npm install <maxstack>/dist-npm/maxstack-runtime-*.tgz <maxstack>/dist-npm/maxst
 ../node_modules/.bin/maxstack demo               # bundled seeder runs on plain node
 PORT=3457 ../node_modules/.bin/maxstack dev &    # prebuilt server; curl /admin → 200
 ../node_modules/.bin/maxstack build --vendor-only  # snapshot vendors, lockfile restored
+cd "$TEST" && npm install                        # re-resolve: prunes any orphaned peer
+./node_modules/.bin/maxstack init demo2          # must still work — see #348 above
 ```
 
 `dist/` and `dist-npm/` are gitignored (build artifacts); the only files a
