@@ -32,6 +32,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { pathExists } from '../fsx.ts'
 import { PINNED_DEP } from '../lib/cli-resolution.ts'
 import { initCommand, scaffoldOverrides } from './init.ts'
+import { startCommand } from './start.ts'
 
 const run = promisify(execFile)
 const NPM_TIMEOUT_MS = 240_000
@@ -85,6 +86,32 @@ describe('the scaffolded pin tracks the runtime', () => {
 		vi.spyOn(console, 'warn').mockImplementation(() => {})
 
 		await initCommand(root, { desc: 'a widget tracker', git: false })
+		vi.restoreAllMocks()
+
+		const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+		expect(pkg.overrides?.[PINNED_DEP]).toBe(
+			(await manifest('apps/web/package.json')).dependencies?.[PINNED_DEP],
+		)
+	})
+
+	it('writes it from `start` too, not only from `init`', async () => {
+		// The bug report names *both* entry points, and a user's very first
+		// project usually comes from `start`, not `init`. `start` gets the pin
+		// today only because it delegates to the same `scaffoldProject` — an
+		// implementation detail, invisible from the outside and free to drift.
+		// If it ever grows a manifest writer of its own, the override is exactly
+		// the kind of one-line detail that would not be carried across, and the
+		// resulting breakage appears one install later on someone else's
+		// machine. So assert the observable thing: the manifest `start` leaves
+		// on disk.
+		const parent = await temp('maxstack-start-overrides-')
+		const root = join(parent, 'started')
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.spyOn(console, 'warn').mockImplementation(() => {})
+		vi.stubEnv('MOCK_AI', '1')
+
+		await startCommand('a bug tracker for small teams', root, { dev: false })
+		vi.unstubAllEnvs()
 		vi.restoreAllMocks()
 
 		const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
