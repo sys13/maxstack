@@ -191,7 +191,8 @@ for (const name of ['maxstack', 'maxstack-runtime']) {
 console.log(
 	`\n${C.bold('release plan')}${dryRun ? C.dim('  (dry run — nothing will be written)') : ''}\n` +
 		`  version   ${C.bold(current)} → ${C.bold(version)}\n` +
-		`  writes    apps/maxstack/package.json, apps/maxstack/src/program.ts\n` +
+		`  writes    apps/maxstack/package.json, apps/maxstack/src/program.ts,\n` +
+		`            docs/cli-reference.md (regenerated)\n` +
 		`  commit    chore(release): maxstack@${version}\n` +
 		`  tag       ${tag}  ${C.dim('(pushing it triggers .github/workflows/release.yml)')}\n` +
 		`  publishes ${C.dim('maxstack-runtime then maxstack, on the runner, via OIDC — not here')}\n`,
@@ -209,10 +210,17 @@ cliSrc = cliSrc.replace(/(CLI_VERSION = ['"])[^'"]+(['"])/, `$1${version}$2`)
 await writeFile(cliPath, cliSrc)
 console.log(`${C.green('✓')} bumped both version sites to ${C.bold(version)}`)
 
+// `docs/cli-reference.md` stamps the version it was rendered from, so bumping
+// the two source sites *is* a doc change — and `validate: docs-reference`
+// fails on the drift. Left to a human, that lands as a red main after every
+// release (it did for 0.11.11 and 0.11.12). Regenerate it in the same commit.
+await run('pnpm', ['docs:reference'])
+
 await run('git', [
 	'add',
 	'apps/maxstack/package.json',
 	'apps/maxstack/src/program.ts',
+	'docs/cli-reference.md',
 ])
 await run('git', ['commit', '-m', `chore(release): maxstack@${version}`])
 await run('git', ['tag', tag])

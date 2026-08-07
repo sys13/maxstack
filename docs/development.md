@@ -198,8 +198,10 @@ pnpm release patch        # or minor | major | 1.2.3   (--dry-run prints the pla
 ```
 
 That is the whole release. `scripts/cut-release.ts` bumps the two version sites
-in lockstep, commits `chore(release): maxstack@X.Y.Z`, tags `vX.Y.Z` and pushes
-— **it never talks to npm**. The tag push triggers
+in lockstep, regenerates `docs/cli-reference.md` (it stamps the version, so the
+`docs-reference` gate goes red otherwise), commits
+`chore(release): maxstack@X.Y.Z`, tags `vX.Y.Z` and pushes — **it never talks to
+npm**. The tag push triggers
 `.github/workflows/release.yml`, which does everything else on a runner:
 
 ```
