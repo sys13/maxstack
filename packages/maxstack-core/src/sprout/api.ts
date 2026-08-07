@@ -4,6 +4,8 @@
  * All authorization/validation lives in operations.ts.
  */
 
+import type { ErrorContext } from './error-id.ts'
+import { nextErrorId, reportInternalError } from './error-id.ts'
 import {
 	LimitExceededError,
 	NotFoundError,
@@ -31,54 +33,6 @@ export interface ApiResponse<T = unknown> {
 	body: T
 }
 
-/** Which call was being served when it failed — server-side log context for an
- * unrecognized error, never part of the response body. */
-interface FailContext {
-	resource: string
-	operation: string
-}
-
-/**
- * A short correlation id, in `logger.ts`'s `req_…` shape so the two ids read as
- * the same kind of thing in a log pipeline. It is handed to the caller *and*
- * printed with the detail, which is the whole point: a user can quote it in a
- * bug report and the operator can find the one line that says what actually
- * broke.
- */
-function nextErrorId(): string {
-	return `err_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-}
-
-/**
- * The detail, to stderr, as one structured JSON line — the shape
- * `logRequest`/`createConsoleErrorReporter` already emit (`level`, `type`,
- * then fields), so a deployed app's logs stay greppable and `maxstack doctor`'s
- * "go and read stderr" advice lands somewhere useful.
- *
- * `@maxstack/core` may not import `@maxstack/features` (see
- * `scripts/boundaries.config.json`), so this cannot reuse the observability
- * reporter; it deliberately duplicates only the line *shape*, not the logic.
- */
-function logInternalError(
-	e: unknown,
-	errorId: string,
-	context: FailContext,
-): void {
-	const err = e instanceof Error ? e : new Error(String(e))
-	console.error(
-		JSON.stringify({
-			level: 'error',
-			type: 'api-internal-error',
-			errorId,
-			resource: context.resource,
-			operation: context.operation,
-			name: err.name,
-			message: err.message,
-			stack: err.stack,
-		}),
-	)
-}
-
 /**
  * The failure boundary for every REST body.
  *
@@ -96,7 +50,7 @@ function logInternalError(
  * type added later is generic until someone deliberately maps it here, which is
  * the safe direction to fail.
  */
-function fail(e: unknown, context: FailContext): ApiResponse {
+function fail(e: unknown, context: ErrorContext): ApiResponse {
 	if (e instanceof ValidationError) {
 		// Every 422 is repair instructions: `error` names the
 		// resource, the operation and every rejected field; `fieldErrors` states
@@ -147,7 +101,7 @@ function fail(e: unknown, context: FailContext): ApiResponse {
 		return { status: 429, body: { error: e.message } }
 	}
 	const errorId = nextErrorId()
-	logInternalError(e, errorId, context)
+	reportInternalError(e, errorId, context)
 	return { status: 500, body: { error: 'Internal error', errorId } }
 }
 

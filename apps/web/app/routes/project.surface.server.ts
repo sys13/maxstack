@@ -17,6 +17,7 @@
  */
 
 import { data } from 'react-router'
+import { withErrorId } from '~/observability.server'
 import type { ProjectMatch } from '~/project-routes'
 import {
 	action as editAction,
@@ -32,7 +33,27 @@ export type ProjectSurfaceData =
 	| { kind: 'new'; data: Awaited<ReturnType<typeof newLoader>> }
 	| { kind: 'edit'; data: Awaited<ReturnType<typeof editLoader>> }
 
+/**
+ * Every project page's read, behind one correlation-id boundary.
+ *
+ * The wrap is here rather than in the two splat route modules because this is
+ * where all three of them converge — and because a page loader is the one place
+ * in the app where a store failure is rendered as *HTML* rather than returned as
+ * JSON. Before this, that meant the driver's message (the statement, its columns
+ * and its bound parameters) reached the root error boundary and was printed to
+ * the browser; see `withErrorId` and #336.
+ */
 export async function projectSurfaceLoader(
+	match: ProjectMatch,
+	request: Request,
+): Promise<ProjectSurfaceData> {
+	return withErrorId(
+		{ resource: match.page.slug || '/', operation: `${match.kind}-loader` },
+		() => dispatchSurfaceLoader(match, request),
+	)
+}
+
+async function dispatchSurfaceLoader(
 	match: ProjectMatch,
 	request: Request,
 ): Promise<ProjectSurfaceData> {
@@ -59,6 +80,16 @@ export async function projectSurfaceLoader(
 }
 
 export async function projectSurfaceAction(
+	match: ProjectMatch,
+	request: Request,
+): Promise<unknown> {
+	return withErrorId(
+		{ resource: match.page.slug || '/', operation: `${match.kind}-action` },
+		() => dispatchSurfaceAction(match, request),
+	)
+}
+
+async function dispatchSurfaceAction(
 	match: ProjectMatch,
 	request: Request,
 ): Promise<unknown> {

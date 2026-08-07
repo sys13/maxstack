@@ -26,7 +26,8 @@
  * "reports errors" (the issue's exit criteria) matter most.
  */
 
-import type { SproutUser } from '@maxstack/core'
+import type { ErrorContext, SproutUser } from '@maxstack/core'
+import { nextErrorId, reportInternalError } from '@maxstack/core'
 import {
 	createDefaultErrorReporter,
 	type ErrorReporter,
@@ -36,6 +37,7 @@ import {
 	type RateLimitResult,
 	rateLimiterFromEnv,
 } from '@maxstack/features/observability'
+import { data } from 'react-router'
 import { getCoordinator } from './coordination.server'
 
 const scope = globalThis as typeof globalThis & {
@@ -199,6 +201,63 @@ export async function withRequestObservability(
 			apiKeyId: user?.apiKeyId ?? null,
 		})
 		throw err
+	}
+}
+
+/**
+ * Is this thrown value React Router's own control flow rather than a failure?
+ *
+ * Two shapes qualify. `redirect()` throws a real `Response`. `data()` throws a
+ * `DataWithResponseInit`, which is neither a `Response` nor an `Error` — the
+ * class is exported as a *type* only, so there is no `instanceof` to reach for
+ * and the tag it carries is the available signal. Every deliberate 4xx in this
+ * app is a `throw data(...)`, so getting this wrong would turn every 404 into a
+ * 500; `observability.server.test.ts` pins it by throwing a real `data()` rather
+ * than a hand-built lookalike, which is what would catch a rename upstream.
+ */
+function isRouterThrow(e: unknown): boolean {
+	return (
+		e instanceof Response ||
+		(typeof e === 'object' &&
+			e !== null &&
+			'type' in e &&
+			(e as { type?: unknown }).type === 'DataWithResponseInit')
+	)
+}
+
+/**
+ * Wraps a page loader/action so an unrecognized failure reaches the browser as
+ * `500 { error: 'Internal error', errorId }` instead of as its own message.
+ *
+ * This is #336's boundary one layer out. The REST handlers already draw it, but
+ * a *page* loader had no such line: a driver error thrown inside it propagated
+ * to React Router, which put `error.message` — the failed statement, its
+ * columns and its bound parameters — straight into the root error boundary, and
+ * from there into the HTML. The user, meanwhile, got a sentence they could not
+ * act on and no id to quote.
+ *
+ * A thrown `Response` passes through untouched, and that is the whole
+ * distinction: every 4xx in this app is constructed by us and addressed to the
+ * caller (`Unknown page "…"`, `Method not allowed`), so it is already safe to
+ * show. Anything that is *not* a `Response` arrived from somewhere that never
+ * meant to be read by a user.
+ *
+ * The id is minted and logged by `@maxstack/core`'s shared helper, so a page
+ * failure and an API failure produce the same `err_…` shape on the same
+ * structured stderr line — one thing for an operator to grep, one thing for
+ * `maxstack doctor` to point at.
+ */
+export async function withErrorId<T>(
+	context: ErrorContext,
+	fn: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await fn()
+	} catch (e) {
+		if (isRouterThrow(e)) throw e
+		const errorId = nextErrorId()
+		reportInternalError(e, errorId, context)
+		throw data({ error: 'Internal error', errorId }, { status: 500 })
 	}
 }
 

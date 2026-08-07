@@ -78,6 +78,40 @@ export async function projectChrome(): Promise<{
 	}
 }
 
+/** Just enough of the app to frame a page that failed: the nav, the name, the theme. */
+export interface ProjectShell {
+	title: string
+	theme: ThemeSpec
+	pages: Pick<ProjectRoute, 'slug' | 'name'>[]
+}
+
+/**
+ * The chrome the *root error boundary* frames a failure with (#339).
+ *
+ * Loaded by the root loader rather than by the failing route, and that is the
+ * whole point: a boundary cannot await anything, and the data it needs cannot
+ * come from the loader that just died. The root loader is the only one
+ * guaranteed to have run — a child route's error leaves root's data intact — so
+ * an error page can still show the nav, the app's own name and its declared
+ * theme. If the *root* loader is what failed there is no shell, and the boundary
+ * falls back to the chrome-less fallback, which is the honest answer.
+ *
+ * `null` outside project mode: `/admin` and `/workbench` are platform chrome
+ * with no spec-declared nav to render, and demo mode has no project at all.
+ */
+export async function projectShell(
+	request: Request,
+): Promise<ProjectShell | null> {
+	if (!isProjectMode()) return null
+	const spec = await getPlatform().spec.load()
+	const flags = await flagsFor(request, spec)
+	return {
+		title: spec.product.meta.title,
+		theme: resolveTheme(spec),
+		pages: getRoutes(spec, flags).map(({ slug, name }) => ({ slug, name })),
+	}
+}
+
 /**
  * The arguments every project surface's loader and action take.
  *
