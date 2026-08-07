@@ -151,12 +151,33 @@ export const docsGenerator: RegisteredGenerator = {
 // e2e-tests — one Playwright test() per page.e2eTests string
 // ===========================================================================
 
+/**
+ * The stub body: navigate, then **assert the navigation worked**.
+ *
+ * The assertion is not decoration and it is not a placeholder (#341). The
+ * previous stub was `goto` and a comment, and `goto` does not throw on a 4xx or
+ * a 5xx — so the moment `e2e` became a declared script, every unfilled stub was
+ * a test that passed without checking anything, and a page whose route was not
+ * served at all reported green. That is the exit-0 stub this issue names as
+ * worse than no script: it converts an honest UNEXAMINED into a false green.
+ *
+ * `response.ok()` is the weakest claim that is still a claim, and it is exactly
+ * the one that fails when a spec change stops serving the route the test was
+ * transcribed for. The TODO stays: filling in the real behaviour is still the
+ * work, and `maxstack gen` never overwrites a spec file that already exists.
+ *
+ * It also keeps `expect` imported, which the scaffolded `lint` script now cares
+ * about — but the assertion is here because a stub that cannot fail is not a
+ * test, not to satisfy a linter.
+ */
 function e2eSpecFor(pageName: string, route: string, tests: string[]): string {
 	const body = tests
 		.map(
 			(t) =>
 				`\ttest(${JSON.stringify(t)}, async ({ page }) => {\n` +
-				`\t\tawait page.goto(${JSON.stringify(route)})\n` +
+				`\t\tconst response = await page.goto(${JSON.stringify(route)})\n` +
+				'\t\texpect(response?.ok(), ' +
+				`${JSON.stringify(`${route} must load before this test can check anything`)}).toBe(true)\n` +
 				`\t\t// TODO(agent): implement — ${t}\n` +
 				`\t})`,
 		)

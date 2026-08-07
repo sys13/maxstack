@@ -11,7 +11,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from './project.ts'
 import { projectCheckRunner } from './project-checks.ts'
 
@@ -38,6 +38,7 @@ async function projectAt(
 }
 
 afterEach(async () => {
+	vi.unstubAllEnvs()
 	for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 
@@ -219,6 +220,11 @@ describe('the e2e check', () => {
 	})
 
 	it('runs it as a real check once the project declares the script', async () => {
+		// `0` is Playwright's own "browsers live in node_modules" setting, which
+		// this module treats as installed. Pinned here so the result does not
+		// depend on whether the machine running the suite happens to have run
+		// `playwright install` — see the browsers test below.
+		vi.stubEnv('PLAYWRIGHT_BROWSERS_PATH', '0')
 		const project = await projectAt(
 			{ scripts: { e2e: 'playwright test' } },
 			{ installed: true },
@@ -232,5 +238,100 @@ describe('the e2e check', () => {
 			},
 		} as unknown as Project)
 		expect(runner.list().map((c) => c.name)).toContain('e2e')
+	})
+})
+
+/**
+ * #341 — a declared script is not the same thing as a check that examined
+ * something.
+ *
+ * The scaffold now declares `lint`, `test` and `e2e`, which closes the "package
+ * .json declares no X script" report the issue opened on. It opens two new ways
+ * for the same hollow green to come back, and both are refused here: a `test`
+ * script over a project with no test files, and an `e2e` script on a machine
+ * where Playwright has no browser to drive. Neither says anything about the
+ * code, so neither may borrow the colour of a check that did.
+ */
+describe('a declared script that would examine nothing (#341)', () => {
+	it('reports "test" as unexamined when there are no test files', async () => {
+		// `vitest run --passWithNoTests` — what the scaffold declares — exits 0
+		// over an empty suite. Correct for a runner, and a false green for a gate.
+		const project = await projectAt(
+			{ scripts: { test: 'vitest run --passWithNoTests' } },
+			{ installed: true },
+		)
+		const runner = await projectCheckRunner(project)
+		expect(runner.list().map((c) => c.name)).not.toContain('test')
+		const test = ((await runner.unavailable?.()) ?? []).find(
+			(u) => u.name === 'test',
+		)
+		expect(test?.reason).toMatch(/no test files/)
+		expect(test?.remedy).toMatch(/app\/\*\*\/\*\.test\.ts/)
+	})
+
+	it('runs "test" the moment one test file exists', async () => {
+		const project = await projectAt(
+			{ scripts: { test: 'vitest run --passWithNoTests' } },
+			{ installed: true },
+		)
+		await mkdir(join(project.appPath, 'routes'), { recursive: true })
+		await writeFile(join(project.appPath, 'routes/deck.test.ts'), '')
+		const runner = await projectCheckRunner(project)
+		expect(runner.list().map((c) => c.name)).toContain('test')
+	})
+
+	it('does not count a Playwright spec as a unit test', async () => {
+		// `.spec.ts` under `app/e2e/` is the `e2e` check's, and the scaffolded
+		// `vitest.config.ts` deliberately does not collect it. Counting it here
+		// would report `test` as running over files vitest never opens.
+		const project = await projectAt(
+			{ scripts: { test: 'vitest run --passWithNoTests' } },
+			{ installed: true },
+		)
+		await mkdir(join(project.appPath, 'e2e'), { recursive: true })
+		await writeFile(join(project.appPath, 'e2e/deck.spec.ts'), '')
+		const runner = await projectCheckRunner(project)
+		expect(runner.list().map((c) => c.name)).not.toContain('test')
+	})
+
+	it('reports "e2e" as unexamined — not failed — when browsers are missing', async () => {
+		// `playwright test` without browsers fails legibly, but it fails RED, and
+		// red says "your code is broken". Nothing about the code is broken: a
+		// one-time download that `npm install` deliberately does not perform has
+		// not happened.
+		const empty = await mkdtemp(join(tmpdir(), 'maxstack-no-browsers-'))
+		dirs.push(empty)
+		vi.stubEnv('PLAYWRIGHT_BROWSERS_PATH', empty)
+		const project = await projectAt(
+			{ scripts: { e2e: 'playwright test' } },
+			{ installed: true },
+		)
+		const runner = await projectCheckRunner({
+			...project,
+			spec: {
+				load: async () => ({
+					pages: { pages: [{ e2eTests: ['a user can archive a deck'] }] },
+				}),
+			},
+		} as unknown as Project)
+		expect(runner.list().map((c) => c.name)).not.toContain('e2e')
+		const e2e = ((await runner.unavailable?.()) ?? []).find(
+			(u) => u.name === 'e2e',
+		)
+		expect(e2e?.reason).toMatch(/no browsers on this machine/)
+		expect(e2e?.remedy).toMatch(/playwright install/)
+	})
+
+	it('still says "no script" first, when there is no script', async () => {
+		// Order matters: a project that never declared `test` must hear that,
+		// not "you have no test files" — the second is true and following it
+		// would not make the check run.
+		const runner = await projectCheckRunner(
+			await projectAt({ scripts: {} }, { installed: true }),
+		)
+		const test = ((await runner.unavailable?.()) ?? []).find(
+			(u) => u.name === 'test',
+		)
+		expect(test?.reason).toMatch(/declares no "test" script/)
 	})
 })

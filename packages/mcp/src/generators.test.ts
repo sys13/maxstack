@@ -155,6 +155,24 @@ describe('generator counts (#344)', () => {
 		expect(notes[0]).toBe('Generated docs/OVERVIEW.md from 1 requirement.')
 	})
 
+	it('gives every e2e stub an assertion that can fail (#341)', async () => {
+		// The stub used to be `page.goto(route)` and a TODO comment. `goto` does
+		// not throw on a 4xx or a 5xx, so the moment `e2e` became a script the
+		// scaffold declares, every unfilled stub was a test that passed having
+		// checked nothing — including on a page whose route was not served at all.
+		// That is the exit-0 stub: an honest UNEXAMINED traded for a false green.
+		const res = await e2eTestsGenerator.run(specWith([entity], [onePage]), {})
+		const spec = res.artifacts[0]?.content ?? ''
+		expect(spec).toContain('const response = await page.goto("/orders")')
+		expect(spec).toContain('expect(response?.ok()')
+		expect(spec).toContain('.toBe(true)')
+		// Still a stub — filling in the declared behaviour is still the work.
+		expect(spec).toContain('TODO(agent): implement')
+		// And `expect` is imported *and used*, which is also what keeps the
+		// scaffolded `lint` script off a file its owner did not write.
+		expect(spec).toContain("import { expect, test } from '@playwright/test'")
+	})
+
 	it('drops the "file(s)" dodge in the e2e note', async () => {
 		const res = await e2eTestsGenerator.run(specWith([entity], [onePage]), {})
 		expect(res.notes?.[0]).toBe('Scaffolded 1 e2e spec file.')

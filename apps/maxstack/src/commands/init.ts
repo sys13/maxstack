@@ -124,6 +124,15 @@ export async function scaffoldProject(opts: {
 	// the script exists and cannot run, which is the same hollow green one step
 	// removed.
 	await writeFile(resolve(root, 'tsconfig.json'), TSCONFIG)
+	// The configs the other three declared gates need, for the same reason
+	// (#341). A script with no config behind it is the same hollow green: `lint`
+	// with no `biome.jsonc` lints nothing, `e2e` with no `playwright.config.ts`
+	// has no `baseURL` for `page.goto('/')` and no server to point it at, and
+	// `test` with no `vitest.config.ts` would sweep the Playwright specs into a
+	// runner that cannot execute them.
+	await writeFile(resolve(root, 'biome.jsonc'), BIOME_CONFIG)
+	await writeFile(resolve(root, 'vitest.config.ts'), VITEST_CONFIG)
+	await writeFile(resolve(root, 'playwright.config.ts'), PLAYWRIGHT_CONFIG)
 	await writeFile(resolve(root, 'README.md'), readme(name, config, invocation))
 	// Always-on cold-start signal: a fresh agent dropped into this
 	// project must know — before its first sentence, with no server running —
@@ -254,6 +263,10 @@ export async function initCommand(
 			],
 			['package.json', 'pinned maxstack toolchain'],
 			['tsconfig.json', 'typecheck config for the code you own'],
+			[
+				`biome.jsonc ${sep} vitest.config.ts ${sep} playwright.config.ts`,
+				'the lint · test · e2e gates',
+			],
 			...(git.status === 'initialized'
 				? ([['.git/', 'version control + the scaffold commit']] as [
 						string,
@@ -439,6 +452,21 @@ export async function scaffoldPackageJson(name: string): Promise<string> {
 			// having never opened a line of the code its owner writes — and typed
 			// slot props are decoration if nothing ever runs the compiler over them.
 			typecheck: 'tsc --noEmit',
+			// The other three, for the same reason (#341). `typecheck` was the only
+			// one of the four that ever got the follow-through, so `validate` on a
+			// fresh project reported three checks UNEXAMINED — and the sharpest of
+			// them was `e2e`: `maxstack gen` transcribes every page's `e2eTests`
+			// into a Playwright spec and then nothing on the path from `init` to
+			// `validate` could open it.
+			//
+			// `--passWithNoTests` because a project that has not written a unit test
+			// yet has not failed one. What keeps that from becoming a false green is
+			// on the reporting side, not here: `project-checks.ts` reports `test` as
+			// UNEXAMINED when the project has no test files, so an empty suite is
+			// named rather than counted as a pass.
+			lint: 'biome check .',
+			test: 'vitest run --passWithNoTests',
+			e2e: 'playwright test',
 		},
 		devDependencies: {
 			maxstack: `^${version}`,
@@ -466,6 +494,19 @@ export async function scaffoldPackageJson(name: string): Promise<string> {
 			// send the compiler into. Without this the type surface those files sit
 			// on does not compile at all.
 			'@types/node': '^26.1.1',
+			// What the `lint` and `test` scripts are (#341). Biome because it is
+			// one binary with no plugin graph to keep in sync, and because it is
+			// what this repo lints itself with, so a report a user brings back is a
+			// report we can read. Vitest because `maxstack-runtime` already carries
+			// vite, so the runner a project reaches for is the one its own toolchain
+			// is built on.
+			// Exact, not caret. Biome compares the `$schema` its config names
+			// against its own version and prints a "does not match" notice on every
+			// run when they differ — a caret range floats to the next patch and the
+			// scaffolded `pnpm lint` starts nagging about a file the user never
+			// wrote. One constant feeds both, so they cannot drift.
+			'@biomejs/biome': BIOME_VERSION,
+			vitest: '^4.1.10',
 		},
 		...(overrides ? { overrides } : {}),
 	}
@@ -511,7 +552,116 @@ export async function scaffoldOverrides(): Promise<Record<string, string>> {
  * if the manifest can't be read (an unusual install layout). */
 // Ignore the local `.env` (holds the generated secrets) but keep the committed
 // `.env.example` contract tracked.
-const GITIGNORE = `node_modules\n.maxstack\ndist\n.env\n.env.*\n!.env.example\n`
+// `test-results/` and `playwright-report/` are what a failing `pnpm e2e` leaves
+// behind — traces and screenshots, useful for the next ten minutes and never
+// again. Committing them was the alternative, and it is not one.
+const GITIGNORE = `node_modules\n.maxstack\ndist\n.env\n.env.*\n!.env.example\ntest-results\nplaywright-report\n`
+
+/**
+ * The `lint` script's config (#341).
+ *
+ * **The formatter is off, deliberately.** Turn it on and `pnpm lint` fails on
+ * `app/routes.ts` and `app/generated/types.ts` — files stamped DO NOT EDIT,
+ * emitted by ts-morph, which biome would print back with different line breaks.
+ * A gate the user cannot make green without ejecting from the framework is worse
+ * than no gate: it teaches them the gate is noise, and then the real finding
+ * arrives in the same colour. Style over generated output is our problem, not
+ * theirs; the linter here is for correctness over the code they own.
+ *
+ * With the formatter off, `preset: recommended` runs clean over the whole
+ * generated tree — the last exception was the unused `Slot` import every
+ * zero-slot route module carried, fixed in #346, and the unused `expect` in the
+ * generated Playwright specs, fixed here by giving the stub a real assertion.
+ *
+ * `node_modules` and `.maxstack` are excluded because biome would otherwise walk
+ * the vendored runtime snapshot, which is this repo's source and not the user's.
+ */
+export const BIOME_VERSION = '2.5.6'
+
+const BIOME_CONFIG = `{
+	"$schema": "https://biomejs.dev/schemas/${BIOME_VERSION}/schema.json",
+	"files": {
+		"includes": ["**", "!**/node_modules", "!**/.maxstack", "!**/dist", "!**/test-results", "!**/playwright-report"]
+	},
+	// Off on purpose — see the note in maxstack's init.ts. The generated route
+	// modules are ts-morph output stamped DO NOT EDIT; format-checking them makes
+	// \`pnpm lint\` red on files you are not allowed to touch. Turn it on if you
+	// would rather own that, and run \`biome check --write .\` after every \`gen\`.
+	"formatter": { "enabled": false },
+	"linter": { "enabled": true, "rules": { "preset": "recommended" } }
+}
+`
+
+/**
+ * The `test` script's config (#341).
+ *
+ * The one load-bearing line is `include`. Vitest's default sweep picks up
+ * \`*.spec.ts\` as well as \`*.test.ts\`, which would collect the Playwright specs
+ * `maxstack gen` writes into `app/e2e/` and run them under a runner that has no
+ * browser to give them — a wall of "test is not defined"-shaped failures in
+ * files the user did not write, on a script they just declared.
+ *
+ * So the split is by suffix, and it is a convention worth knowing:
+ * **`.test.ts` is vitest, `.spec.ts` is Playwright.**
+ */
+const VITEST_CONFIG = `import { defineConfig } from 'vitest/config'
+
+// \`.test.ts\` is vitest; \`.spec.ts\` is Playwright (\`app/e2e/\`, run by \`pnpm e2e\`).
+// Without this split vitest would collect the Playwright specs and fail on them.
+export default defineConfig({
+	test: { include: ['app/**/*.test.ts', 'app/**/*.test.tsx'] },
+})
+`
+
+/**
+ * The `e2e` script's config (#341) — the missing end of the
+ * declare -> generate -> run chain.
+ *
+ * A page's `e2eTests` are transcribed into `app/e2e/*.spec.ts` by `maxstack
+ * gen`, and every one of those bodies opens with `page.goto('/some-route')` — a
+ * relative URL, which means nothing without a `baseURL`, against a server
+ * nobody started. Both halves are here: `webServer` runs the project's own `dev`
+ * script, and `use.baseURL` names the address it binds.
+ *
+ * `PORT` rather than a literal so the two cannot drift: `maxstack dev` reads it,
+ * and the same value builds the URL Playwright waits on and navigates against.
+ * 3100, not 3000, so running `pnpm e2e` does not fight a `maxstack dev` the user
+ * already has open in another terminal — and `reuseExistingServer` outside CI so
+ * that if they *do* have one on 3100, the suite uses it instead of failing to
+ * bind.
+ *
+ * `/health` as the readiness URL rather than `/`: the app's own root is a page
+ * the user's spec defines and may legitimately redirect or 404 while they are
+ * mid-change, and a readiness probe that depends on the thing under test cannot
+ * tell "not up yet" from "broken".
+ */
+const PLAYWRIGHT_CONFIG = `import { defineConfig } from '@playwright/test'
+
+// The runner behind \`pnpm e2e\`. The specs in app/e2e/ are scaffolded from each
+// page's declared \`e2eTests\` by \`maxstack gen\` and are yours to fill in from
+// the moment they land — \`gen\` never overwrites one that already exists.
+const PORT = Number(process.env.PORT ?? 3100)
+
+export default defineConfig({
+	testDir: './app/e2e',
+	reporter: [['list']],
+	use: {
+		// What makes \`page.goto('/decks')\` in a generated spec mean anything.
+		baseURL: \`http://127.0.0.1:\${PORT}\`,
+		trace: 'retain-on-failure',
+	},
+	projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+	webServer: {
+		command: 'npm run dev',
+		// Not '/' — the root is a page your spec owns, so it cannot double as the
+		// readiness probe for the server that serves it.
+		url: \`http://127.0.0.1:\${PORT}/health\`,
+		reuseExistingServer: !process.env.CI,
+		timeout: 180_000,
+		env: { PORT: String(PORT) },
+	},
+})
+`
 
 /**
  * Where `tsc` in a scaffolded project finds the `@maxstack/*` types the code in
@@ -607,7 +757,11 @@ export const TSCONFIG = `${JSON.stringify(
 			// into a wall of "Cannot find name 'process'".
 			types: ['node', 'react'],
 		},
-		include: ['app/**/*.ts', 'app/**/*.tsx'],
+		// The root `*.config.ts` files too (#341): `vitest.config.ts` and
+		// `playwright.config.ts` are the only reason `pnpm test` and `pnpm e2e`
+		// run at all, and a typo in one of them is a gate that silently stops
+		// covering anything.
+		include: ['app/**/*.ts', 'app/**/*.tsx', '*.config.ts'],
 	},
 	null,
 	'\t',
@@ -676,7 +830,22 @@ Add \`--accept --gen\` to a write to land + accept + regenerate in one shot, or 
 
 The \`validate\` gate is standalone: it checks the spec parses, the generated
 files match the ownership manifest, and a fresh regeneration changes nothing you
-own — the safe-change-over-time guarantee, enforced in CI.
+own — the safe-change-over-time guarantee, enforced in CI. It then runs this
+project's own four scripts over the code, and **names any it could not run**
+rather than passing quietly:
+
+\`\`\`sh
+npm run typecheck                # tsc over app/, owned code included
+npm run lint                     # biome (formatter off — see biome.jsonc)
+npm run test                     # vitest over app/**/*.test.ts
+npm run e2e                      # playwright over app/e2e/*.spec.ts
+\`\`\`
+
+\`app/e2e/*.spec.ts\` is scaffolded from each page's declared \`e2eTests\` and is
+yours from the moment it lands — \`${bin} gen\` never overwrites one. The stubs
+navigate and assert the page loaded; filling in the behaviour is the work.
+\`npm run e2e\` needs browsers once: \`npx playwright install chromium\`.
+Until then \`validate\` reports e2e as unexamined, which is what it is.
 
 ## When something looks wrong
 

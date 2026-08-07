@@ -45,7 +45,7 @@ import type { Project } from './project.ts'
  * literally produced a package.json that failed differently, and a check that
  * errors is worse than one that is missing.
  */
-const EXPECTED: {
+interface ExpectedCheck {
 	script: string
 	summary: string
 	why: string
@@ -53,7 +53,19 @@ const EXPECTED: {
 	command: string
 	/** The package that provides that command, for the same reason. */
 	install: string
-}[] = [
+	/**
+	 * Something the *machine* has to be true for a declared script to examine
+	 * anything — not something about the code, which is what the check itself is
+	 * for. A `null` answer means "go ahead and run it"; anything else is reported
+	 * as UNEXAMINED with that reason and remedy, because a declared script that
+	 * runs and looks at nothing is the hollow green this whole module refuses.
+	 */
+	precondition?: (
+		project: Project,
+	) => Promise<{ reason: string; remedy: string } | null>
+}
+
+const EXPECTED: ExpectedCheck[] = [
 	{
 		script: 'typecheck',
 		summary: 'TypeScript over the whole project, owned code included.',
@@ -74,6 +86,15 @@ const EXPECTED: {
 		why: 'nothing runs the code you own',
 		command: 'vitest run',
 		install: 'vitest',
+		precondition: async (project) =>
+			(await hasUnitTests(project))
+				? null
+				: {
+						reason:
+							'"test" is declared but this project has no test files, so nothing runs the code you own',
+						remedy:
+							'Write a test next to the code it covers — `app/**/*.test.ts` (`.spec.ts` belongs to the e2e suite) — and run it again.',
+					},
 	},
 ]
 
@@ -104,6 +125,75 @@ async function declaresE2eTests(project: Project): Promise<boolean> {
 	} catch {
 		// A project whose spec will not load has bigger problems, and
 		// `spec-validate` is the check that reports them.
+		return false
+	}
+}
+
+/**
+ * Does this project have a single file the `test` script could run?
+ *
+ * `vitest run --passWithNoTests` — what the scaffold declares — exits 0 over an
+ * empty suite, which is the right behaviour for a runner and the wrong answer
+ * for a gate. Without this, a fresh project's report reads `test ✔` having
+ * opened nothing, which is exactly the shape #260 exists to refuse: a check that
+ * did not examine anything must say so, not borrow the colour of one that did.
+ *
+ * Matched against the scaffolded `vitest.config.ts`'s own `include`, so the two
+ * cannot disagree about what counts — `.test.ts` is vitest's, `.spec.ts` is
+ * Playwright's and belongs to the `e2e` check below.
+ */
+async function hasUnitTests(project: Project): Promise<boolean> {
+	const { readdir } = await import('node:fs/promises')
+	try {
+		const entries = await readdir(project.appPath, {
+			recursive: true,
+			withFileTypes: true,
+		})
+		return entries.some(
+			(e) => e.isFile() && /\.test\.tsx?$/.test(e.name),
+		)
+	} catch {
+		// No app dir at all. `spec-validate` is the check that reports *that*, and
+		// answering "there are tests" here would only trade one wrong report for
+		// another — so say what is true: none were found.
+		return false
+	}
+}
+
+/**
+ * Are Playwright's browsers on this machine?
+ *
+ * `playwright test` without them fails with a legible box telling you to run
+ * `playwright install` — legible, but still a **red** gate, and red means "your
+ * code is broken". Nothing about the code is broken; a one-time download that
+ * `npm install` deliberately does not perform has not happened. That is the
+ * definition of unexamined, so it is reported as unexamined, with the command
+ * that fixes it — the same distinction this module already draws for a declared
+ * script whose `node_modules` are missing.
+ *
+ * The location is Playwright's documented browser cache, which is where its own
+ * installer puts them. `PLAYWRIGHT_BROWSERS_PATH=0` means "inside node_modules",
+ * a layout we cannot cheaply probe — so that answers `true` and lets the run
+ * speak for itself, rather than reporting UNEXAMINED at a project that is fine.
+ */
+async function hasPlaywrightBrowsers(): Promise<boolean> {
+	const { readdir } = await import('node:fs/promises')
+	const { homedir } = await import('node:os')
+	const configured = process.env.PLAYWRIGHT_BROWSERS_PATH
+	if (configured === '0') return true
+	const dir =
+		configured ||
+		(process.platform === 'darwin'
+			? resolve(homedir(), 'Library/Caches/ms-playwright')
+			: process.platform === 'win32'
+				? resolve(
+						process.env.LOCALAPPDATA ?? homedir(),
+						'ms-playwright',
+					)
+				: resolve(homedir(), '.cache/ms-playwright'))
+	try {
+		return (await readdir(dir)).some((e) => e.startsWith('chromium-'))
+	} catch {
 		return false
 	}
 }
@@ -177,6 +267,15 @@ export async function projectCheckRunner(
 			why: 'the pages declare e2eTests and nothing runs them',
 			command: 'playwright test',
 			install: '@playwright/test',
+			precondition: async () =>
+				(await hasPlaywrightBrowsers())
+					? null
+					: {
+							reason:
+								'"e2e" is declared but Playwright has no browsers on this machine, so the declared end-to-end tests did not run',
+							remedy:
+								'Run `npx playwright install chromium` (a one-time ~100MB download `npm install` does not do for you) and check again.',
+						},
 		})
 
 	// A check that cannot run over code that does not exist yet is named, but does
@@ -201,7 +300,22 @@ export async function projectCheckRunner(
 	// so it is reported as unexamined, which is what it is.
 	const installed = await hasNodeModules(project.root)
 
-	for (const { script, summary, why, command, install } of expected) {
+	for (const {
+		script,
+		summary,
+		why,
+		command,
+		install,
+		precondition,
+	} of expected) {
+		// Ordered strictly: no package.json beats no install beats an unmet
+		// precondition. Each reason is only worth printing once the one above it
+		// holds — "no test files" is noise at a project that has not installed
+		// vitest yet, and following it would not make the check run.
+		const unmet =
+			scripts[script] && installed && precondition
+				? await precondition(project)
+				: null
 		if (scripts[script] && !installed) {
 			unavailable.push({
 				name: script,
@@ -209,6 +323,8 @@ export async function projectCheckRunner(
 				reason: `"${script}" is declared but this project's dependencies are not installed, so ${why}`,
 				remedy: 'Run `npm install` (or `pnpm install`) and check again.',
 			})
+		} else if (unmet) {
+			unavailable.push({ name: script, blocking, ...unmet })
 		} else if (scripts[script]) {
 			checks.push(
 				shellCheck(script, summary, `npm run --silent ${script}`, {

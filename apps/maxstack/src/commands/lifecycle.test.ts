@@ -104,6 +104,7 @@ describe('maxstack platform verbs', () => {
 
 	afterAll(async () => {
 		vi.restoreAllMocks()
+		vi.unstubAllEnvs()
 		await rm(dir, { recursive: true, force: true })
 	})
 
@@ -252,6 +253,16 @@ describe('maxstack platform verbs', () => {
 		// them — a chain that ends in nothing is the dead end.
 		pkg.scripts.e2e = 'node -e ""'
 		await writeFile(pkgPath, JSON.stringify(pkg, null, '\t'))
+		// The same stand-in, for the two preconditions #341 added. A declared
+		// `test` script over a project with no test file examines nothing, and a
+		// declared `e2e` script on a machine with no browser runs nothing — both
+		// are now reported UNEXAMINED rather than counted as passes, so "the checks
+		// can run" has to mean this too. `PLAYWRIGHT_BROWSERS_PATH=0` is
+		// Playwright's own "browsers live in node_modules" setting, which also
+		// keeps this test off whether the machine happens to have run
+		// `playwright install`.
+		await writeFile(join(dir, 'app', 'smoke.test.ts'), '')
+		vi.stubEnv('PLAYWRIGHT_BROWSERS_PATH', '0')
 
 		const prev = process.exitCode
 		process.exitCode = 0
