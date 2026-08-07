@@ -21,6 +21,19 @@ export interface Fs {
 	exists(path: string): Promise<boolean>
 	read(path: string): Promise<string>
 	write(path: string, content: string): Promise<void>
+	/**
+	 * Delete a file. Missing is not an error — the one caller (`prunePages`) is
+	 * reconciling the tree towards a spec, and "already gone" is the state it
+	 * wants.
+	 *
+	 * Deliberately part of the port rather than a `node:fs` call at the call
+	 * site: the generator's entire safety story is that every mutation of a
+	 * project goes through the manifest-aware layer, and a deletion is the one
+	 * mutation that cannot be undone by re-running the generator. A read-only
+	 * consumer of this port (the workbench drift pane) implements it as a throw,
+	 * which keeps "this surface never deletes" structural.
+	 */
+	remove(path: string): Promise<void>
 }
 
 export interface WriteResult {

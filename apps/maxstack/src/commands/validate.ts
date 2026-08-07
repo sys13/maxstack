@@ -23,14 +23,20 @@ import {
 	createNodeFs,
 	exportedSlotNames,
 	hashContent,
+	isRouteModuleEntry,
 	isSlotBlockType,
 	MANIFEST_FILENAME,
 	pageFilePaths,
+	pageModuleKey,
 	parseManifest,
 	slotBlockName,
 	slotIdHint,
 } from '@maxstack/core/ownership'
-import { orphanedSlots, type UnavailableCheck } from '@maxstack/mcp'
+import {
+	orphanedSlots,
+	pageDescriptors,
+	type UnavailableCheck,
+} from '@maxstack/mcp'
 import {
 	listPortals,
 	portalExposureReport,
@@ -141,6 +147,31 @@ export async function validateCommand(dir: string | undefined): Promise<void> {
 	if (await fs.exists(MANIFEST_FILENAME)) {
 		const manifest = parseManifest(await fs.read(MANIFEST_FILENAME))
 		const before = failures.length
+		// The set difference this check was missing (#338). Everything below only
+		// ever verified the entries it *found* — that each one's file exists and
+		// still hashes to what was recorded — so `manifest intact: N tracked files`
+		// passed happily on a manifest tracking a route for an entity the spec had
+		// dropped three runs earlier. A stale entry is a perfectly intact entry;
+		// what makes it wrong is that nothing in the spec justifies it, and that is
+		// a question about correspondence, not integrity. One set difference, and
+		// it would have caught this the first time `gen` ran after the deletion.
+		//
+		// `generated` only: an `ejected` or `user` module with no page behind it is
+		// a supported state the drift report calls `underived`, not a defect —
+		// pruning deliberately leaves those alone, so failing on them would be a
+		// gate nobody could ever get green.
+		const live = new Set(
+			pageDescriptors(spec.pages.pages).map((d) => pageModuleKey(d)),
+		)
+		for (const entry of manifest.entries) {
+			if (entry.ownership !== 'generated') continue
+			if (!isRouteModuleEntry(entry) || live.has(entry.id)) continue
+			failures.push(
+				`stale route: ${entry.file} serves ${entry.routePath}, but no page in the spec declares it. ` +
+					'It is in the route table and will 500 on a resource the app no longer has. ' +
+					'Regeneration prunes it — run "maxstack gen" (this run\'s regen pass already has; re-run to confirm).',
+			)
+		}
 		for (const entry of manifest.entries) {
 			if (entry.ownership !== 'generated' || !entry.hash) continue
 			if (!(await fs.exists(entry.file))) {
@@ -154,7 +185,9 @@ export async function validateCommand(dir: string | undefined): Promise<void> {
 			}
 		}
 		if (failures.length === before) {
-			console.log(`✔ manifest intact: ${manifest.entries.length} tracked files`)
+			console.log(
+				`✔ manifest intact: ${manifest.entries.length} tracked files, all declared by the spec`,
+			)
 		}
 	} else {
 		console.log('· app is runtime-derived; no generated route tree expected')

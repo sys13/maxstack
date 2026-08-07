@@ -126,6 +126,31 @@ export function upsertEntry(
 	return { ...manifest, entries }
 }
 
+/** Drop an entry by id, returning a new manifest. No-op when it is absent. */
+export function removeEntry(
+	manifest: RouteManifest,
+	id: string,
+): RouteManifest {
+	return { ...manifest, entries: manifest.entries.filter((e) => e.id !== id) }
+}
+
+/**
+ * Whether an entry is a **page's route module** — the family that owns a line in
+ * `routes.ts` and is therefore the family pruning and the staleness check act
+ * on.
+ *
+ * The id is the discriminator, because the id is what the manifest is indexed
+ * by and what every generator writes it under. A route module's id is the bare
+ * module key (`book`, `book-shelf`); everything else the manifest tracks carries
+ * a namespace — `<resource>:slot`, `schedules:registry`, `source:<key>:slot` —
+ * and none of those is a route. The non-empty `routePath` is belt-and-braces:
+ * every seam entry records `''`, so an id shape this build has not met still
+ * cannot be mistaken for a route.
+ */
+export function isRouteModuleEntry(entry: RouteManifestEntry): boolean {
+	return !entry.id.includes(':') && entry.routePath !== ''
+}
+
 /**
  * Stamp the generation watermark — how much of the op log this run
  * generated from. Immutable like {@link upsertEntry}; the caller persists it.

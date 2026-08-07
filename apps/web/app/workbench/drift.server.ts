@@ -59,6 +59,9 @@ export async function loadOwnershipDrift(): Promise<OwnershipDriftReport> {
 		async write() {
 			throw new Error('the drift report is read-only')
 		},
+		async remove() {
+			throw new Error('the drift report is read-only')
+		},
 	}
 
 	if (!(await fs.exists(MANIFEST_FILENAME))) return EMPTY

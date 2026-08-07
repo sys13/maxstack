@@ -25,6 +25,9 @@ export function createMemFs(seed: Record<string, string> = {}): MemFs {
 		async write(path, content) {
 			files.set(path, content)
 		},
+		async remove(path) {
+			files.delete(path)
+		},
 		snapshot() {
 			return new Map(files)
 		},

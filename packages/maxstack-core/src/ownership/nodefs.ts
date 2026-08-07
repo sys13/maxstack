@@ -42,5 +42,14 @@ export function createNodeFs(rootDir: string): Fs {
 			await mkdir(dirname(full), { recursive: true })
 			await writeFile(full, content)
 		},
+		async remove(path) {
+			const { rm } = await import('node:fs/promises')
+			// `force` so a file the manifest tracks but that somebody already
+			// deleted by hand is not an error: pruning is reconciliation, and the
+			// desired end state is the same either way. Files only — a generator
+			// never owns a directory, and `recursive` here would turn a bad path
+			// into an unbounded delete.
+			await rm(await resolveInRoot(path), { force: true })
+		},
 	}
 }

@@ -346,4 +346,36 @@ export function addRouteToManifest(
 	return sf.getFullText().replace(/;\n/g, '\n').replace(/;$/gm, '')
 }
 
+/**
+ * AST-remove every route in a `routes.ts` manifest that points at `file` — the
+ * inverse of {@link addRouteToManifest}, and the half that was missing until
+ * issue #338: generation only ever appended, so a page deleted from the spec
+ * left its route wired to a module whose resource no longer exists, and the app
+ * shipped a 500 nobody had a way to remove short of editing the file by hand.
+ *
+ * Matched on the **module**, not on the route path. A path can legitimately move
+ * to a different module in the same run — delete the first of two pages over an
+ * entity and the survivor inherits the bare `routes/<resource>.tsx`, while the
+ * path it serves has not changed — and removing by path would then delete the
+ * line the very next generation step is about to need. The module is the thing
+ * being retired, so the module is the key.
+ *
+ * Returns the source unchanged (byte-identical, not reprinted) when no route
+ * pointed there, so a caller can write on inequality.
+ */
+export function removeRoutesToModule(source: string, file: string): string {
+	const project = newProject()
+	const sf = project.createSourceFile('routes.ts', source)
+	const decl = sf.getVariableDeclarationOrThrow('routes')
+	const array = decl.getInitializerIfKindOrThrow(
+		SyntaxKind.ArrayLiteralExpression,
+	)
+	const existing = array.getElements().map((el) => el.getText())
+	const kept = existing.filter((text) => !text.includes(`file: '${file}'`))
+	if (kept.length === existing.length) return source
+	array.replaceWithText(`[${kept.join(', ')}]`)
+	sf.formatText({ indentSize: 1, convertTabsToSpaces: false })
+	return sf.getFullText().replace(/;\n/g, '\n').replace(/;$/gm, '')
+}
+
 export const EMPTY_ROUTES_MANIFEST = `export const routes = []\n`

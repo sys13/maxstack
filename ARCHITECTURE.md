@@ -59,6 +59,17 @@ import anything.
 5. **The app is regenerated** through the never-clobber writer. Generated files
    are rewritten; anything you own is left alone.
 
+Regeneration reconciles in **both** directions. Remove a page from the spec and
+its route module, its line in `app/routes.ts` and its manifest entry all go —
+otherwise the tree only ever grows, and a route for a deleted entity keeps
+shipping and 500s. What may be removed is decided by ownership, not by the spec:
+a module that is still the generator's byte for byte is deleted, a *generated*
+module you have edited since is unwired from the route table but left on disk for
+you to delete, and an **ejected module is not touched at all** — route included,
+because that route is yours now. The user-owned slot file beside a pruned module
+is never deleted; `maxstack validate` already fails on a slot with nothing left
+to fill, which is a question only you can answer.
+
 ## Owning code
 
 Three levels, in increasing order of commitment:

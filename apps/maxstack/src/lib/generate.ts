@@ -19,7 +19,10 @@ import {
 	MANIFEST_FILENAME,
 	type OwnershipDriftReport,
 	ownershipDrift,
+	pageModuleKey,
 	parseManifest,
+	type PruneResult,
+	prunePages,
 	recordGeneration,
 	serializeManifest,
 	type WriteResult,
@@ -43,6 +46,17 @@ export interface GenerateSummary {
 	writes: WriteResult[]
 	/** Doc + e2e artifacts (always overwritten — framework-owned). */
 	artifacts: string[]
+	/**
+	 * Route modules the spec no longer justifies, and what was done about each.
+	 *
+	 * Deliberately **not** folded into `writes`: `isRegenStable` reads that list
+	 * as "did this run touch anything the user owns", and a prune is the opposite
+	 * of that — it removes only what is still the framework's. Mixing them in
+	 * would turn the first regeneration after a legitimate spec deletion into a
+	 * regen-safety failure, which is precisely the "every run already looks
+	 * unsafe" state #337 was about.
+	 */
+	pruned: PruneResult[]
 }
 
 /** Generate the whole app tree for a project's current spec. */
@@ -54,7 +68,19 @@ export async function generateProject(project: Project): Promise<GenerateSummary
 	// Descriptors for the whole page list at once — a page's route module is a
 	// fact about its siblings (two pages over one entity are two modules, #337),
 	// which a per-page fold cannot see.
-	for (const descriptor of pageDescriptors(spec.pages.pages)) {
+	const descriptors = pageDescriptors(spec.pages.pages)
+
+	// Reconcile DOWN before emitting: anything the manifest tracks as a route
+	// module that these descriptors no longer justify is retired first (#338).
+	// Order is load-bearing — a stale module's `routes.ts` line has to be gone
+	// before the emitter tries to insert the path it was holding, or the insert
+	// is a no-op against a route pointing at a module that no longer exists.
+	const { results: pruned } = await prunePages(
+		fs,
+		new Map(descriptors.map((d) => [pageModuleKey(d), d.routePath])),
+	)
+
+	for (const descriptor of descriptors) {
 		const { results } = await generateResourcePage(fs, descriptor)
 		writes.push(...results)
 	}
@@ -74,7 +100,7 @@ export async function generateProject(project: Project): Promise<GenerateSummary
 			new Date().toISOString().slice(0, 10),
 		),
 	)
-	return { writes, artifacts }
+	return { writes, artifacts, pruned }
 }
 
 /**
