@@ -60,8 +60,12 @@ all 60 schemas at once is a payload hosts refuse.
 add-page <entity>`). An entity with no page isn't reachable in the app.
 
 **4. Regenerate.** `run_generator {generator:"page"}` (or `maxstack gen`). Under
-`reviewMode: "review"`, CLI writes need `--accept --gen` to land, accept, and
-regenerate in one shot.
+this project's default `reviewMode: "auto"` a CLI write already lands, accepts
+and regenerates on its own — including yours, because the mode keys off the
+write path and not the author. If `maxstack.json` says `reviewMode: "review"`,
+CLI writes queue instead and need `--accept --gen` to land, accept and
+regenerate in one shot; say so when you report what you changed, because then
+your work is waiting in `/workbench` rather than live.
 
 **5. Check.** `run_checks` — spec referential integrity. Green here means the
 spec is coherent; it does **not** mean the feature works.

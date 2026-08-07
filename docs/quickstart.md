@@ -113,11 +113,17 @@ What actually happened: each command compiled to a typed **spec-op**
 op-log with its author recorded, and the generators derived the code. You did
 not hand-edit a generated file, and you never will — that is the whole trick.
 
-Changes you make yourself land accepted and regenerate as they go — no flags.
-The review queue is for changes you did *not* make: an agent proposing through
-MCP arrives as a *suggestion* and waits for you in `/workbench`. Set
-`"reviewMode": "review"` in `maxstack.json` if you want your own edits queued
-too.
+Changes land accepted and regenerate as they go — no flags. That is
+`"reviewMode": "auto"`, which `maxstack init` writes into `maxstack.json`, and
+it settles a write by *how it was made*, not by *who made it*: a CLI verb run by
+an agent lands accepted too, and `apply_spec_change` over MCP lands accepted by
+design. So on a fresh project `/workbench` shows **Review queue (0)** because
+nothing is queued, not because the queue is broken.
+
+Set `"reviewMode": "review"` in `maxstack.json` to get the review-first loop:
+every `op`/`add-entity`/`add-field` then lands *suggested* and waits for you in
+`/workbench` until you Accept it, and `--accept --gen` is how you opt a single
+write back out.
 
 Check the gate whenever you want reassurance:
 
@@ -151,7 +157,9 @@ Nothing is agent-only. See [`mcp-reference.md`](mcp-reference.md).
 ## The one thing to remember
 
 **The spec is the source of truth, and nothing grounds until a human decides.**
-Agents propose typed ops; proposals land *suggested*; you accept or reject;
+Agents propose typed ops; proposals land *suggested*; you accept or reject them
+in `/workbench` — that last step is the loop you get with `"reviewMode":
+"review"`, and a fresh project ships `auto`, which accepts as it lands;
 generators build only from what's accepted; generated files are never clobbered
 once you touch or eject them.
 

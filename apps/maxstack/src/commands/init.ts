@@ -799,8 +799,11 @@ ${bin} eject <route-id>          # take whole-file ownership (--dry-run to previ
 ${bin} validate                  # spec valid + manifest intact + regen stable
 \`\`\`
 
-Add \`--accept --gen\` to a write to land + accept + regenerate in one shot, or set
-\`"reviewMode": "auto"\` in \`${CONFIG_FILENAME}\` to get that by default (trusted-solo).
+Writes land + accept + regenerate in one shot: \`"reviewMode": "auto"\` is the
+default this scaffold wrote into \`${CONFIG_FILENAME}\` (trusted-solo), and it settles by
+write path, not by author — an agent driving the CLI lands accepted too. Set
+\`"reviewMode": "review"\` there for the review-first loop, where those verbs queue in
+\`/workbench\` and \`--accept --gen\` opts a single write back out.
 \`${bin} dev\` regenerates the app tree automatically as the spec changes.
 
 The \`validate\` gate is standalone: it checks the spec parses, the generated

@@ -7,9 +7,12 @@ initial app, and — the part the platform actually exists for — making the 2n
 The one mental model to hold: **the spec is the source of truth, and nothing
 grounds until a human decides.** ("Grounds" = becomes truth the generators and
 the admin surface are allowed to build on; only rows a human has accepted — or
-added manually — ground.) Agents propose typed spec-ops; every proposal
-lands *suggested*; you accept/reject in the workbench (or via the
-`provenance.review` op); generators derive code, DB, admin CRUD, docs, and
+added manually — ground.) Agents propose typed spec-ops; a proposal lands
+*suggested*; you accept/reject in the workbench (or via the
+`provenance.review` op). That is the loop `"reviewMode": "review"` gives you;
+be aware that it is **not** what a fresh project does — `init` writes
+`"reviewMode": "auto"`, which accepts in the same invocation, and
+`apply_spec_change` lands accepted whatever the mode says. Generators derive code, DB, admin CRUD, docs, and
 test scaffolds from the *accepted* spec; generated files are never clobbered
 once you touch or eject them. You never hand-edit generated files — you change
 the spec, fill a slot, or eject.
@@ -184,10 +187,12 @@ The layout `init` creates:
   **source of truth, committed to git**. `maxstack op`/`gen`/`validate`, the
   workbench, and agents over MCP all read and write this one file.
 - `maxstack.json` — project config (app dir, data dir, backend, `reviewMode`).
-  Set `"reviewMode": "auto"` for a trusted-solo project and every `op`/
-  `add-entity`/`add-field` auto-accepts + regenerates (the review queue is pure
-  friction when you're reviewing your own intent); leave it `"review"` (default)
-  for the review-first loop. `"cookieBanner"` decides whether the runtime shows
+  `"reviewMode": "auto"` is what `init` writes (trusted-solo): every `op`/
+  `add-entity`/`add-field` auto-accepts + regenerates, because the review queue
+  is pure friction when you're reviewing your own intent. Set it to
+  `"review"` for the review-first loop, where those verbs land *suggested* and
+  wait in `/workbench`. It keys off the write path, not the author — an agent
+  driving the CLI settles the same way you do. `"cookieBanner"` decides whether the runtime shows
   the cookie-consent banner: `"auto"` (default) shows it only once the `auth`
   bundle is installed — a personal app with no sign-in has nothing to disclose —
   and `"always"`/`"never"` make it a deliberate choice.
@@ -255,8 +260,11 @@ The loop, whether driven by a bootstrap script or an agent talking to
    **additive**: `prd.addRequirement/addScopeItem/addRisk/addMetric/recordDecision`,
    `data.addEntity`, `data.addField`, `page.addPage`, `page.addBlock`,
    `pricing.addTier`, plus `provenance.review`. Every AI-origin op lands
-   *suggested*; design forks land as pending decisions in the ledger, not as
-   silent choices.
+   *suggested* — and then, unless the project sets `"reviewMode": "review"`,
+   is accepted by the same invocation that landed it (`apply_spec_change`
+   always does; the CLI verbs do under the default `auto`), so the row is
+   marked suggested *and* accepted. Design forks land as pending decisions in
+   the ledger, not as silent choices.
 
 2. **You review.** Open `/workbench`. Work the queue: Accept makes a
    suggestion grounding truth; Reject is a soft-reject (never a delete — the
@@ -291,15 +299,19 @@ reach for the lowest rung that expresses the change:
 
 1. **Spec-op** (most changes): tell the agent what you want ("add a
    `renewsOn` date field to Subscription"). It applies `data.addField` via
-   MCP; the field appears in your `/workbench` queue; you Accept; the admin
-   form has the field on the next request and the next regeneration derives
-   it everywhere. Zero hand-written code. Driving it yourself from the terminal
-   is the same primitive with sugar: `maxstack add-field subscription
-   renewsOn:date!` (or a whole entity: `maxstack add-entity subscription
-   --field renewsOn:date!`). Add `--accept --gen` to collapse land → accept →
-   regenerate into one command, or set `"reviewMode": "auto"` once and get it by
-   default. The raw `maxstack op --file <op.json>` stays the honest underlying
-   wire format — the sugar just compiles to it.
+   MCP; the admin form has the field on the next request and the next
+   regeneration derives it everywhere. Zero hand-written code. `apply_spec_change`
+   lands **accepted**, not queued — the tool description says so — so read the
+   `effect` it returns rather than expecting a gate downstream; ask for
+   `propose_spec_change` when you want the diff without the write. Driving it
+   yourself from the terminal is the same primitive with sugar: `maxstack
+   add-field subscription renewsOn:date!` (or a whole entity: `maxstack
+   add-entity subscription --field renewsOn:date!`), which under the default
+   `"reviewMode": "auto"` also lands accepted and regenerates. Set
+   `"reviewMode": "review"` to make those verbs queue instead, and then
+   `--accept --gen` collapses land → accept → regenerate for a single write.
+   The raw `maxstack op --file <op.json>` stays the honest underlying wire
+   format — the sugar just compiles to it.
 
    **Quote any field spec carrying `(` or `->`.** Both are shell syntax, so
    `--field 'status:enum(todo,done)'` and `--field 'owner:->e-user'` need the

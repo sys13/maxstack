@@ -34,11 +34,18 @@ export interface ProjectConfig {
 	/** Store backend for `pnpm dev`: `pglite` (default) or `postgres`. */
 	backend: 'pglite' | 'postgres'
 	/**
-	 * How human write verbs (`op`, `add-entity`, `add-field`) settle a change
-	 *. `review` (default) lands the change and leaves it for the
-	 * workbench queue; `auto` is the trusted-solo autopilot — every landed op is
-	 * auto-accepted and the app tree regenerated in one shot, as if `--accept
-	 * --gen` were always passed. Explicit `--accept`/`--gen` flags still win.
+	 * How the CLI write verbs (`op`, `add-entity`, `add-field`) settle a change.
+	 * `auto` — the scaffold default, see {@link DEFAULT_CONFIG} — is the
+	 * trusted-solo autopilot: every landed op is auto-accepted and the app tree
+	 * regenerated in one shot, as if `--accept --gen` were always passed.
+	 * `review` lands the change and leaves it for the workbench queue. Explicit
+	 * `--accept`/`--gen` flags still win.
+	 *
+	 * It settles a write by **write path, not by author**: an `origin: "ai"` op
+	 * arriving through the same CLI verb settles the same way a hand-typed one
+	 * does. Whether that is right is an open product question (#357); what is
+	 * not open is that this is what the code does, so nothing here or in the
+	 * docs may claim otherwise.
 	 */
 	reviewMode: 'review' | 'auto'
 	/**
@@ -83,14 +90,21 @@ export const DEFAULT_CONFIG: Omit<ProjectConfig, 'name'> = {
 	appDir: 'app',
 	dataDir: '.maxstack',
 	backend: 'pglite',
-	// `auto` — a change you made yourself lands and regenerates in one step.
+	// `auto` — a change lands and regenerates in one step.
 	//
-	// The queue is for changes you did *not* make: an agent proposing through
-	// MCP still arrives `suggested` and waits, because that is where the review
-	// gate earns its keep. Defaulting a solo maintainer's own edits into a queue
-	// only they can clear taught a ceremony with nothing behind it — the
-	// terminal sugar already stamps its rows accepted, so `review` mostly meant
-	// "type two more flags to get the behaviour you wanted".
+	// Defaulting a solo maintainer's own edits into a queue only they can clear
+	// taught a ceremony with nothing behind it — the terminal sugar already
+	// stamps its rows accepted, so `review` mostly meant "type two more flags to
+	// get the behaviour you wanted".
+	//
+	// Note what this does *not* say: it does not say an agent's writes queue.
+	// They do not. A CLI verb run by an agent settles by this mode like any
+	// other, and `apply_spec_change` over MCP lands accepted by construction
+	// (see `packages/mcp/src/tools.ts` — the surface says so out loud). So under
+	// the scaffold default nothing reaches the workbench queue at all, which is
+	// why `Review queue (0)` is the honest reading of a healthy project rather
+	// than a bug in the queue (#357). `propose_spec_change` is the one agent
+	// path that deliberately writes nothing.
 	//
 	// Set `"reviewMode": "review"` in maxstack.json to queue everything.
 	reviewMode: 'auto',

@@ -80,9 +80,10 @@ You never edit generated files by hand. Instead:
 1. **Apply a spec-op** — from sugar commands (`add-entity`, `add-field`), a
    feature bundle (`add auth`), the workbench UI, Claude via MCP, or raw JSON
    (`op --file change.json`).
-2. **Review it** — changes you make land accepted; an agent's proposals queue
-   immediately, or set `"reviewMode": "auto"` in `maxstack.json` if you're
-   working solo and trust yourself.
+2. **Review it** — under the scaffold default `"reviewMode": "auto"` every
+   write lands accepted, whoever made it, because a solo maintainer reviewing
+   their own intent is ceremony. Set `"reviewMode": "review"` in `maxstack.json`
+   to make the CLI verbs queue in `/workbench` instead.
 3. **Regenerate** — `--gen` (or the always-on regen in `maxstack dev`) rewrites
    the app tree through the never-clobber writer.
 4. **Own what you need to** — `maxstack eject <route-id>` hands you the file
