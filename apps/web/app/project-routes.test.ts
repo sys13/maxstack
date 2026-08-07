@@ -531,6 +531,74 @@ describe('board views', () => {
 		}
 		expect(getRoutes(stripped)[0]?.view).toBeNull()
 	})
+
+	/**
+	 * An aggregate is the one view that arranges a GROUP BY rather than rows, so
+	 * the composition has two properties a board's does not: nothing about the
+	 * query is resolved here (the server resolves every name against the registry
+	 * under the read gate), and a dimension whose declared options were dropped
+	 * still draws, because its buckets come from the data.
+	 */
+	describe('aggregate views (#299)', () => {
+		const withAggregate: PageSpec = {
+			...subscriptions,
+			blocks: [
+				{ id: 'blk-table', type: 'table', provenance: suggested() },
+				{
+					id: 'blk-agg',
+					type: 'aggregate',
+					aggregate: {
+						groupField: 'status',
+						fn: 'count',
+						display: 'table',
+						limit: 5,
+					},
+					provenance: suggested(),
+				},
+			],
+		}
+
+		it('resolves the aggregate block, carrying its dimension’s labels', () => {
+			expect(getRoutes(specWithBoard(withAggregate))[0]?.view).toEqual({
+				kind: 'aggregate',
+				groupField: 'status',
+				fn: 'count',
+				display: 'table',
+				limit: 5,
+				options: [
+					{ label: 'Trial', value: 'trial' },
+					{ label: 'Active', value: 'active' },
+				],
+			})
+		})
+
+		it('still draws when the dimension declares no options', () => {
+			const spec = specWithBoard(withAggregate)
+			const [entity] = spec.data.entities
+			const stripped: SpecSystem = {
+				...spec,
+				data: {
+					entities: [
+						{
+							...(entity as NonNullable<typeof entity>),
+							fields: [
+								{
+									...(entity?.fields[0] as NonNullable<
+										typeof entity
+									>['fields'][0]),
+									options: undefined,
+								},
+							],
+						},
+					],
+				},
+			}
+			expect(getRoutes(stripped)[0]?.view).toMatchObject({
+				kind: 'aggregate',
+				options: null,
+			})
+		})
+	})
 })
 
 describe('matchProjectPath', () => {

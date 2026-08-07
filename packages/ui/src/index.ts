@@ -296,6 +296,14 @@ export {
 	NotFound,
 } from './registry/shell.tsx'
 export {
+	AggregateView,
+	type AggregateViewBucket,
+	type AggregateViewOption,
+	type AggregateViewProps,
+	aggregateKeyLabel,
+	aggregateLabel,
+} from './resource/AggregateView.tsx'
+export {
 	type BoardDrop,
 	BoardView,
 	type BoardViewProps,

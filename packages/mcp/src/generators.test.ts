@@ -5,13 +5,16 @@ import {
 	parseManifest,
 	type RouteManifest,
 } from '@maxstack/core/ownership'
-import type { EntitySpec, PageSpec, SpecSystem } from '@maxstack/spec'
 import {
+	type EntitySpec,
 	manual,
 	minimalPRD,
 	newSpecSystem,
+	type PageSpec,
 	prdSeedProse,
+	type SpecSystem,
 	suggested,
+	VIEW_BLOCK_TYPES,
 } from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
 import { describe, expect, it } from 'vitest'
@@ -125,7 +128,9 @@ describe('pageDescriptor list surface (#349)', () => {
 	})
 
 	it('refuses a page arranged by a view block', () => {
-		for (const type of ['calendar', 'timeline', 'board']) {
+		// Every declared view block, read from the spec — so a new one is covered
+		// the day it is declared rather than the day somebody remembers this test.
+		for (const type of VIEW_BLOCK_TYPES) {
 			const view: PageSpec = {
 				...base,
 				blocks: [

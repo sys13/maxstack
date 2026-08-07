@@ -15,7 +15,7 @@
 
 import { addDays, monthGrid, monthStart } from '@maxstack/ui'
 import { describe, expect, it } from 'vitest'
-import type { ProjectRoute } from './project-routes'
+import type { PageRowView } from './project-routes'
 import {
 	TIMELINE_WINDOW_DAYS,
 	timelineWindow,
@@ -23,7 +23,9 @@ import {
 	viewListOptions,
 } from './routes/project.page'
 
-type View = NonNullable<ProjectRoute['view']>
+// The row-shaped views only. An aggregate has no window, no cap and no anchor
+// — it is deliberately not assignable to any of these three functions.
+type View = PageRowView
 
 const ANCHOR = '2026-06-15'
 

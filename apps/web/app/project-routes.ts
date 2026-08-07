@@ -20,6 +20,7 @@
 
 import { isSlotBlockType, slotBlockName } from '@maxstack/core/ownership'
 import {
+	type AggregateSpec,
 	type BlockOrder,
 	type BlockSpec,
 	type BlockVariant,
@@ -124,14 +125,42 @@ export interface PageBoardView extends BoardSpec {
 }
 
 /**
+ * An `aggregate` block, resolved for the runtime (#299).
+ *
+ * The one view that does not arrange rows: it declares a `GROUP BY`, and the
+ * loader answers it with `opAggregate` instead of a list read. Nothing is
+ * resolved here the way a board's `options` are, and that is the point — every
+ * name this carries goes to the *server*, which resolves it against the
+ * registry under the read gate. Resolving anything here would put a column name
+ * on a path that also carries request data.
+ */
+export interface PageAggregateView extends AggregateSpec {
+	kind: 'aggregate'
+	/** The dimension's declared values, when it is an enum — used to label bars. */
+	options: FieldOption[] | null
+}
+
+/**
  * The date-arranged views — the two a *reschedule* applies to.
  * Named so `rescheduleValues` can take exactly them: a board has no day to move
  * an entry to, and a signature that accepted one would have to answer that.
  */
 export type PageDateView = PageCalendarView | PageTimelineView
 
+/**
+ * The views whose content is **rows**.
+ *
+ * Named so `viewListOptions`, `viewLimit` and `anchorDay` can take exactly
+ * them. An aggregate reads no rows at all, so a row cap, a date window and an
+ * anchor day are all questions it has no answer to — and a signature that
+ * accepted one would silently hand it a calendar's defaults, which is how the
+ * loader would come to run a windowed list read for a chart that never wanted
+ * one. The type is the guard.
+ */
+export type PageRowView = PageDateView | PageBoardView
+
 /** The page's arranged view, if it declares one. */
-export type PageView = PageDateView | PageBoardView
+export type PageView = PageRowView | PageAggregateView
 
 /**
  * The first view block a page declares, or `null`.
@@ -159,6 +188,16 @@ function viewOf(
 			// cannot produce one; a hand-edited spec file can.
 			if (options && options.length > 0)
 				return { kind: 'board', ...block.board, options }
+		}
+		if (block.type === 'aggregate' && block.aggregate) {
+			// Unlike a board, an aggregate's buckets come from the *data*, not from
+			// the declared value list — so a dimension whose options were dropped
+			// still draws, and the options are carried only to label and order the
+			// bars when they exist.
+			const options =
+				entity?.fields.find((f) => f.name === block.aggregate?.groupField)
+					?.options ?? null
+			return { kind: 'aggregate', ...block.aggregate, options }
 		}
 	}
 	return null

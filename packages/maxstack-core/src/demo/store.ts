@@ -20,8 +20,12 @@ import {
 	inArray,
 	isNull,
 	lte,
+	max as maxOf,
+	min as minOf,
 	or,
 	type SQL,
+	sql,
+	sum as sumOf,
 } from 'drizzle-orm'
 import type { PgTable } from 'drizzle-orm/pg-core'
 // Type-only: the pglite driver is Node-only and would otherwise be pulled into
@@ -31,6 +35,7 @@ import type { PgTable } from 'drizzle-orm/pg-core'
 // idiom in `sprout/backend.ts` (postgres.js, node:fs).
 import type { drizzle } from 'drizzle-orm/pglite'
 import { classifyConstraintViolation } from '../sprout/constraints.ts'
+import type { DerivedAggFn } from '../sprout/derived.ts'
 import type { ResourceRegistry } from '../sprout/registry.ts'
 import {
 	type SearchHit,
@@ -39,6 +44,8 @@ import {
 	searchSql,
 } from '../sprout/search.ts'
 import type {
+	AggregateBucket,
+	AggregateQuery,
 	ListOptions,
 	RawQueryRunner,
 	Row,
@@ -62,6 +69,42 @@ function tableFor(registry: ResourceRegistry, resource: string) {
  * (so a stale filter/search field is ignored rather than throwing). */
 function columnOf(table: Record<string, unknown>, name: string): unknown {
 	return table[name] !== undefined ? table[name] : null
+}
+
+/**
+ * The SQL each aggregate compiles to, as a **closed map**.
+ *
+ * A `Record<DerivedAggFn, ...>` rather than a string interpolation: the
+ * function name arrives from a spec declaration, and looking it up in a map the
+ * type checker proves total means an unexpected value is a missing key (a
+ * `TypeError` at the call, loudly) rather than a fragment of SQL text.
+ *
+ * `avg` is cast to `double precision` because Postgres returns a `numeric`
+ * average with full scale — `3.3333333333333333` as a string — and the caller
+ * wants a number to draw a bar with, not an arbitrary-precision decimal.
+ */
+const AGGREGATE_SQL: Record<DerivedAggFn, (operand: SQL) => SQL<unknown>> = {
+	count: () => sql`count(*)`,
+	countDistinct: (operand) => sql`count(distinct ${operand})`,
+	sum: (operand) => sumOf(operand as never) as SQL<unknown>,
+	avg: (operand) => sql`avg(${operand})::double precision`,
+	min: (operand) => minOf(operand as never) as SQL<unknown>,
+	max: (operand) => maxOf(operand as never) as SQL<unknown>,
+}
+
+/**
+ * Normalize a group key to the string the UI buckets by.
+ *
+ * A `Date` (a timestamp column read in date mode, which is what `date_trunc`
+ * comes back as) becomes its ISO instant so the key is stable across the wire;
+ * a boolean or number becomes its text form so `false` and `0` stay distinct
+ * from the null bucket. `null` stays `null` — "rows with no value" is a real
+ * bucket, and folding it into an empty string would merge it with a blank one.
+ */
+function bucketKey(value: unknown): string | null {
+	if (value == null) return null
+	if (value instanceof Date) return value.toISOString()
+	return String(value)
 }
 
 /** True for a range bound worth emitting — present and not a blank string (a
@@ -376,6 +419,73 @@ export function createDrizzleStore(
 				.limit(opts.limit ?? 50)
 				.offset(opts.offset ?? 0)
 			return rows as Row[]
+		},
+		async aggregate(
+			resource,
+			query: AggregateQuery,
+			opts: ListOptions = {},
+		): Promise<AggregateBucket[]> {
+			const { table } = tableFor(registry, resource)
+			const cols = table as Record<string, unknown>
+			// An unknown group or measure column **throws**, breaking this store's
+			// otherwise-universal "skip what you don't recognise" rule — and the
+			// asymmetry is the point. Dropping a stale `filter` widens a read toward
+			// a cap that already applied, so it is safe and keeps a stale spec from
+			// 500ing. Dropping a `GROUP BY` does not widen anything: it collapses the
+			// answer to one bucket, which is a *wrong number that looks right*. There
+			// is no honest degraded aggregate, so there is no degraded aggregate.
+			const groupCol = columnOf(cols, query.groupColumn)
+			if (!groupCol)
+				throw new Error(
+					`aggregate: "${resource}" has no column "${query.groupColumn}" to group by`,
+				)
+			const measureCol =
+				query.fn === 'count' ? null : columnOf(cols, query.measureColumn ?? '')
+			if (query.fn !== 'count' && !measureCol)
+				throw new Error(
+					`aggregate: "${resource}" has no column "${query.measureColumn}" to aggregate`,
+				)
+			// The bucket is a *bound parameter* to `date_trunc`, never spliced into
+			// the statement — so even though it is a closed set upstream, nothing
+			// here depends on that having been true.
+			const keyExpr = query.bucket
+				? sql`date_trunc(${query.bucket}, ${groupCol as SQL})`
+				: sql`${groupCol as SQL}`
+			const operand = sql`${measureCol as SQL}`
+			// A closed map, keyed by the function name: the SQL is chosen, never
+			// composed from the caller's string.
+			const valueExpr = AGGREGATE_SQL[query.fn](operand)
+			const where = whereFor(cols, opts)
+			const base = db
+				.select({ key: keyExpr, value: valueExpr, n: countRows() })
+				.from(table)
+			const rows = await (where ? base.where(where) : base)
+				// `GROUP BY 1` / `ORDER BY 2 DESC, 1` — *ordinals*, not a second copy
+				// of the expressions. Repeating them is what a first cut does, and it
+				// fails: drizzle renders a bare column reference unqualified in the
+				// select list and table-qualified in the GROUP BY, so Postgres sees two
+				// different expressions and refuses the whole statement with "must
+				// appear in the GROUP BY clause". Ordinals are literals written here,
+				// so they carry nothing from the caller, and they make it structurally
+				// impossible for the grouped expression to drift from the selected one.
+				.groupBy(sql`1`)
+				// Largest first, so a `limit` keeps the buckets that matter rather
+				// than an arbitrary slice. Ties fall back to the key for a stable
+				// order — an unordered truncation is a chart that reshuffles itself
+				// between two identical reads.
+				.orderBy(sql`2 desc, 1`)
+				.limit(query.limit)
+			return (rows as { key: unknown; value: unknown; n: unknown }[]).map(
+				(row) => ({
+					key: bucketKey(row.key),
+					// Postgres returns `numeric` (sum/avg over a numeric column, and
+					// every count) as a *string* to avoid float loss. Coerced here, at
+					// the one place that knows it came from a driver, so nothing above
+					// the store ever compares a number to "12".
+					value: row.value == null ? null : Number(row.value),
+					count: Number(row.n ?? 0),
+				}),
+			)
 		},
 		async count(resource, opts: ListOptions = {}) {
 			const { table } = tableFor(registry, resource)

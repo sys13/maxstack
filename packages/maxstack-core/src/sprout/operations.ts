@@ -34,7 +34,13 @@ import {
 } from './permissions.ts'
 import type { RegisteredResource, ResourceRegistry } from './registry.ts'
 import { normalizeSearchQuery, type SearchHit } from './search.ts'
-import type { ListOptions, Row, SproutStore } from './store.ts'
+import type {
+	AggregateBucket,
+	AggregateQuery,
+	ListOptions,
+	Row,
+	SproutStore,
+} from './store.ts'
 import { validateData } from './validation.ts'
 
 // No constructor parameter properties in this package: the CLI runs these
@@ -812,6 +818,98 @@ export async function opList(
 	// on the way out rather than never computed — the gate is one place, and it
 	// is the last one.
 	return projectForPortal(user, entry, await withDerived(ctx, resource, rows))
+}
+
+/**
+ * One declared `GROUP BY` over a resource — the read behind an `aggregate`
+ * block (#299).
+ *
+ * It lives here, beside `opList`, and that placement is the entire
+ * access-control argument: **an aggregate is a read of many rows.** A count is
+ * a fact derived from every row the predicate matched, so a count computed
+ * without the tenant scope is a cross-tenant read that happens to return a
+ * number instead of rows — the leak shape that looks like a feature, and the
+ * one `opSearchCount` states the same reasoning about. So this runs the
+ * *identical* gate to `opList`, in the same order, with the forced scopes
+ * spread **last** so nothing the caller supplies can widen them:
+ *
+ *  1. `authorize(..., 'read')`, so a denial is a throw rather than an empty
+ *     chart a caller could tell apart by squinting.
+ *  2. `assertPortalMayEnumerate` — an aggregate is enumeration with the rows
+ *     summed. A row-scoped portal that could not list may not count either.
+ *  3. `assertPortalReadShape` over the group, measure and filter columns: a
+ *     `GROUP BY` on a hidden column is a comparison oracle over its values,
+ *     and a sharper one than an `orderBy`, because it names them.
+ *  4. Soft-delete, tenant and portal scopes, forced over any caller filter.
+ *
+ * **The group and measure columns must exist, or this throws.** That breaks the
+ * `filter` rule one line above it, deliberately: an ignored filter widens a read
+ * toward a cap that already applied, while an ignored `GROUP BY` returns one
+ * bucket where the caller asked for twelve — a wrong number that renders
+ * perfectly. There is no safe degradation of an aggregate, so there is none.
+ *
+ * Nothing here is request-shaped. `query` is resolved from the page's spec
+ * declaration by the caller; the store turns the names into column *objects*
+ * and the bucket into a bound parameter, so no client string is ever a
+ * candidate for the identifier position in the SQL.
+ */
+export async function opAggregate(
+	ctx: OpContext,
+	resource: string,
+	query: AggregateQuery,
+	opts: ListOptions = {},
+): Promise<AggregateBucket[]> {
+	const { registry, store, user } = ctx
+	const entry = resolve(registry, resource)
+	await authorize(
+		resource,
+		entry.config.access,
+		'read',
+		createAccessContext(user),
+	)
+	assertPortalMayEnumerate(user, resource)
+	// `orderBy` carries the grouped column through the portal's visibility check:
+	// grouping by a column is at least as revealing as ordering by it.
+	assertPortalReadShape(user, resource, entry, {
+		orderBy: query.groupColumn,
+		filter: opts.filter,
+	})
+	if (query.measureColumn !== undefined)
+		assertPortalReadShape(user, resource, entry, {
+			orderBy: query.measureColumn,
+		})
+	if (!store.aggregate)
+		throw new UnsupportedOperationError(
+			resource,
+			'aggregate',
+			'this store cannot group rows — refusing rather than listing a capped page and summing it, which would answer "how many" with "how many of the first 50"',
+		)
+	const known = new Set(entry.resource.columns.map((c) => c.name))
+	for (const [label, name] of [
+		['group', query.groupColumn],
+		['measure', query.measureColumn],
+	] as const) {
+		if (name === undefined) continue
+		if (!known.has(name))
+			throw new ValidationError({
+				[name]: [
+					`"${name}" is not a column of "${resource}", so there is no ${label} to aggregate — refusing rather than dropping it, because an aggregate missing its ${label} returns a number that looks right and is not`,
+				],
+			})
+	}
+	const tenant = tenantOf(entry, user, resource, 'read')
+	const softField = softDeleteFieldOf(entry)
+	let filter = opts.filter
+	if (softField && !opts.includeDeleted)
+		filter = { ...filter, [softField]: null }
+	if (tenant) filter = { ...filter, [tenant.field]: tenant.orgId }
+	filter = { ...filter, ...portalScope(user) }
+	return store.aggregate(resource, query, {
+		filter,
+		range: opts.range,
+		search: opts.search,
+		searchFields: opts.searchFields,
+	})
 }
 
 /**

@@ -4,6 +4,7 @@
  * validation logic runs over any backend (pglite in tests, Postgres in prod).
  */
 
+import type { DerivedAggFn, DerivedBucket } from './derived.ts'
 import type { SearchHit, SearchIndexPlan } from './search.ts'
 
 export interface ListOptions {
@@ -125,8 +126,64 @@ export interface SearchOptions {
 	range?: Record<string, RangeBound>
 }
 
+/**
+ * A `GROUP BY` the store is asked to run — one measure, split by one dimension.
+ *
+ * Every field here names a **column**, resolved from the spec by the caller
+ * (`opAggregate`) against the registry before it arrives. That is the whole
+ * injection story: a grouped column is an identifier and cannot be a bound
+ * parameter, so the only defence is that no request-derived string is ever a
+ * candidate for it. There is deliberately no free-form expression, no `having`
+ * and no second grouping level — those would each need a grammar, and the point
+ * of #299 was to cover the shapes dashboards actually use, not to grow a query
+ * language.
+ */
+export interface AggregateQuery {
+	/** Column whose value places a row in a bucket. */
+	groupColumn: string
+	/** Truncates a timestamp `groupColumn` into periods. Ignored otherwise. */
+	bucket?: DerivedBucket
+	/** The aggregate computed per bucket. */
+	fn: DerivedAggFn
+	/** Column aggregated. Omitted (and unused) for `count`. */
+	measureColumn?: string
+	/** Max buckets returned, largest measure first. */
+	limit: number
+}
+
+/** One bucket of an {@link AggregateQuery}'s result. */
+export interface AggregateBucket {
+	/**
+	 * The dimension's value for this bucket — an ISO timestamp when
+	 * {@link AggregateQuery.bucket} is set, `null` for the rows where the
+	 * grouped column is null (a real bucket, not an error).
+	 */
+	key: string | null
+	/** The aggregate. `null` when the aggregate is undefined over the bucket. */
+	value: number | null
+	/** How many rows are in the bucket, always — the denominator for an `avg`. */
+	count: number
+}
+
 export interface SproutStore {
 	list(resource: string, opts?: ListOptions): Promise<Row[]>
+	/**
+	 * Run one grouped aggregate under exactly {@link list}'s predicates.
+	 *
+	 * **Optional on purpose, and its absence is a refusal, not a fallback.** A
+	 * store that cannot group makes `opAggregate` throw
+	 * `UnsupportedOperationError` rather than listing rows and summing them in
+	 * JS. That fallback is the tempting one and it is wrong twice over: it is
+	 * bounded by the list cap, so it would silently answer "how many" with "how
+	 * many of the first 50", and it moves the aggregate outside the predicates
+	 * the database applied — a number computed over a page of rows is not the
+	 * number the caller asked for, and it looks exactly like one.
+	 */
+	aggregate?(
+		resource: string,
+		query: AggregateQuery,
+		opts?: ListOptions,
+	): Promise<AggregateBucket[]>
 	/**
 	 * Ranked full-text search over a declared index.
 	 *

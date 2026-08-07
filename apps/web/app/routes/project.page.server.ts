@@ -9,7 +9,14 @@
  * error, and would have been a data leak if it were not.
  */
 
-import { listHandler, opSearch, type SproutResource } from '@maxstack/core'
+import {
+	type ListOptions,
+	listHandler,
+	opAggregate,
+	opSearch,
+	type SproutResource,
+} from '@maxstack/core'
+import { AGGREGATE_LIMIT_DEFAULT, type AggregateFilter } from '@maxstack/spec'
 import { activeFilterCount } from '@maxstack/ui'
 import { data } from 'react-router'
 import { inlineEditableFields } from '~/inline-edit'
@@ -36,6 +43,21 @@ import {
 	viewListOptions,
 } from './project.page'
 
+/**
+ * An aggregate's declared `where` clauses as a store filter.
+ *
+ * Spec-declared, never request-derived — which is what makes it safe to hand
+ * straight to the read. `opAggregate` spreads the tenant, soft-delete and
+ * portal scopes *over* whatever arrives here, so a declaration cannot widen the
+ * read even if a spec file names the tenant column itself.
+ */
+function declaredFilter(
+	where: readonly AggregateFilter[] | undefined,
+): ListOptions['filter'] {
+	if (!where || where.length === 0) return undefined
+	return Object.fromEntries(where.map((w) => [w.field, w.equals]))
+}
+
 /** The tracked demo ids for one resource, or `[]` when nothing was seeded. */
 async function demoRowIds(resource: string): Promise<string[]> {
 	const manifest = await demoSeedManifest()
@@ -48,7 +70,15 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 	// A date-arranged view reads the same rows through the same
 	// handler as the list; only *which* rows and in what order differ, because
 	// a calendar is a window on a date column rather than the first page of one.
-	const view = resolved.page.view
+	const declared = resolved.page.view
+	// An aggregate is the one view that reads no rows, so it is split off here
+	// before anything row-shaped runs. Everything below — the anchor day, the
+	// window, the row cap, the facets — is a question about *which rows*, and an
+	// aggregate has no answer to any of them. `PageRowView` is the type that
+	// makes forgetting this a compile error rather than a chart that quietly
+	// triggered a windowed list read.
+	const view = declared?.kind === 'aggregate' ? null : declared
+	const aggregate = declared?.kind === 'aggregate' ? declared : null
 	const anchor = anchorDay(request, view)
 	// Search, facets, ordering **and the columns they are derived from**, all
 	// resolved together — see `listControls`, which is where the reasoning and
@@ -95,31 +125,53 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 							: undefined,
 				})
 			: null
-	const res = ranked
-		? { status: 200, body: ranked.map((hit) => hit.row) }
-		: await listHandler(ctx, resolved.resource, {
-				...(view
-					? viewListOptions(view, anchor)
-					: {
-							limit: 100,
-							// A sort the viewer chose wins over the spec-declared `order`,
-							// which is the page's *default* ordering rather than its only
-							// one. With no `?sort=` the declared order is exactly what it
-							// always was.
-							orderBy: sort?.field ?? resolved.page.order?.field,
-							orderDir: sort?.dir ?? resolved.page.order?.direction,
-							search: filters.search,
-							searchFields: searchFields.length > 0 ? searchFields : undefined,
-							filter:
-								Object.keys(filters.filter).length > 0
-									? filters.filter
-									: undefined,
-							range:
-								filters.range && Object.keys(filters.range).length > 0
-									? filters.range
-									: undefined,
-						}),
-			})
+	// The grouped read, under `opAggregate`'s gate: the permission check, the
+	// tenant scope and the soft-delete scope are applied to the aggregate
+	// *query*, not to a page of rows summed afterwards. Every name reaching it
+	// comes from the block's declaration and is resolved against the registry
+	// there; nothing from this request contributes a column name.
+	const buckets = aggregate
+		? await opAggregate(
+				ctx,
+				resolved.resource,
+				{
+					groupColumn: aggregate.groupField,
+					bucket: aggregate.bucket,
+					fn: aggregate.fn,
+					measureColumn: aggregate.measureField,
+					limit: aggregate.limit ?? AGGREGATE_LIMIT_DEFAULT,
+				},
+				{ filter: declaredFilter(aggregate.where) },
+			)
+		: null
+	const res = aggregate
+		? { status: 200, body: [] }
+		: ranked
+			? { status: 200, body: ranked.map((hit) => hit.row) }
+			: await listHandler(ctx, resolved.resource, {
+					...(view
+						? viewListOptions(view, anchor)
+						: {
+								limit: 100,
+								// A sort the viewer chose wins over the spec-declared `order`,
+								// which is the page's *default* ordering rather than its only
+								// one. With no `?sort=` the declared order is exactly what it
+								// always was.
+								orderBy: sort?.field ?? resolved.page.order?.field,
+								orderDir: sort?.dir ?? resolved.page.order?.direction,
+								search: filters.search,
+								searchFields:
+									searchFields.length > 0 ? searchFields : undefined,
+								filter:
+									Object.keys(filters.filter).length > 0
+										? filters.filter
+										: undefined,
+								range:
+									filters.range && Object.keys(filters.range).length > 0
+										? filters.range
+										: undefined,
+							}),
+				})
 	if (res.status !== 200) throw data(res.body, { status: res.status })
 	// Derived values — computed fields evaluated per row, rollups
 	// aggregated in SQL — already rode out of `listHandler` on the op context.
@@ -185,6 +237,11 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 		demoIds: resolved.page.resource
 			? await demoRowIds(resolved.page.resource)
 			: [],
+		// The grouped result an `aggregate` block draws, or `null` on every other
+		// page. Resolved on the server under the read gate, which is why the block
+		// takes buckets as props rather than fetching them: the client half of a
+		// dashboard widget would be a second read path with a second access story.
+		buckets,
 		// The day the grid is drawn around, resolved on the server:
 		// "today" is a question about the *declared* zone, and answering it in the
 		// browser would hydrate a different grid than the one that was rendered.

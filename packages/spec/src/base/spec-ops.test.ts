@@ -47,7 +47,7 @@ const entity: SpecOp = {
 
 describe('the vocabulary', () => {
 	it('is the first 10 ops + the set-ops + theme.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(62)
+		expect(SPEC_OP_NAMES).toHaveLength(63)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -1453,6 +1453,262 @@ describe('board views — page.addBoard + data.setFieldLimits', () => {
 		)
 		expect(decoded.data.entities[0]?.fields[1]?.limits).toEqual({ doing: 2 })
 		expect(decoded.data.entities[0]?.fields[3]?.rank).toBe(true)
+	})
+})
+
+describe('aggregate views — page.addAggregate (#299)', () => {
+	/**
+	 * The entity a dashboard tile needs: a dimension with options, a boolean and
+	 * a date to prove the other two group types, a number to measure, and a
+	 * string + json to prove the refusals are real.
+	 */
+	const tracker: SpecOp = {
+		op: 'data.addEntity',
+		args: {
+			entity: {
+				id: 'e-deal',
+				name: 'Deal',
+				fields: [
+					{
+						id: 'fld-name',
+						name: 'name',
+						type: 'string',
+						required: true,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-stage',
+						name: 'stage',
+						type: 'enum',
+						required: true,
+						options: ['lead', 'won'],
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-won',
+						name: 'isWon',
+						type: 'boolean',
+						required: false,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-closed',
+						name: 'closedOn',
+						type: 'date',
+						required: false,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-amount',
+						name: 'amount',
+						type: 'number',
+						required: false,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-notes',
+						name: 'notes',
+						type: 'json',
+						required: false,
+						provenance: suggested(),
+					},
+				],
+				provenance: suggested(),
+			},
+		},
+	}
+
+	const page: SpecOp = {
+		op: 'page.addPage',
+		args: {
+			page: {
+				id: 'pg-deals',
+				name: 'Deals',
+				route: '/deals',
+				entityId: 'e-deal',
+				blocks: [{ id: 'blk-table', type: 'table', provenance: suggested() }],
+				provenance: suggested(),
+			},
+		},
+	}
+
+	const grounded = (): SpecSystem =>
+		applyOp(applyOp(base(), tracker, meta(1)), page, meta(2))
+
+	const agg = (
+		args: Partial<
+			Extract<SpecOp, { op: 'page.addAggregate' }>['args']['aggregate']
+		> = {},
+		blockId: `blk-${string}` = 'blk-agg',
+		pageId: `pg-${string}` = 'pg-deals',
+	): SpecOp => ({
+		op: 'page.addAggregate',
+		args: {
+			pageId,
+			blockId,
+			aggregate: { groupField: 'stage', fn: 'count', ...args },
+		},
+	})
+
+	it('adds an aggregate block carrying its dimension, measure and filter', () => {
+		const s = applyOp(
+			grounded(),
+			agg({
+				fn: 'sum',
+				measureField: 'amount',
+				where: [{ field: 'isWon', equals: true }],
+				display: 'bar',
+				limit: 5,
+			}),
+			meta(3),
+		)
+		const block = s.pages.pages[0]?.blocks[1]
+		expect(block?.type).toBe('aggregate')
+		expect(block?.aggregate).toEqual({
+			groupField: 'stage',
+			fn: 'sum',
+			measureField: 'amount',
+			where: [{ field: 'isWon', equals: true }],
+			display: 'bar',
+			limit: 5,
+		})
+		expect(validateSpecSystem(s)).toBe(s)
+		const last = s.opLog.at(-1)
+		expect(last?.diff.change).toBe('add')
+		expect(last?.diff.parentId).toBe('pg-deals')
+		expect(last?.diff.summary).toContain('sum(amount) grouped by stage')
+	})
+
+	it('accepts the three shapes a dashboard is actually made of', () => {
+		const s = grounded()
+		expect(validateOp(s, agg())).toEqual([])
+		expect(validateOp(s, agg({ groupField: 'isWon' }))).toEqual([])
+		expect(
+			validateOp(s, agg({ groupField: 'closedOn', bucket: 'month' })),
+		).toEqual([])
+		expect(validateOp(s, agg({ fn: 'avg', measureField: 'amount' }))).toEqual(
+			[],
+		)
+	})
+
+	// The vocabulary decision this op turns on: a GROUP BY over free text has
+	// unbounded cardinality, so the block's cost becomes a property of the data
+	// rather than of the declaration. Refused rather than capped.
+	it('refuses a grouping column that is not a dimension', () => {
+		const s = grounded()
+		expect(validateOp(s, agg({ groupField: 'name' }))[0]).toMatch(
+			/is type "string" — an aggregate groups by a dimension/,
+		)
+		expect(validateOp(s, agg({ groupField: 'amount' }))[0]).toMatch(
+			/an aggregate groups by a dimension/,
+		)
+		expect(validateOp(s, agg({ groupField: 'nope' }))).toContain(
+			'page.addAggregate: groupField "nope" is not a field of "e-deal"',
+		)
+	})
+
+	it('requires a bucket on a date and refuses one anywhere else', () => {
+		const s = grounded()
+		expect(validateOp(s, agg({ groupField: 'closedOn' }))[0]).toMatch(
+			/is a date, so it needs a "bucket"/,
+		)
+		expect(
+			validateOp(
+				s,
+				agg({ groupField: 'closedOn', bucket: 'century' as never }),
+			)[0],
+		).toMatch(/unknown bucket "century"/)
+		expect(validateOp(s, agg({ bucket: 'month' }))[0]).toMatch(
+			/not a date — only a date column has periods to truncate/,
+		)
+	})
+
+	it('pairs the aggregate function with the column it needs, or refuses', () => {
+		const s = grounded()
+		expect(validateOp(s, agg({ fn: 'sum' }))[0]).toMatch(
+			/needs a "measureField"/,
+		)
+		// A measureField under `count` would be silently ignored at read time,
+		// which is the same failure a variant on a non-list block is refused for.
+		expect(validateOp(s, agg({ measureField: 'amount' }))[0]).toMatch(
+			/counts rows and has no column/,
+		)
+		expect(validateOp(s, agg({ fn: 'sum', measureField: 'name' }))[0]).toMatch(
+			/needs a numeric column, but measureField "name" is type "string"/,
+		)
+		expect(validateOp(s, agg({ fn: 'max', measureField: 'notes' }))[0]).toMatch(
+			/has no order and no total to aggregate/,
+		)
+		expect(validateOp(s, agg({ fn: 'median' as never }))[0]).toMatch(
+			/unknown fn "median"/,
+		)
+	})
+
+	it('resolves every where clause against the entity', () => {
+		const s = grounded()
+		expect(
+			validateOp(s, agg({ where: [{ field: 'nope', equals: 1 }] })),
+		).toContain(
+			'page.addAggregate: where[0].field "nope" is not a field of "e-deal"',
+		)
+		expect(
+			validateOp(
+				s,
+				agg({ where: [{ field: 'stage', equals: {} as never }] }),
+			)[0],
+		).toMatch(/must be a string, number, boolean or null/)
+		// `null` is a legitimate comparand — it tests IS NULL.
+		expect(
+			validateOp(s, agg({ where: [{ field: 'stage', equals: null }] })),
+		).toEqual([])
+	})
+
+	it('refuses a display and a bucket count it cannot honestly draw', () => {
+		const s = grounded()
+		expect(validateOp(s, agg({ display: 'pie' as never }))[0]).toMatch(
+			/unknown display "pie"/,
+		)
+		expect(validateOp(s, agg({ limit: 0 }))[0]).toMatch(
+			/must be a positive whole number of buckets/,
+		)
+		expect(validateOp(s, agg({ limit: 999 }))[0]).toMatch(
+			/exceeds the cap of 50 buckets/,
+		)
+	})
+
+	it('refuses a duplicate block id and a page with nothing to aggregate', () => {
+		const s = grounded()
+		expect(validateOp(s, agg({}, 'blk-table'))).toContain(
+			'page.addAggregate: duplicate block id "blk-table"',
+		)
+		expect(validateOp(s, agg({}, 'blk-agg', 'pg-nope'))).toContain(
+			'page.addAggregate: unknown page "pg-nope"',
+		)
+	})
+
+	it('rides through the codec, where clauses and all', () => {
+		const s = applyOp(
+			grounded(),
+			agg({
+				fn: 'avg',
+				measureField: 'amount',
+				where: [{ field: 'isWon', equals: true }],
+			}),
+			meta(3),
+		)
+		const decoded = decodeSpecSystem(encodeSpecSystem(s))
+		expect(decoded.pages.pages[0]?.blocks[1]?.aggregate).toEqual(
+			s.pages.pages[0]?.blocks[1]?.aggregate,
+		)
+	})
+
+	it("does not alias the op's own where array into spec state", () => {
+		const where = [{ field: 'isWon' as const, equals: true }]
+		const s = applyOp(grounded(), agg({ where }), meta(3))
+		where[0] = { field: 'stage', equals: false } as never
+		expect(s.pages.pages[0]?.blocks[1]?.aggregate?.where).toEqual([
+			{ field: 'isWon', equals: true },
+		])
 	})
 })
 

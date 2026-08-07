@@ -786,13 +786,127 @@ export interface BoardSpec {
 	move?: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Aggregate views (#299)
+//
+// Every other view block arranges **rows**. An `aggregate` block arranges a
+// **GROUP BY** — the shape a dashboard is made of, and the one gap that pushed
+// half of a real app's pages out of the spec and into owned code.
+//
+// Three lines are drawn here, and each of them is a security or honesty
+// property rather than taste:
+//
+//   1. **Everything that reaches SQL comes from the spec.** The grouped column,
+//      the measure column and the aggregate function are resolved against the
+//      registry at read time; no query parameter contributes to the query. A
+//      `GROUP BY` over a caller-supplied column is an injection surface, and
+//      there is no request-shaped path to this declaration at all.
+//   2. **The read is a read of many rows, so it runs the read gate.** The
+//      aggregate is computed in SQL *under* the same permission check, tenant
+//      scope and soft-delete scope a list runs under (`opAggregate`). A count
+//      that crosses a tenant boundary is a leak whether or not the rows come
+//      back with it.
+//   3. **Only a dimension may be grouped.** See {@link AggregateSpec.groupField}.
+// ---------------------------------------------------------------------------
+
+/** How an {@link AggregateSpec}'s buckets are drawn. */
+export type AggregateDisplay = 'bar' | 'table'
+
+/** Runtime guard for {@link AggregateDisplay}. */
+export const AGGREGATE_DISPLAYS: readonly AggregateDisplay[] = ['bar', 'table']
+
+/**
+ * Field types a {@link AggregateSpec.groupField} may name.
+ *
+ * `string`, `number`, `json` and `file` are **refused**, and the reason is not
+ * taste: a `GROUP BY` over free text has unbounded cardinality, so the block's
+ * cost becomes a property of the *data* rather than of the declaration — a tile
+ * that is four bars in dev and forty thousand in production, which the `limit`
+ * cap can truncate but cannot make meaningful. A dashboard groups by a
+ * *dimension*, and this is the declaration saying which fields are one.
+ *
+ * `reference` is not here **yet** — a grouped FK renders as raw ids unless the
+ * titles are resolved, and that resolution is a real scope addition rather than
+ * a validation relaxation.
+ */
+export const AGGREGATE_GROUP_TYPES: readonly FieldSpec['type'][] = [
+	'enum',
+	'boolean',
+	'date',
+]
+
+/**
+ * An `aggregate` block's declaration: one grouped measure over the page's
+ * backing entity.
+ *
+ * Presentation only, exactly like {@link BoardSpec} — it says which dimension
+ * splits the rows and what number is drawn per bucket, and nothing about what
+ * happens *because* a bucket is large.
+ */
+export interface AggregateSpec {
+	/**
+	 * The field NAME whose value places a row in a bucket. Must be one of
+	 * {@link AGGREGATE_GROUP_TYPES}.
+	 */
+	groupField: string
+	/**
+	 * How a `date` {@link groupField} is truncated into buckets. **Required iff**
+	 * `groupField` is a date, and refused otherwise: grouping raw timestamps
+	 * gives one bucket per row, which is a list with extra steps, and a bucket on
+	 * a non-date column is a declaration the runtime would have to ignore.
+	 */
+	bucket?: TimeBucket
+	/** The aggregate drawn per bucket. Reuses the rollup vocabulary. */
+	fn: AggFn
+	/**
+	 * The field NAME aggregated. **Required iff** {@link fn} is in
+	 * {@link AGG_FNS_NEEDING_FIELD}, refused for `count` (which counts rows and
+	 * has no column), and required to be numeric for {@link NUMERIC_AGG_FNS}.
+	 */
+	measureField?: string
+	/**
+	 * Equality predicates narrowing which rows are aggregated — "open tickets by
+	 * priority". Declared, never request-supplied, and AND-ed **under** the
+	 * tenant, soft-delete and portal scopes, so nothing here can widen the read.
+	 */
+	where?: AggregateFilter[]
+	/** How the buckets are drawn. Defaults to `bar`. */
+	display?: AggregateDisplay
+	/**
+	 * Maximum buckets returned, largest measure first. Defaults to
+	 * {@link AGGREGATE_LIMIT_DEFAULT} and is capped at
+	 * {@link AGGREGATE_LIMIT_MAX} — the cap is the honest half of allowing a
+	 * bounded-cardinality dimension to still be wider than a chart can draw.
+	 */
+	limit?: number
+}
+
+/** One declared equality predicate on an {@link AggregateSpec}. */
+export interface AggregateFilter {
+	/** Field NAME on the page's backing entity. */
+	field: string
+	/** The value it must equal. `null` tests IS NULL. */
+	equals: string | number | boolean | null
+}
+
+/** Buckets an aggregate returns when it declares no `limit`. */
+export const AGGREGATE_LIMIT_DEFAULT = 12
+
+/** The most buckets an aggregate may declare. */
+export const AGGREGATE_LIMIT_MAX = 50
+
 /**
  * Block types that arrange rows by something other than a list (
  * #172). None carries a {@link BlockVariant}: the arrangement *is* the variant,
  * and it lives on the view declaration where it can be validated against the
  * fields it names.
  */
-export const VIEW_BLOCK_TYPES = ['calendar', 'timeline', 'board'] as const
+export const VIEW_BLOCK_TYPES = [
+	'calendar',
+	'timeline',
+	'board',
+	'aggregate',
+] as const
 
 export interface BlockSpec extends Provenanced {
 	id: BlockId
@@ -815,6 +929,11 @@ export interface BlockSpec extends Provenanced {
 	 * via `page.addBoard`.
 	 */
 	board?: BoardSpec
+	/**
+	 * For `aggregate` blocks: the dimension the rows are grouped by and the
+	 * measure drawn per bucket. Set via `page.addAggregate`.
+	 */
+	aggregate?: AggregateSpec
 	/**
 	 * For `table`/list blocks: which presentation the runtime renders the rows
 	 * with (defaults to `table`). See {@link BlockVariant}; set via the

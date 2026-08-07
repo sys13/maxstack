@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 62 typed operations that can change a project spec — the whole
+The 63 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -59,6 +59,7 @@ keys or nothing.
 | [`page.addCalendar`](#pageaddcalendar) | `page` | Add a calendar block: the page’s rows arranged by one of its date fields, as a month grid, a week grid, or a density heatmap. |
 | [`page.addTimeline`](#pageaddtimeline) | `page` | Add a timeline (Gantt) block: the page’s rows as bars across a start/end date range, with optional dependency arrows from a self-referencing field. |
 | [`page.addBoard`](#pageaddboard) | `page` | Add a Kanban board block: the page’s rows as cards in columns grouped by one of its enum fields, moved between columns by drag or keyboard. WIP limits are declared on the field (data.setFieldLimits), not here. |
+| [`page.addAggregate`](#pageaddaggregate) | `page` | Add an aggregate block: a GROUP BY over the page’s rows — count by enum, sum/avg of a number by a dimension, count per month — drawn as bars or a table. This is what a dashboard tile is; data.addRollup is the per-row number instead. |
 | [`pricing.addTier`](#pricingaddtier) | `pricing` | Add a pricing tier. |
 | [`theme.set`](#themeset) | `theme` | Set the app’s visual theme: a curated preset (zinc \| ocean \| forest \| sunset \| mono \| rose \| amber) plus optional accent (#hex), radius (sm\|md\|lg\|full), density (comfortable\|compact), font (sans\|serif\|mono\|rounded\|humanist), typeScale (compact\|default\|relaxed). Last-wins — replaces the whole theme. |
 | [`flags.declare`](#flagsdeclare) | `flags` | Declare a feature flag: a key, a default, and optional targeting (roles \| organizations \| rolloutPercent). Evaluated server-side per viewer; generation never reads a flag’s value. |
@@ -539,6 +540,32 @@ Add a Kanban board block: the page’s rows as cards in columns grouped by one o
   - `titleField` — `string` · field rendered as the card title.
   - `cardFields` — `array` · extra FIELD NAMES rendered on the card below its title; enums render as chips.
   - `move` — `boolean` · allow moving a card (drag or keyboard); the move is an ordinary validated update of groupField (and rankField), and is refused when it would exceed the target column’s declared WIP limit.
+- `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
+  - `isSuggested` — `boolean` · **required**
+  - `isAccepted` — `boolean | null` · **required** · null = undecided.
+  - `isAddedManually` — `boolean | null` · **required**
+  - `suggestedDescription` — `string | null` · **required**
+  - `priority` — `string` · **required** · one of `medium`, `high`
+
+### `page.addAggregate`
+
+Add an aggregate block: a GROUP BY over the page’s rows — count by enum, sum/avg of a number by a dimension, count per month — drawn as bars or a table. This is what a dashboard tile is; data.addRollup is the per-row number instead.
+
+**Arguments**
+
+- `pageId` — `string` · **required** · page id, prefix "pg-".
+- `blockId` — `string` · **required** · new block id, prefix "blk-".
+- `aggregate` — `object` · **required**
+  - `groupField` — `string` · **required** · FIELD NAME (not id) of the dimension the rows are bucketed by. Must be one of enum, boolean, date — a GROUP BY over free text or a raw number has unbounded cardinality, so it is refused rather than truncated.
+  - `bucket` — `string` · one of `day`, `week`, `month`, `quarter`, `year` · how a `date` groupField is truncated. REQUIRED when groupField is a date, refused otherwise.
+  - `fn` — `string` · **required** · one of `count`, `countDistinct`, `sum`, `avg`, `min`, `max` · the aggregate drawn per bucket. `count` counts rows; everything else needs measureField.
+  - `measureField` — `string` · FIELD NAME aggregated. REQUIRED for countDistinct, sum, avg, min, max; refused for "count"; must be a number field for sum, avg.
+  - `where` — `array` · declared equality predicates narrowing which rows are aggregated ("open tickets by priority"). AND-ed under the tenant and soft-delete scopes, so it can only narrow.
+    each item:
+    - `field` — `string` · **required** · FIELD NAME.
+    - `equals` — `any` · **required** · the value it must equal; null tests IS NULL.
+  - `display` — `string` · one of `bar`, `table` · how buckets are drawn. Defaults to "bar".
+  - `limit` — `number` · max buckets returned, largest measure first (1–50).
 - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
   - `isSuggested` — `boolean` · **required**
   - `isAccepted` — `boolean | null` · **required** · null = undecided.

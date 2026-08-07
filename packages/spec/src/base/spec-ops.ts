@@ -194,6 +194,10 @@ import {
 	ACCENT_RE,
 	AGG_FNS,
 	AGG_FNS_NEEDING_FIELD,
+	AGGREGATE_DISPLAYS,
+	AGGREGATE_GROUP_TYPES,
+	AGGREGATE_LIMIT_MAX,
+	type AggregateSpec,
 	BLOCK_VARIANTS,
 	type BlockOrder,
 	type BlockSpec,
@@ -821,6 +825,33 @@ export type SpecOp =
 				provenance?: Provenance
 			}
 	  }
+	| {
+			/**
+			 * Add an `aggregate` block — a `GROUP BY` over the page's rows, drawn as
+			 * bars or a table (#299).
+			 *
+			 * This is the one view block that does not arrange rows at all, and it
+			 * is the gap that made every dashboard owned code: `data.addRollup`
+			 * produces a derived number *per row* ("this customer's total ARR"), and
+			 * nothing produced a number *per group across rows* ("average score per
+			 * segment"). Seven of a real subject app's fourteen bespoke pages
+			 * carried an in-source note saying exactly that.
+			 *
+			 * Presentation only, on `page.addBoard`'s discipline: it declares which
+			 * dimension splits the rows and which measure is drawn, both resolved
+			 * against the page's backing entity here so that nothing about the query
+			 * can come from a request. The read itself runs `opAggregate`, which
+			 * applies a list's permission check, tenant scope and soft-delete scope
+			 * to the aggregate query rather than to rows fetched and summed after.
+			 */
+			op: 'page.addAggregate'
+			args: {
+				pageId: PageId
+				blockId: BlockId
+				aggregate: AggregateSpec
+				provenance?: Provenance
+			}
+	  }
 	| { op: 'pricing.addTier'; args: { tier: PricingTierInput } }
 	| { op: 'theme.set'; args: { theme: ThemeSpec } }
 	| {
@@ -1330,6 +1361,7 @@ export const SPEC_OP_NAMES = [
 	'page.addCalendar',
 	'page.addTimeline',
 	'page.addBoard',
+	'page.addAggregate',
 	'pricing.addTier',
 	'theme.set',
 	'flags.declare',
@@ -2928,6 +2960,74 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				provenance: PROVENANCE_PROP,
 			},
 			required: ['pageId', 'blockId', 'board'],
+		},
+	},
+	'page.addAggregate': {
+		name: 'page.addAggregate',
+		layer: 'page',
+		summary:
+			'Add an aggregate block: a GROUP BY over the page’s rows — count by enum, sum/avg of a number by a dimension, count per month — drawn as bars or a table. This is what a dashboard tile is; data.addRollup is the per-row number instead.',
+		args: {
+			type: 'object',
+			properties: {
+				pageId: { type: 'string', description: 'page id, prefix "pg-".' },
+				blockId: {
+					type: 'string',
+					description: 'new block id, prefix "blk-".',
+				},
+				aggregate: {
+					type: 'object',
+					properties: {
+						groupField: {
+							type: 'string',
+							description: `FIELD NAME (not id) of the dimension the rows are bucketed by. Must be one of ${AGGREGATE_GROUP_TYPES.join(', ')} — a GROUP BY over free text or a raw number has unbounded cardinality, so it is refused rather than truncated.`,
+						},
+						bucket: {
+							type: 'string',
+							enum: [...TIME_BUCKETS],
+							description:
+								'how a `date` groupField is truncated. REQUIRED when groupField is a date, refused otherwise.',
+						},
+						fn: {
+							type: 'string',
+							enum: [...AGG_FNS],
+							description:
+								'the aggregate drawn per bucket. `count` counts rows; everything else needs measureField.',
+						},
+						measureField: {
+							type: 'string',
+							description: `FIELD NAME aggregated. REQUIRED for ${AGG_FNS_NEEDING_FIELD.join(', ')}; refused for "count"; must be a number field for ${NUMERIC_AGG_FNS.join(', ')}.`,
+						},
+						where: {
+							type: 'array',
+							description:
+								'declared equality predicates narrowing which rows are aggregated ("open tickets by priority"). AND-ed under the tenant and soft-delete scopes, so it can only narrow.',
+							items: {
+								type: 'object',
+								properties: {
+									field: { type: 'string', description: 'FIELD NAME.' },
+									equals: {
+										description: 'the value it must equal; null tests IS NULL.',
+									},
+								},
+								required: ['field', 'equals'],
+							},
+						},
+						display: {
+							type: 'string',
+							enum: [...AGGREGATE_DISPLAYS],
+							description: 'how buckets are drawn. Defaults to "bar".',
+						},
+						limit: {
+							type: 'number',
+							description: `max buckets returned, largest measure first (1–${AGGREGATE_LIMIT_MAX}).`,
+						},
+					},
+					required: ['groupField', 'fn'],
+				},
+				provenance: PROVENANCE_PROP,
+			},
+			required: ['pageId', 'blockId', 'aggregate'],
 		},
 	},
 	'pricing.addTier': {
@@ -5019,7 +5119,13 @@ function viewBlockErrors(
 	system: SpecSystem,
 	op: Extract<
 		SpecOp,
-		{ op: 'page.addCalendar' | 'page.addTimeline' | 'page.addBoard' }
+		{
+			op:
+				| 'page.addCalendar'
+				| 'page.addTimeline'
+				| 'page.addBoard'
+				| 'page.addAggregate'
+		}
 	>,
 ): string[] {
 	const errors: string[] = []
@@ -5094,6 +5200,111 @@ function viewBlockErrors(
 		)
 		if (dupes.length > 0)
 			errors.push(`${op.op}: duplicate cardFields entry "${dupes[0]}"`)
+		return errors
+	}
+
+	// An aggregate arranges a GROUP BY rather than rows, so — like a board — it
+	// has no instant to place and therefore no timezone. Every name it declares
+	// is resolved here, and that is not only a usability check: these are the
+	// only strings that ever reach the grouped query, so this function is the
+	// whole allow-list standing between a spec file and the SQL. Nothing about
+	// the read is request-derived, by construction.
+	if (op.op === 'page.addAggregate') {
+		const agg = op.args.aggregate
+		const group = fieldNamed('groupField', agg.groupField)
+		if (group && !AGGREGATE_GROUP_TYPES.includes(group.type))
+			errors.push(
+				`${op.op}: groupField "${agg.groupField}" is type "${group.type}" — an aggregate groups by a dimension (${AGGREGATE_GROUP_TYPES.join(', ')}), and a GROUP BY over ${group.type === 'string' ? 'free text' : `a ${group.type} column`} has unbounded cardinality, so the block's cost would be a property of the data rather than of this declaration`,
+			)
+		// The bucket is required exactly when it is meaningful and refused
+		// otherwise, rather than defaulted or ignored. Grouping raw timestamps
+		// gives one bucket per row — a list with extra steps — and a bucket on a
+		// non-date column is an instruction the runtime would have to drop, which
+		// is the silently-ignored-declaration failure the `set*` ops also refuse.
+		if (group?.type === 'date') {
+			if (agg.bucket === undefined)
+				errors.push(
+					`${op.op}: groupField "${agg.groupField}" is a date, so it needs a "bucket" (${TIME_BUCKETS.join(', ')}) — grouping raw timestamps is one bucket per row`,
+				)
+			else if (!(TIME_BUCKETS as readonly string[]).includes(agg.bucket))
+				errors.push(
+					`${op.op}: unknown bucket "${String(agg.bucket)}" (expected one of ${TIME_BUCKETS.join(', ')})`,
+				)
+		} else if (agg.bucket !== undefined && group)
+			errors.push(
+				`${op.op}: declares bucket "${String(agg.bucket)}" but groupField "${agg.groupField}" is type "${group.type}", not a date — only a date column has periods to truncate`,
+			)
+
+		if (!(AGG_FNS as readonly string[]).includes(agg.fn))
+			errors.push(
+				`${op.op}: unknown fn "${String(agg.fn)}" (expected one of ${AGG_FNS.join(', ')})`,
+			)
+		else {
+			const needsField = (AGG_FNS_NEEDING_FIELD as readonly string[]).includes(
+				agg.fn,
+			)
+			if (needsField && agg.measureField === undefined)
+				errors.push(
+					`${op.op}: fn "${agg.fn}" aggregates a column's values, so it needs a "measureField" — only "count" counts rows`,
+				)
+			if (!needsField && agg.measureField !== undefined)
+				errors.push(
+					`${op.op}: fn "count" counts rows and has no column, so "measureField" ("${agg.measureField}") would be ignored — drop it, or use sum/avg/min/max/countDistinct`,
+				)
+		}
+		if (agg.measureField !== undefined) {
+			const measure = fieldNamed('measureField', agg.measureField)
+			if (
+				measure &&
+				(NUMERIC_AGG_FNS as readonly string[]).includes(agg.fn) &&
+				measure.type !== 'number'
+			)
+				errors.push(
+					`${op.op}: fn "${agg.fn}" needs a numeric column, but measureField "${agg.measureField}" is type "${measure.type}"`,
+				)
+			// A min/max/countDistinct over a json blob or a storage key is an answer
+			// nobody asked a question for, and it would render as `[object Object]`.
+			if (measure && (measure.type === 'json' || measure.type === 'file'))
+				errors.push(
+					`${op.op}: measureField "${agg.measureField}" is type "${measure.type}", which has no order and no total to aggregate`,
+				)
+		}
+
+		for (const [i, clause] of (agg.where ?? []).entries()) {
+			if (typeof clause?.field !== 'string' || clause.field === '') {
+				errors.push(`${op.op}: where[${i}].field must be a field name`)
+				continue
+			}
+			fieldNamed(`where[${i}].field`, clause.field)
+			const value = clause.equals
+			if (
+				value !== null &&
+				typeof value !== 'string' &&
+				typeof value !== 'number' &&
+				typeof value !== 'boolean'
+			)
+				errors.push(
+					`${op.op}: where[${i}].equals must be a string, number, boolean or null (pass null to test IS NULL); received ${JSON.stringify(value)}`,
+				)
+		}
+
+		if (
+			agg.display !== undefined &&
+			!(AGGREGATE_DISPLAYS as readonly string[]).includes(agg.display)
+		)
+			errors.push(
+				`${op.op}: unknown display "${String(agg.display)}" (expected one of ${AGGREGATE_DISPLAYS.join(', ')})`,
+			)
+		if (agg.limit !== undefined) {
+			if (!Number.isInteger(agg.limit) || agg.limit < 1)
+				errors.push(
+					`${op.op}: limit must be a positive whole number of buckets; received ${JSON.stringify(agg.limit)}`,
+				)
+			else if (agg.limit > AGGREGATE_LIMIT_MAX)
+				errors.push(
+					`${op.op}: limit ${agg.limit} exceeds the cap of ${AGGREGATE_LIMIT_MAX} buckets — past that a chart is a wall, and the honest fix is a narrower dimension, not more bars`,
+				)
+		}
 		return errors
 	}
 
@@ -5722,7 +5933,8 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 		}
 		case 'page.addCalendar':
 		case 'page.addTimeline':
-		case 'page.addBoard': {
+		case 'page.addBoard':
+		case 'page.addAggregate': {
 			errors.push(...viewBlockErrors(system, op))
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -6841,6 +7053,21 @@ export function diffOp(op: SpecOp): SpecDiff {
 				pageId,
 			)
 		}
+		case 'page.addAggregate': {
+			const { blockId, pageId, aggregate } = op.args
+			const measure =
+				aggregate.fn === 'count'
+					? 'count'
+					: `${aggregate.fn}(${aggregate.measureField})`
+			const by = aggregate.bucket
+				? `${aggregate.groupField} by ${aggregate.bucket}`
+				: aggregate.groupField
+			return add(
+				blockId,
+				`Add aggregate "${blockId}" to ${pageId}, ${measure} grouped by ${by}`,
+				pageId,
+			)
+		}
 		case 'pricing.addTier':
 			return add(op.args.tier.id, `Add pricing tier "${op.args.tier.id}"`)
 		case 'theme.set': {
@@ -7428,30 +7655,47 @@ export function applyOp(
 		}
 		case 'page.addCalendar':
 		case 'page.addTimeline':
-		case 'page.addBoard': {
+		case 'page.addBoard':
+		case 'page.addAggregate': {
 			const page = next.pages.pages.find((p) => p.id === op.args.pageId)
-			const view =
+			// Every declared array is copied on the way in, for one reason across
+			// all four: apply is immutable with respect to its input, so the op's
+			// arrays must never be aliased into spec state.
+			const { type, view } =
 				op.op === 'page.addCalendar'
-					? { calendar: { ...op.args.calendar } }
+					? { type: 'calendar', view: { calendar: { ...op.args.calendar } } }
 					: op.op === 'page.addTimeline'
-						? { timeline: { ...op.args.timeline } }
-						: {
-								board: {
-									...op.args.board,
-									// Copy: the op's array must not be aliased into spec state.
-									...(op.args.board.cardFields
-										? { cardFields: [...op.args.board.cardFields] }
-										: {}),
-								},
-							}
+						? { type: 'timeline', view: { timeline: { ...op.args.timeline } } }
+						: op.op === 'page.addBoard'
+							? {
+									type: 'board',
+									view: {
+										board: {
+											...op.args.board,
+											...(op.args.board.cardFields
+												? { cardFields: [...op.args.board.cardFields] }
+												: {}),
+										},
+									},
+								}
+							: {
+									type: 'aggregate',
+									view: {
+										aggregate: {
+											...op.args.aggregate,
+											...(op.args.aggregate.where
+												? {
+														where: op.args.aggregate.where.map((w) => ({
+															...w,
+														})),
+													}
+												: {}),
+										},
+									},
+								}
 			page?.blocks.push({
 				id: op.args.blockId,
-				type:
-					op.op === 'page.addCalendar'
-						? 'calendar'
-						: op.op === 'page.addTimeline'
-							? 'timeline'
-							: 'board',
+				type,
 				...view,
 				provenance: op.args.provenance ?? defaultProvenance(meta),
 			})

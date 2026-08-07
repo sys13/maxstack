@@ -17,6 +17,7 @@ import {
 } from '@maxstack/core/ownership/block-slots'
 import type { BoardDrop } from '@maxstack/ui'
 import {
+	AggregateView,
 	Alert,
 	activeFilterCount,
 	addDays,
@@ -64,7 +65,7 @@ import { OWNED_ROUTES, OWNED_SLOTS } from '~/owned.generated'
 import { pageNoun } from '~/page-noun'
 import { pagePath } from '~/page-path'
 import { ProjectFrame } from '~/project-nav'
-import type { ProjectRoute } from '~/project-routes'
+import type { PageRowView, ProjectRoute } from '~/project-routes'
 import { ROW_EDIT_ENCTYPE, rescheduleValues, rowEditRoute } from '~/reschedule'
 import { useLiveRows } from '~/use-live-rows'
 
@@ -229,7 +230,7 @@ export function timelineWindow(anchor: string): { from: string; to: string } {
  * looks exactly like a complete one, so it still says so.
  */
 export function viewListOptions(
-	view: NonNullable<ProjectRoute['view']>,
+	view: PageRowView,
 	anchor: string,
 ): {
 	limit: number
@@ -315,7 +316,7 @@ export function viewListOptions(
  * its cap is still the only bound on what it reads, and raising it would be a
  * load change with nothing in this issue behind it.
  */
-export function viewLimit(view: NonNullable<ProjectRoute['view']>): number {
+export function viewLimit(view: PageRowView): number {
 	return view.kind === 'board' ? 500 : 1000
 }
 
@@ -324,10 +325,7 @@ export function viewLimit(view: NonNullable<ProjectRoute['view']>): number {
  * else today **in the view's declared timezone**. Not the server's zone, and not
  * the browser's — the same rule the rest of the view follows.
  */
-export function anchorDay(
-	request: Request,
-	view: ProjectRoute['view'],
-): string {
+export function anchorDay(request: Request, view: PageRowView | null): string {
 	const asked = new URL(request.url).searchParams.get('on')
 	if (asked && isDayKey(asked)) return asked
 	// A board has no timezone because it has no days; UTC is a placeholder for a
@@ -372,6 +370,7 @@ export default function ProjectListPage({
 		demoIds,
 		demoRows,
 		anchor,
+		buckets,
 		truncated,
 		liveKey,
 		liveSlot,
@@ -722,6 +721,21 @@ export default function ProjectListPage({
 						truncated={false}
 						polling={live.polling}
 					/>
+				) : page.view?.kind === 'aggregate' ? (
+					/* An aggregate draws a GROUP BY the server already computed under
+					   the read gate — no rows reach this branch, and none should: a
+					   dashboard tile that also listed its rows would be answering a
+					   question nobody asked, and it is the same "a view replaces the
+					   list" rule every other view block follows. */
+					<AggregateView
+						buckets={buckets ?? []}
+						groupField={page.view.groupField}
+						fn={page.view.fn}
+						measureField={page.view.measureField}
+						bucket={page.view.bucket}
+						options={page.view.options}
+						display={page.view.display}
+					/>
 				) : page.view ? (
 					<>
 						<ArrangedView
@@ -853,7 +867,7 @@ function ArrangedView({
 	demoIds,
 	onSubmit,
 }: {
-	view: NonNullable<ProjectRoute['view']>
+	view: PageRowView
 	resource: { name: string; primaryKey: string; columns: SproutColumn[] }
 	rows: Record<string, unknown>[]
 	anchor: string

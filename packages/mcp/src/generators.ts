@@ -36,6 +36,7 @@ import {
 	type SpecSystem,
 	unauthoredPrdNotice,
 	unauthoredPrdSections,
+	VIEW_BLOCK_TYPES,
 } from '@maxstack/spec'
 import type {
 	GeneratorInfo,
@@ -289,9 +290,6 @@ export function pageDescriptor(page: PageSpec): PageDescriptor {
 	}
 }
 
-/** Block types that arrange rows by something other than a list (#172). */
-const VIEW_BLOCK_TYPES = ['calendar', 'timeline', 'board']
-
 /**
  * The page's list surface as far as the generator can materialize it, or
  * `undefined` when it cannot (issue #349).
@@ -311,7 +309,17 @@ const VIEW_BLOCK_TYPES = ['calendar', 'timeline', 'board']
 function listSurfaceOf(page: PageSpec): PageListSurface | undefined {
 	// A view replaces the list rather than sitting beside it, so a page with one
 	// has no list surface to materialize.
-	if (page.blocks.some((b) => VIEW_BLOCK_TYPES.includes(b.type))) return
+	// Imported from the spec rather than restated: this list used to be a local
+	// copy, and a copy is a list that silently stops including the newest view
+	// block. `aggregate` (#299) would then have emitted a plain list over a page
+	// the runtime draws as a chart — the exact failure this guard exists for,
+	// arriving through the guard itself.
+	if (
+		page.blocks.some((b) =>
+			(VIEW_BLOCK_TYPES as readonly string[]).includes(b.type),
+		)
+	)
+		return
 	// A `mode: 'replace'` slot owns the list region the moment it is filled.
 	// Emitting a list here would contradict a declaration the user already made.
 	if (page.blocks.some((b) => isSlotBlockType(b.type) && b.mode === 'replace'))
