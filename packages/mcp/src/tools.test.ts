@@ -12,7 +12,7 @@ import {
 	suggested,
 } from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
 	createCheckRegistry,
 	defaultCheckRunner,
@@ -415,6 +415,7 @@ describe('propose vs apply (suggest → accept)', () => {
 	})
 
 	it('a save-time throw resolves to a tool error, never a rejection (the 500 path)', async () => {
+		const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
 		ctx = {
 			...ctx,
 			spec: {
@@ -424,9 +425,48 @@ describe('propose vs apply (suggest → accept)', () => {
 				},
 			},
 		}
+		// No `exposure` argument, so the strict default — the shape the web host
+		// dispatches with. What this test exists for is unchanged: the rejection
+		// resolves into a tool-level `isError` instead of escaping as an HTTP 500.
+		// What it may no longer assert is the driver's own words in the reply
+		// (#353); the id it gets instead has to resolve, so that is asserted too.
 		const res = await executePlatformTool(ctx, 'apply_spec_change', addEntity)
 		expect(res.isError).toBe(true)
+		const text = res.content[0]?.text ?? ''
+		expect(text).not.toContain('disk on fire')
+		expect(text).toMatch(/^Internal error \[err_[a-z0-9]+\]\./)
+		const errorId = /err_[a-z0-9]+/.exec(text)?.[0]
+		expect(
+			stderr.mock.calls
+				.map((args) => String(args[0]))
+				.find((l) => l.includes(String(errorId))),
+		).toContain('disk on fire')
+		stderr.mockRestore()
+	})
+
+	it('the same throw on a local host keeps its detail', async () => {
+		// The other side of the same boundary, next to it so the pair is read
+		// together: `maxstack mcp` declares `exposure: 'local'` and an agent on the
+		// developer's own machine is told what actually broke.
+		const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const local = {
+			...ctx,
+			spec: {
+				load: ctx.spec.load,
+				save: async () => {
+					throw new Error('disk on fire')
+				},
+			},
+		}
+		const res = await executePlatformTool(
+			local,
+			'apply_spec_change',
+			addEntity,
+			'local',
+		)
+		expect(res.isError).toBe(true)
 		expect(res.content[0]?.text).toContain('disk on fire')
+		stderr.mockRestore()
 	})
 })
 

@@ -43,6 +43,7 @@ import type {
 	GeneratorRunner,
 	RegisteredGenerator,
 } from './context.ts'
+import { PlatformToolError } from './errors.ts'
 import { groundedEntityShapes } from './grounding.ts'
 
 /** Build a runner over a fixed set of generators. */
@@ -57,7 +58,9 @@ export function createGeneratorRegistry(
 		async run(name, spec, args): Promise<GeneratorResult> {
 			const gen = byName.get(name)
 			if (!gen)
-				throw new Error(
+				// Addressed to the caller — it names what they asked for and what they
+				// could have asked for instead, so it survives the #353 boundary.
+				throw new PlatformToolError(
 					`Unknown generator "${name}". Available: ${[...byName.keys()].join(', ') || '(none)'}`,
 				)
 			return gen.run(spec, args)
@@ -408,7 +411,7 @@ export const pageGenerator: RegisteredGenerator = {
 			(_, i) => !targetId || all[i]?.id === targetId,
 		)
 		if (targetId && descriptors.length === 0)
-			throw new Error(`Unknown page "${targetId}"`)
+			throw new PlatformToolError(`Unknown page "${targetId}"`)
 
 		const fs = createMemFs()
 		const notes: string[] = []

@@ -20,12 +20,15 @@
 import {
 	executeMCPTool,
 	generateMCPTools,
+	type McpExposure,
 	type McpToolResult,
+	mcpFail,
 	type OpContext,
 	type SproutUser,
 } from '@maxstack/core'
 import { argErrors } from './args.ts'
 import type { PlatformContext } from './context.ts'
+import { PlatformToolError } from './errors.ts'
 import { executePlatformTool, isPlatformTool, platformTools } from './tools.ts'
 
 export const MCP_PROTOCOL_VERSION = '2024-11-05'
@@ -42,6 +45,22 @@ export const MCP_PROTOCOL_VERSION = '2024-11-05'
  */
 export type McpRequestContext = Partial<OpContext> & {
 	platform?: PlatformContext
+	/**
+	 * How reachable this transport is — see {@link McpExposure} for what the two
+	 * values mean and why the default is the strict one.
+	 *
+	 * It is a field on the *context* rather than something inferred here because
+	 * the dispatcher genuinely cannot tell: `handleMcpRequest` is a pure function
+	 * of (context, body), which is exactly what lets one implementation serve both
+	 * hosts, and neither the body nor the halves of the context that are wired say
+	 * anything about who is on the other end. Only the host knows, so only the
+	 * host may say — and a host that says nothing is treated as public (#353).
+	 *
+	 * Today: `maxstack mcp` (stdio, a child process of the developer's own agent
+	 * client) declares `'local'`; `POST /mcp` in the web app leaves it unset and
+	 * therefore gets `'network'`.
+	 */
+	exposure?: McpExposure
 }
 
 /**
@@ -158,6 +177,8 @@ export async function handleMcpRequest(
 				return error(body.id, -32602, 'Invalid params: name is required', 400)
 			}
 			const args = (params.arguments ?? {}) as Record<string, unknown>
+			// Unset means public. See `McpRequestContext.exposure`.
+			const exposure: McpExposure = ctx.exposure ?? 'network'
 			let toolResult: McpToolResult
 			try {
 				if (ctx.platform && isPlatformTool(params.name)) {
@@ -165,7 +186,7 @@ export async function handleMcpRequest(
 						// Named, not a generic denial: the caller is holding a credential
 						// that cannot express this, and should go get a session rather
 						// than retry.
-						throw new Error(
+						throw new PlatformToolError(
 							`Permission denied: "${params.name}" authors the project spec, ` +
 								'which an API key cannot be scoped for. Use a signed-in ' +
 								'session (or `maxstack dev` locally) for spec changes.',
@@ -175,6 +196,7 @@ export async function handleMcpRequest(
 						ctx.platform,
 						params.name,
 						args,
+						exposure,
 					)
 				} else if (ctx.registry && ctx.store) {
 					// The same refuse-rather-than-default boundary the platform half
@@ -187,7 +209,7 @@ export async function handleMcpRequest(
 					).find((t) => t.name === params.name)?.inputSchema
 					const bad = schema ? argErrors(schema, args) : []
 					if (bad.length > 0)
-						throw new Error(`${params.name}: ${bad.join(' ')}`)
+						throw new PlatformToolError(`${params.name}: ${bad.join(' ')}`)
 					toolResult = await executeMCPTool(
 						{
 							...ctx,
@@ -197,12 +219,13 @@ export async function handleMcpRequest(
 						},
 						params.name,
 						args,
+						exposure,
 					)
 				} else {
 					// No Sprout half wired (the stdio host): a non-platform name can't
 					// be served here. Say why, rather than throwing a null-deref — the
 					// per-resource CRUD tools only exist while `maxstack dev` runs.
-					throw new Error(
+					throw new PlatformToolError(
 						`Unknown tool "${params.name}". This server exposes the platform ` +
 							`tools only; per-resource CRUD tools require a running ` +
 							`\`maxstack dev\`.`,
@@ -210,14 +233,24 @@ export async function handleMcpRequest(
 				}
 			} catch (e) {
 				// A throwing tool is a tool-level failure the client can act on —
-				// never let it escape to the route and become a raw HTTP 500
-				//.
-				toolResult = {
-					content: [
-						{ type: 'text', text: e instanceof Error ? e.message : String(e) },
-					],
-					isError: true,
-				}
+				// never let it escape to the route and become a raw HTTP 500.
+				//
+				// The three throws above are ours and are addressed to the caller, so
+				// they carry `PlatformToolError` and come back verbatim. Anything
+				// *else* arriving here escaped an executor's own boundary — a registry
+				// that threw while listing schemas, a store built per request — and is
+				// the unknown class `mcpFail` exists for: over a network transport it
+				// becomes a correlation id, never a driver string (#353). Tool-level
+				// `isError` either way, because a JSON-RPC-level error makes clients
+				// report the whole endpoint as broken rather than this one call.
+				toolResult =
+					e instanceof PlatformToolError
+						? { content: [{ type: 'text', text: e.message }], isError: true }
+						: mcpFail(
+								e,
+								{ resource: params.name, operation: 'tools/call' },
+								exposure,
+							)
 			}
 			// A tool-level error is a successful JSON-RPC call carrying isError.
 			return result(body.id, toolResult)

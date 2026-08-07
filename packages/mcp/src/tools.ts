@@ -39,8 +39,10 @@
 import {
 	apiContract,
 	type JsonSchema,
+	type McpExposure,
 	type McpTool,
 	type McpToolResult,
+	mcpFail,
 } from '@maxstack/core'
 import {
 	applyOp,
@@ -75,6 +77,7 @@ import type {
 	PlatformContext,
 	UnavailableCheck,
 } from './context.ts'
+import { PlatformToolError } from './errors.ts'
 import { groundedEntityShapes } from './grounding.ts'
 import { initReport } from './init.ts'
 import { slotInventory } from './slots.ts'
@@ -653,7 +656,7 @@ function explain(spec: SpecSystem, args: Record<string, unknown>): unknown {
 	const reqId = args.requirementId
 	if (typeof reqId === 'string') {
 		const r = spec.product.requirements.find((x) => x.id === reqId)
-		if (!r) throw new Error(`Unknown requirement "${reqId}"`)
+		if (!r) throw new PlatformToolError(`Unknown requirement "${reqId}"`)
 		const metrics = new Map(
 			[
 				spec.product.goals.northStarMetric,
@@ -674,7 +677,7 @@ function explain(spec: SpecSystem, args: Record<string, unknown>): unknown {
 	const entId = args.entityId
 	if (typeof entId === 'string') {
 		const e = spec.data.entities.find((x) => x.id === entId)
-		if (!e) throw new Error(`Unknown entity "${entId}"`)
+		if (!e) throw new PlatformToolError(`Unknown entity "${entId}"`)
 		return {
 			kind: 'entity',
 			id: e.id,
@@ -693,7 +696,7 @@ function explain(spec: SpecSystem, args: Record<string, unknown>): unknown {
 	const pgId = args.pageId
 	if (typeof pgId === 'string') {
 		const p = spec.pages.pages.find((x) => x.id === pgId)
-		if (!p) throw new Error(`Unknown page "${pgId}"`)
+		if (!p) throw new PlatformToolError(`Unknown page "${pgId}"`)
 		return {
 			kind: 'page',
 			id: p.id,
@@ -704,7 +707,7 @@ function explain(spec: SpecSystem, args: Record<string, unknown>): unknown {
 			e2eTests: p.e2eTests ?? [],
 		}
 	}
-	throw new Error(
+	throw new PlatformToolError(
 		'explain_feature needs one of requirementId, entityId, or pageId',
 	)
 }
@@ -716,7 +719,7 @@ function acceptanceCriteria(
 	const reqId = args.requirementId
 	if (typeof reqId === 'string') {
 		const r = spec.product.requirements.find((x) => x.id === reqId)
-		if (!r) throw new Error(`Unknown requirement "${reqId}"`)
+		if (!r) throw new PlatformToolError(`Unknown requirement "${reqId}"`)
 		return { id: r.id, acceptanceCriteria: r.acceptanceCriteria }
 	}
 	return spec.product.requirements.map((r) => ({
@@ -937,16 +940,41 @@ async function withSteering(
 	return { content: [{ type: 'text', text: JSON.stringify(body) }] }
 }
 
+/**
+ * `mcpFail` with the platform half's extra class (#353).
+ *
+ * Sprout's refusals are already classes, so `mcpFail` can test them. The
+ * platform half's are {@link PlatformToolError}s — see `errors.ts` for the rule
+ * that decides which of its messages earns one. Everything else falls through to
+ * the shared boundary: generic plus a correlation id over a network transport,
+ * the detail as well over a local one.
+ *
+ * Note what stays generic on the network host on purpose: a spec store that
+ * cannot find its directory, a generator that throws mid-emit, a check runner
+ * whose shell died. Those messages are about the *server's* filesystem, and on
+ * the one host where the caller is not the machine's owner they are the only
+ * thing here worth withholding.
+ */
+function platformFail(
+	e: unknown,
+	context: { resource: string; operation: string },
+	exposure: McpExposure,
+): McpToolResult {
+	if (e instanceof PlatformToolError) return err(e.message)
+	return mcpFail(e, context, exposure)
+}
+
 export async function executePlatformTool(
 	ctx: PlatformContext,
 	name: string,
 	args: Record<string, unknown>,
+	exposure: McpExposure = 'network',
 ): Promise<McpToolResult> {
 	let spec: SpecSystem
 	try {
 		spec = await ctx.spec.load()
 	} catch (e) {
-		return err(e instanceof Error ? e.message : String(e))
+		return platformFail(e, { resource: 'spec', operation: 'load' }, exposure)
 	}
 	// Declared-required enforcement, generically, before any arm runs. The
 	// schemas are already published; checking them at the one boundary means no
@@ -959,7 +987,7 @@ export async function executePlatformTool(
 	}
 
 	const trace: Trace = {}
-	const res = await dispatch(ctx, spec, name, args, trace)
+	const res = await dispatch(ctx, spec, name, args, trace, exposure)
 	return withSteering(ctx, trace.spec ?? spec, name, trace, res)
 }
 
@@ -969,6 +997,7 @@ async function dispatch(
 	name: string,
 	args: Record<string, unknown>,
 	trace: Trace,
+	exposure: McpExposure,
 ): Promise<McpToolResult> {
 	try {
 		switch (name) {
@@ -1232,6 +1261,6 @@ async function dispatch(
 				return err(`Unknown platform tool: ${name}`)
 		}
 	} catch (e) {
-		return err(e instanceof Error ? e.message : String(e))
+		return platformFail(e, { resource: 'spec', operation: name }, exposure)
 	}
 }

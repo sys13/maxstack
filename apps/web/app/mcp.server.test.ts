@@ -7,7 +7,7 @@ import {
 } from '@maxstack/mcp'
 import { newSpecSystem, type OpId } from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { handleMcpRequest, type McpContext } from './mcp.server'
 import { getSprout } from './sprout.server'
 
@@ -235,9 +235,26 @@ describe('platform tools merged into the same surface', () => {
 		expect(data.title).toContain('Taskly')
 	})
 
-	it('a save-time throw becomes a tool-level isError, never an HTTP 500', async () => {
-		// The original bug path: a valid op whose persistence rejects. Before the
-		// fix this rejection escaped handleMcpRequest and surfaced as a raw 500.
+	/**
+	 * This host's half of #353's decision.
+	 *
+	 * `handleMcpRequest` is shared with `maxstack mcp`, which declares
+	 * `exposure: 'local'` and therefore keeps the detail. This host declares
+	 * nothing — `routes/mcp.ts` passes `getContext(request)` straight through —
+	 * and an unset field means `'network'`, which is the honest reading of a
+	 * `POST /mcp` answering a session cookie or an API key over HTTP: the CRUD
+	 * tools here run the same driver as the REST handlers #336 fixed, so an
+	 * unrecognised failure's message is the failed statement, and the reply lands
+	 * in a transcript that gets pasted into an issue.
+	 *
+	 * The assertion this used to make — that the reply contains
+	 * `'spec store exploded'` — was the leak, written down. What it *exists* to
+	 * pin is that a save-time rejection is a tool-level `isError` rather than a
+	 * raw HTTP 500, and that is asserted below unchanged, alongside the two halves
+	 * #336 always pairs: nothing in the reply, everything on stderr.
+	 */
+	it('a save-time throw is a tool-level isError with a correlation id, never an HTTP 500 and never the detail', async () => {
+		const stderr = vi.spyOn(console, 'error').mockImplementation(() => {})
 		const ctx = await withPlatform()
 		if (ctx.platform) {
 			const inner = ctx.platform.spec
@@ -268,6 +285,35 @@ describe('platform tools merged into the same surface', () => {
 			content: { text: string }[]
 		}
 		expect(result.isError).toBe(true)
-		expect(result.content[0]?.text).toContain('spec store exploded')
+
+		const text = result.content[0]?.text ?? ''
+		expect(text).not.toContain('spec store exploded')
+		expect(text).toMatch(/^Internal error \[err_[a-z0-9]+\]\./)
+
+		// The half that must not be lost: an operator can still find out what
+		// broke, keyed by the id the caller was handed.
+		const errorId = /err_[a-z0-9]+/.exec(text)?.[0]
+		const line = stderr.mock.calls
+			.map((args) => String(args[0]))
+			.find((l) => l.includes(String(errorId)))
+		expect(String(line)).toContain('spec store exploded')
+		stderr.mockRestore()
+	})
+
+	it('a refusal written for the caller is not collateral', async () => {
+		// The boundary redacts by *class*, so this host is not blinded either: a
+		// message somebody composed for whoever called the tool still comes back.
+		const res = await handleMcpRequest(await withPlatform(), {
+			jsonrpc: '2.0',
+			id: 14,
+			method: 'tools/call',
+			params: {
+				name: 'explain_feature',
+				arguments: { pageId: 'no-such-page' },
+			},
+		})
+		const result = res.body.result as { content: { text: string }[] }
+		expect(result.content[0]?.text).toContain('no-such-page')
+		expect(result.content[0]?.text).not.toContain('Internal error')
 	})
 })

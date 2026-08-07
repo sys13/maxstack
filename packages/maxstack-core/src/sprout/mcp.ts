@@ -105,6 +105,9 @@
  * both arranged to avoid.
  */
 
+import { ConflictError, ConstraintViolationError } from './constraints.ts'
+import type { ErrorContext } from './error-id.ts'
+import { nextErrorId, reportInternalError } from './error-id.ts'
 import type { ImportPlan } from './imports.ts'
 import {
 	LimitExceededError,
@@ -118,6 +121,7 @@ import {
 	opSearch,
 	opUpdate,
 	planImport,
+	RateLimitedError,
 	UnknownResourceError,
 	UnsupportedOperationError,
 	ValidationError,
@@ -798,6 +802,103 @@ function err(message: string): McpToolResult {
 	return { content: [{ type: 'text', text: message }], isError: true }
 }
 
+/**
+ * How reachable the transport carrying this tool call is — a property of the
+ * **host**, declared by the host, never inferred here.
+ *
+ * `'local'` is a transport whose only possible caller is the developer's own
+ * machine: `maxstack mcp`, the stdio server the agent client spawns as a child
+ * process. It already has the project's files, the terminal it was launched
+ * from and the developer's own credentials; there is nothing an error message
+ * could tell it that it is not entitled to know, and the detail is the entire
+ * debugging value of the reply.
+ *
+ * `'network'` is a transport that answers somebody else: `POST /mcp` in a
+ * deployed app, reached over HTTP with a session cookie or an API key. That is
+ * the #336 threat model exactly — the CRUD tools run the same ops, over the same
+ * driver, as the REST handlers, so an unrecognised failure's `message` is the
+ * failed statement: the SQL, every column in the projection, and the caller's
+ * own bound parameters. It also does not stay with the caller: a tool result is
+ * transcript, and a transcript is copied into issues, logs and other people's
+ * context windows.
+ *
+ * **`'network'` is the default everywhere it is not stated** ({@link mcpFail},
+ * `executeMCPTool`, `executePlatformTool`, `handleMcpRequest`). A host that
+ * forgets to declare itself gets the safe answer, and the only way to opt into
+ * detail is to say so — which is the direction #336 chose for classes and this
+ * keeps for transports.
+ */
+export type McpExposure = 'local' | 'network'
+
+/**
+ * The failure boundary for every MCP tool result — `fail()` in `api.ts`, in the
+ * shape MCP replies in.
+ *
+ * It draws the *same* line, by the same test: an error we **constructed** was
+ * written for the caller and goes back verbatim; anything else arrived from the
+ * driver or the store and becomes a fixed string plus a correlation id, with the
+ * detail on stderr in `error-id.ts`'s one line shape. The discriminator is class
+ * membership and never a scan of the message text, so an error type added later
+ * is generic until somebody deliberately maps it here.
+ *
+ * This deliberately duplicates none of `fail()`'s logic and all of its list:
+ * they cannot share a body because one returns an HTTP status and the other a
+ * `McpToolResult`, but a class that is answerable over REST and opaque over MCP
+ * (or the reverse) would be exactly the layer disagreement `executeMCPTool`'s
+ * "take the whole OpContext" note exists to prevent. If you add a case to one,
+ * add it to the other.
+ *
+ * The one difference between the two surfaces is {@link McpExposure}: on a local
+ * transport the detail is appended to the reply as well as printed, because the
+ * agent reading it is the same principal as the operator who would otherwise go
+ * and grep for the id — making it walk to stderr to read its own database's
+ * error buys no confidentiality and costs the round trip the tool exists to
+ * save. The id is minted and logged either way, so the two hosts' logs are the
+ * same and an id quoted from either one resolves.
+ */
+export function mcpFail(
+	e: unknown,
+	context: ErrorContext,
+	exposure: McpExposure = 'network',
+): McpToolResult {
+	// Repair instructions, machine-readably — the same contract the 422 body
+	// carries, so an agent and a browser client act on one shape.
+	if (e instanceof ValidationError) return err(JSON.stringify(e.fieldErrors))
+	if (
+		// A declared WIP limit. An agent driving MCP hits the same rule as a person
+		// dragging a card, and gets told which column is full and by how much
+		// rather than a generic failure.
+		e instanceof LimitExceededError ||
+		// A duplicate, or any other integrity violation, already classified by
+		// SQLSTATE at the store boundary (`constraints.ts`, #352). The constructed
+		// error carries the resource, the constraint identifier and the *declared*
+		// columns — never the driver's `message`, `detail`, `query` or `params`.
+		// `ConflictError` is a subclass of `ConstraintViolationError`, so testing
+		// them together is safe here where the REST side has to order them.
+		e instanceof ConstraintViolationError ||
+		e instanceof ConflictError ||
+		e instanceof PermissionError ||
+		e instanceof NotFoundError ||
+		// An undeclared index, reported as the sentence saying so rather than as an
+		// empty result an agent would read as "nothing matched".
+		e instanceof UnsupportedOperationError ||
+		e instanceof UnknownResourceError ||
+		// A spent portal budget. "Try again later" is addressed to the caller and
+		// is the one thing that stops an agent retrying immediately.
+		e instanceof RateLimitedError
+	) {
+		return err(e.message)
+	}
+	const errorId = nextErrorId()
+	reportInternalError(e, errorId, context)
+	const detail = e instanceof Error ? e.message : String(e)
+	return err(
+		exposure === 'local'
+			? `Internal error [${errorId}]: ${detail}`
+			: `Internal error [${errorId}]. The detail is on the server's stderr under this id.`,
+	)
+}
+
 /** The pre-#320 per-resource names, still executable though no longer listed. */
 const TOOL_RE = /^(list|search|get|create|update|delete)_(.+)$/
 
@@ -906,11 +1007,20 @@ function importPlanSummary(plan: ImportPlan): unknown {
  * hand-assembling a narrower context here is a surface the two layers disagree
  * about, which is the thing the enforce-at-every-layer invariant exists to
  * prevent.
+ *
+ * Every failure leaves through {@link mcpFail}, which is `api.ts`'s `fail()`
+ * rule: constructed errors verbatim, everything else generic plus a correlation
+ * id (#353). `exposure` defaults to `'network'` because that is where this half
+ * of the surface actually lives — the CRUD tools need a registry and a store, so
+ * the only host that wires them is the web app's `POST /mcp`. The parameter
+ * exists anyway rather than being hardcoded, because "there is one host" is the
+ * assumption that made this a bug in the first place.
  */
 export async function executeMCPTool(
 	ctx: OpContext,
 	toolName: string,
 	args: Record<string, unknown>,
+	exposure: McpExposure = 'network',
 ): Promise<McpToolResult> {
 	if (toolName === 'portal_exposure_report')
 		return ok(portalExposureFromRegistry(ctx.registry))
@@ -936,7 +1046,11 @@ export async function executeMCPTool(
 			)
 			return ok(importPlanSummary(plan))
 		} catch (e) {
-			return err(e instanceof Error ? e.message : String(e))
+			return mcpFail(
+				e,
+				{ resource: importKey, operation: 'plan_import' },
+				exposure,
+			)
 		}
 	}
 	const documentKey =
@@ -963,7 +1077,11 @@ export async function executeMCPTool(
 				pdf: `/documents/${documentKey}/${String(args.id)}.pdf`,
 			})
 		} catch (e) {
-			return err(e instanceof Error ? e.message : String(e))
+			return mcpFail(
+				e,
+				{ resource: documentKey, operation: 'render_document' },
+				exposure,
+			)
 		}
 	}
 	// One question spanning several resources. Dispatched here rather
@@ -974,16 +1092,22 @@ export async function executeMCPTool(
 		try {
 			return ok(await opQuery(ctx, parseQuerySpec(args)))
 		} catch (e) {
-			if (e instanceof ValidationError)
-				return err(JSON.stringify(e.fieldErrors))
-			return err(e instanceof Error ? e.message : String(e))
+			return mcpFail(
+				e,
+				{ resource: String(args.resource ?? 'query'), operation: 'query' },
+				exposure,
+			)
 		}
 	}
 	if (toolName === 'describe_resources') {
 		try {
 			return ok(await describeResources(ctx.registry, ctx.user ?? null, args))
 		} catch (e) {
-			return err(e instanceof Error ? e.message : String(e))
+			return mcpFail(
+				e,
+				{ resource: 'registry', operation: 'describe' },
+				exposure,
+			)
 		}
 	}
 	// The pre-#320 per-resource names. Unadvertised, still executable: a live
@@ -1034,21 +1158,9 @@ export async function executeMCPTool(
 				return err(`Unknown verb: ${verb}`)
 		}
 	} catch (e) {
-		if (e instanceof ValidationError) return err(JSON.stringify(e.fieldErrors))
-		if (
-			// A declared WIP limit. An agent driving MCP hits the same
-			// rule as a person dragging a card, and gets told which column is full
-			// and by how much rather than a generic failure.
-			e instanceof LimitExceededError ||
-			e instanceof PermissionError ||
-			e instanceof NotFoundError ||
-			// An undeclared index, reported as the sentence saying so rather than
-			// as an empty result an agent would read as "nothing matched".
-			e instanceof UnsupportedOperationError ||
-			e instanceof UnknownResourceError
-		) {
-			return err(e.message)
-		}
-		return err(e instanceof Error ? e.message : String(e))
+		// The class list this used to inline moved into `mcpFail`, which is where
+		// the fallback lives too — the two have to be read together or the fallback
+		// silently swallows a refusal the caller could have acted on (#352).
+		return mcpFail(e, { resource: resourceName, operation: verb }, exposure)
 	}
 }

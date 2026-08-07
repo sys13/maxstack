@@ -37,6 +37,7 @@ import {
 	type GeneratorResult,
 	handleMcpRequest,
 	type JsonRpcRequest,
+	type McpRequestContext,
 	type PlatformContext,
 	type RegisteredGenerator,
 	typesGenerator,
@@ -271,14 +272,42 @@ export function platformContext(
 	}
 }
 
+/**
+ * This host's request context — the platform half, plus the one thing only a
+ * host can state: how exposed its transport is (#353).
+ *
+ * `exposure: 'local'` is declared here and nowhere else in the repo, and it is
+ * the reason the field exists. This process is spawned by the developer's own
+ * agent client, over a pipe, against a directory handed to it on the command
+ * line. There is no remote caller to withhold anything from — whoever reads the
+ * reply can also `cat` the spec file the error is about — so an unrecognised
+ * failure comes back *with* its detail: `ENOENT` and the path, a parse error and
+ * its line, a generator's stack. That detail is the whole value of the reply,
+ * and an agent handed only `Internal error [err_…]` here would have to go and
+ * read a stderr stream its client does not surface, to learn something it was
+ * already entitled to. Blanket redaction on this host would be a fix that only
+ * made debugging harder.
+ *
+ * `POST /mcp` in the generated web app deliberately does **not** set it. That
+ * host answers a session cookie or an API key over the network, its CRUD tools
+ * run the same driver as the REST handlers #336 fixed, and its replies land in
+ * transcripts that get pasted into issues — so it takes the default, `'network'`,
+ * and gets the generic body plus a correlation id.
+ *
+ * Exported so that difference is pinned by a test rather than by this comment.
+ */
+export function stdioMcpContext(platform: PlatformContext): McpRequestContext {
+	return { platform, exposure: 'local' }
+}
+
 export async function mcpCommand(dir: string): Promise<void> {
 	// stdout is the wire from here on — every incidental log goes to stderr.
 	console.log = (...args: unknown[]) => console.error(...args)
 
 	const project = await loadProject(dir)
-	const ctx = {
-		platform: platformContext(project, await projectCheckRunner(project)),
-	}
+	const ctx = stdioMcpContext(
+		platformContext(project, await projectCheckRunner(project)),
+	)
 
 	console.error(`· maxstack mcp (stdio) — ${project.root}`)
 

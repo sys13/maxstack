@@ -18,6 +18,7 @@ import type {
 	RegisteredCheck,
 	UnavailableCheck,
 } from './context.ts'
+import { PlatformToolError } from './errors.ts'
 
 /**
  * Build a runner over a fixed set of checks, plus the ones this host knows it
@@ -47,7 +48,8 @@ export function createCheckRegistry(
 				? names.map((n) => {
 						const c = byName.get(n)
 						if (!c)
-							throw new Error(
+							// Addressed to the caller (see PlatformToolError, #353).
+							throw new PlatformToolError(
 								`Unknown check "${n}". Available: ${[...byName.keys()].join(', ') || '(none)'}`,
 							)
 						return c
