@@ -26,9 +26,47 @@
  * become a reference, a file, or read-only. The declaration is stale; the column
  * is the current fact. The stricter of the two wins, always, which means the
  * only direction drift can take is *fewer* editable cells.
+ *
+ * ## Two people, one row
+ *
+ * **Last write wins, and the cell never shows a value the database does not
+ * have.** Stated rather than engineered: a cell edit is a single-column update
+ * with no version token, so of two people editing the same row the later save
+ * is the one that survives — and because each edit submits exactly one field,
+ * they only collide when they are typing into the *same cell*, not merely the
+ * same row.
+ *
+ * What the second property costs is the reason there is no optimistic state
+ * here. The editor closes to display mode rendering the value it was handed as
+ * a prop, which is the loader's, and the fetcher's revalidation is what replaces
+ * it. So a save shows the old value for a moment and then the stored one —
+ * including when the stored one is somebody else's. A refusal (403, 422, a
+ * value limit) therefore needs no rollback path: nothing was ever written to
+ * the screen to roll back, and `<WriteRefusal>` says why. Optimism and undo are
+ * #308's, and they are the change that makes a rollback path necessary.
  */
 
 import type { SproutColumn } from '@maxstack/core'
+import { detectInputWidget } from '@maxstack/ui'
+
+/**
+ * The widgets whose value a one-line cell cannot carry.
+ *
+ * `textarea` / `markdown` / `richtext` are prose, and prose has line breaks: a
+ * text input strips them (the HTML value sanitization algorithm), so a cell
+ * editor over a description field is a way to flatten it by accident. The form
+ * renders the real multi-line control, and that is where prose is edited.
+ *
+ * `password` is here for a different reason — the read cell masks it, and an
+ * editor would print the secret into the table for whoever is standing behind
+ * the person editing row four.
+ */
+const UNCELLABLE_WIDGETS = new Set([
+	'textarea',
+	'markdown',
+	'richtext',
+	'password',
+])
 
 /** A record as the runtime hands it around — the same shape the list renders. */
 type Row = Record<string, unknown>
@@ -55,6 +93,13 @@ export function isInlineEditableColumn(column: SproutColumn): boolean {
 	// box. The form offers a name picker, and that is where an FK is edited.
 	if (meta.reference || meta.arrayReference) return false
 	if (meta.isFile === true) return false
+	// Whatever the *form* would render this column with is the authority on
+	// whether one line is enough for it. Deriving the answer from
+	// `detectInputWidget` rather than restating it keeps the cell and the form
+	// from drifting on which fields are prose — the same reason display and form
+	// share one detector at all.
+	const widget = detectInputWidget(column)
+	if (widget !== null && UNCELLABLE_WIDGETS.has(widget)) return false
 	// `uuid` and `json` have no single-line editor a person can use correctly.
 	return column.type !== 'json' && column.type !== 'uuid'
 }

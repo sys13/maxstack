@@ -395,6 +395,117 @@ describe('ResourceList edit-in-place (task 40)', () => {
 	})
 })
 
+describe('ResourceList edit-in-place, cells that hold no value or too much', () => {
+	const enumResource: IntrospectedResource = {
+		name: 'task',
+		primaryKey: 'id',
+		columns: [
+			{ name: 'id', type: 'uuid', meta: {} },
+			{
+				name: 'status',
+				type: 'enum',
+				nullable: true,
+				enumValues: ['todo', 'doing'],
+				meta: {},
+			},
+		],
+	}
+	const unset: Row[] = [{ id: '1', status: null }]
+
+	function openStatus() {
+		fireEvent.click(
+			first(screen.getAllByRole('button', { name: 'Edit Status' })),
+		)
+		return screen.getByLabelText('Status')
+	}
+
+	it('opens an empty enum cell on no value rather than on the first option', () => {
+		// A `<select>` can only show one of its own options, so with none matching
+		// the browser silently picks the first — and the cell then displays a value
+		// the database does not have. It also made that option unreachable: it was
+		// already selected, so choosing it changed nothing and saved nothing.
+		const onCellSave = vi.fn()
+		render(
+			<ResourceList
+				resource={enumResource}
+				rows={unset}
+				editable={['status']}
+				onCellSave={onCellSave}
+			/>,
+		)
+		const select = openStatus()
+		expect(select).toHaveValue('')
+		fireEvent.change(select, { target: { value: 'todo' } })
+		expect(onCellSave).toHaveBeenCalledWith(unset[0], 'status', 'todo')
+	})
+
+	it('clears a nullable enum to null, not to an empty string', () => {
+		// The blank option is a value, and the value it is is `null` — an empty
+		// string would land in the column as an option that does not exist.
+		const onCellSave = vi.fn()
+		render(
+			<ResourceList
+				resource={enumResource}
+				rows={[{ id: '1', status: 'todo' }]}
+				editable={['status']}
+				onCellSave={onCellSave}
+			/>,
+		)
+		fireEvent.change(openStatus(), { target: { value: '' } })
+		expect(onCellSave).toHaveBeenCalledWith(
+			{ id: '1', status: 'todo' },
+			'status',
+			null,
+		)
+	})
+
+	it('shows a NOT NULL enum its empty state without letting it be committed', () => {
+		// The state is real, so it is shown; the write would be refused by the
+		// server, so the option is not selectable. A cell that hid the emptiness
+		// would be lying about the row to avoid an error it cannot cause.
+		render(
+			<ResourceList
+				resource={{
+					...enumResource,
+					columns: enumResource.columns.map((c) =>
+						c.name === 'status' ? { ...c, nullable: false } : c,
+					),
+				}}
+				rows={unset}
+				editable={['status']}
+				onCellSave={vi.fn()}
+			/>,
+		)
+		openStatus()
+		expect(screen.getByRole('option', { name: '—' })).toBeDisabled()
+	})
+
+	it('does not flatten a stored line break when a cell is merely focused', () => {
+		// A text input strips every CR and LF from its value. So the editor's text
+		// differed from the stored string without anybody typing, the
+		// unchanged-value check missed, and a click plus a click elsewhere wrote
+		// the flattened string back. An edit nobody made, destroying the only copy
+		// of the line breaks.
+		const onCellSave = vi.fn()
+		const multi: Row[] = [{ id: '1', title: 'line one\nline two' }]
+		render(
+			<ResourceList
+				resource={resource}
+				rows={multi}
+				editable={['title']}
+				onCellSave={onCellSave}
+			/>,
+		)
+		fireEvent.click(
+			first(screen.getAllByRole('button', { name: 'Edit Title' })),
+		)
+		const input = screen.getByLabelText('Title')
+		expect(input).toHaveValue('line oneline two')
+		fireEvent.blur(input)
+		expect(onCellSave).not.toHaveBeenCalled()
+	})
+})
+
 describe('ResourceList load-more footer (task 40)', () => {
 	it('renders Load more instead of a pager and forwards the click', () => {
 		const onLoadMore = vi.fn()

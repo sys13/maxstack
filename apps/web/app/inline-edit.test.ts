@@ -54,6 +54,7 @@ const column = (
 const columns: SproutColumn[] = [
 	column('id', { type: 'uuid', isPrimaryKey: true }),
 	column('title'),
+	column('subtitle'),
 	column('notes'),
 	column('points', { type: 'number' }),
 	column('done', { type: 'boolean' }),
@@ -76,6 +77,7 @@ const columns: SproutColumn[] = [
 const row = {
 	id: 'r1',
 	title: 'First',
+	subtitle: 'a subtitle',
 	notes: 'a note',
 	points: 3,
 	done: false,
@@ -106,6 +108,40 @@ describe('isInlineEditableColumn', () => {
 				isInlineEditableColumn(columns.find((c) => c.name === name) as never),
 			).toBe(false)
 	})
+
+	it('refuses prose, however the column says it is prose', () => {
+		// A single-line `<input>` cannot hold a line break — the HTML value
+		// sanitization algorithm strips them — so a cell editor over a description
+		// field is a way to flatten it by accident. Whether a column is prose is
+		// the *form's* question, so the answer is taken from the same detector the
+		// form uses: by declaration (`multiline`, `format`, `markdown`) and by the
+		// name heuristic that makes a field called `notes` a textarea.
+		expect(isInlineEditableColumn(column('notes'))).toBe(false)
+		expect(isInlineEditableColumn(column('description'))).toBe(false)
+		expect(
+			isInlineEditableColumn(column('blurb', { meta: { multiline: true } })),
+		).toBe(false)
+		expect(
+			isInlineEditableColumn(column('blurb', { meta: { markdown: true } })),
+		).toBe(false)
+		expect(
+			isInlineEditableColumn(column('blurb', { meta: { format: 'richtext' } })),
+		).toBe(false)
+		// And the escape hatch holds in this direction too: a field named `notes`
+		// that says it is one line *is* one line, and edits in a cell.
+		expect(
+			isInlineEditableColumn(column('notes', { meta: { multiline: false } })),
+		).toBe(true)
+	})
+
+	it('refuses a password', () => {
+		// The read cell masks it. An editor would print the secret into the table.
+		expect(
+			isInlineEditableColumn(
+				column('secret', { meta: { format: 'password' } }),
+			),
+		).toBe(false)
+	})
 })
 
 describe('inlineEditableFields', () => {
@@ -124,6 +160,7 @@ describe('inlineEditableFields', () => {
 				'createdBy',
 				'authorId',
 				'payload',
+				'notes',
 				'vanished',
 			]),
 		).toEqual(['title'])
@@ -138,7 +175,7 @@ describe('inlineEditValues', () => {
 	const values = (
 		name: string,
 		value: unknown,
-		declared = ['title', 'notes'],
+		declared = ['title', 'subtitle'],
 	) => inlineEditValues(columns, declared, row, name, value)
 
 	it('writes exactly the one declared field it was given', () => {
@@ -162,14 +199,14 @@ describe('inlineEditValues', () => {
 	it('writes nothing when the value did not change', () => {
 		// Every no-op write is an audit entry recording that nothing happened.
 		expect(values('title', 'First')).toBeNull()
-		expect(values('notes', 'a note')).toBeNull()
+		expect(values('subtitle', 'a subtitle')).toBeNull()
 	})
 
 	it('treats null, empty string, zero and false as values, not as absences', () => {
 		// The truthiness trap: each of these is a legitimate save, and only
 		// `undefined` means "the editor produced nothing".
-		expect(values('notes', null)).toEqual({ notes: null })
-		expect(values('notes', '')).toEqual({ notes: '' })
+		expect(values('subtitle', null)).toEqual({ subtitle: null })
+		expect(values('subtitle', '')).toEqual({ subtitle: '' })
 		expect(values('points', 0, ['points'])).toEqual({ points: 0 })
 		expect(values('done', false, ['done'])).toBeNull() // unchanged
 		expect(values('done', true, ['done'])).toEqual({ done: true })
@@ -189,7 +226,7 @@ const shape: SpecEntityShape = {
 		{ name: 'title', type: 'string', required: true },
 		// Optional, so the DB column is nullable — the round-trip this file exists
 		// to pin.
-		{ name: 'body', type: 'string', required: false },
+		{ name: 'subtitle', type: 'string', required: false },
 		{ name: 'pages', type: 'number', required: false },
 	],
 }
@@ -204,7 +241,10 @@ async function project(user: { id: string; role?: string } | null = null) {
 describe('the cell edit runs the form’s write path', () => {
 	it('persists an inline edit through updateHandler', async () => {
 		const ctx = await project()
-		const one = await ctx.store.create('note', { title: 'One', body: 'first' })
+		const one = await ctx.store.create('note', {
+			title: 'One',
+			subtitle: 'first',
+		})
 		const cols = ctx.registry.get('note')?.resource.columns as SproutColumn[]
 
 		const values = inlineEditValues(cols, ['title'], one, 'title', 'One edited')
@@ -220,9 +260,9 @@ describe('the cell edit runs the form’s write path', () => {
 		// It persisted, and it touched one column: the read-back is the proof, not
 		// the handler's echo.
 		const after = await getHandler(ctx, 'note', String(one.id))
-		const body = after.body as Record<string, unknown>
-		expect(body.title).toBe('One edited')
-		expect(body.body).toBe('first')
+		const stored = after.body as Record<string, unknown>
+		expect(stored.title).toBe('One edited')
+		expect(stored.subtitle).toBe('first')
 	})
 
 	it('round-trips a nullable field: cleared to null, read back as null, and back in', async () => {
@@ -233,13 +273,13 @@ describe('the cell edit runs the form’s write path', () => {
 		const ctx = await project()
 		const one = await ctx.store.create('note', {
 			title: 'Two',
-			body: 'to be cleared',
+			subtitle: 'to be cleared',
 			pages: 12,
 		})
 		const cols = ctx.registry.get('note')?.resource.columns as SproutColumn[]
 
-		const cleared = inlineEditValues(cols, ['body'], one, 'body', null)
-		expect(cleared).toEqual({ body: null })
+		const cleared = inlineEditValues(cols, ['subtitle'], one, 'subtitle', null)
+		expect(cleared).toEqual({ subtitle: null })
 		const wrote = await updateHandler(
 			ctx,
 			'note',
@@ -250,17 +290,17 @@ describe('the cell edit runs the form’s write path', () => {
 
 		const read = await getHandler(ctx, 'note', String(one.id))
 		const emitted = read.body as Record<string, unknown>
-		expect(emitted.body).toBeNull()
+		expect(emitted.subtitle).toBeNull()
 
 		// Now send the emitted row straight back — the exact bytes the API just
 		// produced, nulls and all. An API that refuses its own output is the defect.
 		const back = await updateHandler(ctx, 'note', String(one.id), {
-			body: emitted.body,
+			subtitle: emitted.subtitle,
 			pages: emitted.pages,
 			title: emitted.title,
 		})
 		expect(back.status).toBe(200)
-		expect((back.body as Record<string, unknown>).body).toBeNull()
+		expect((back.body as Record<string, unknown>).subtitle).toBeNull()
 
 		// And a null number clears too — the type that most often has `.nullable()`
 		// stripped, because a number field reads as "required-ish" to a generator.

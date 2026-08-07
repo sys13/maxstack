@@ -68,8 +68,13 @@ export function EditableCell({
 			onDone={(next) => {
 				setEditing(false)
 				// `NO_CHANGE` covers both an explicit cancel and a commit of the
-				// unchanged value — either way there's nothing to persist.
-				if (next !== NO_CHANGE && !Object.is(next, value)) void onSave(next)
+				// unchanged value — either way there's nothing to persist. So does
+				// clearing a cell that was already empty: an absent key and a stored
+				// `null` are the same emptiness to a person reading the row, and
+				// writing one over the other is an audit entry recording nothing.
+				if (next === NO_CHANGE || Object.is(next, value)) return
+				if (next === null && value == null) return
+				void onSave(next)
 			}}
 		/>
 	)
@@ -123,18 +128,38 @@ function CellEditor({
 		column.meta?.options?.map((o) => ({ label: o.label, value: o.value })) ??
 		(column.enumValues ?? []).map((v) => ({ label: v, value: v }))
 	if (column.type === 'enum' || options.length > 0) {
+		const current = value == null ? '' : String(value)
+		const known = options.some((o) => o.value === current)
+		// A `<select>` can only ever show one of its own options, so with none
+		// matching the stored value the browser silently selects the **first** one
+		// — and the cell would then be displaying a value the database does not
+		// have. Two bugs came out of that: an empty cell opened claiming the first
+		// option, and choosing that option fired no change event, so it was the one
+		// value an empty cell could never be set to.
+		//
+		// A blank option fixes both by telling the truth about "no value". Whether
+		// it can be *chosen* is the column's own business: a nullable column can be
+		// emptied through it, and a `NOT NULL` one gets it disabled — shown, because
+		// the state is real, and unselectable, because committing it would be a
+		// write the server is right to refuse.
+		const clearable = column.nullable !== false
 		return (
 			<select
 				ref={focusOnMount}
 				aria-label={label}
-				defaultValue={String(value ?? '')}
-				onChange={(e) => done(e.target.value)}
+				defaultValue={known ? current : ''}
+				onChange={(e) => done(e.target.value === '' ? null : e.target.value)}
 				onBlur={() => done(NO_CHANGE)}
 				onKeyDown={(e) => {
 					if (e.key === 'Escape') done(NO_CHANGE)
 				}}
 				className={EDITOR_CLASS}
 			>
+				{(!known || clearable) && (
+					<option value="" disabled={!clearable}>
+						—
+					</option>
+				)}
 				{options.map((o) => (
 					<option key={o.value} value={o.value}>
 						{o.label}
@@ -151,10 +176,19 @@ function CellEditor({
 				? 'date'
 				: 'text'
 	const initial = editorText(value, column)
+	// What a single-line `<input>` can actually hold. The HTML value sanitization
+	// algorithm strips every CR and LF from a text input's value, so a stored
+	// string containing one comes back out flattened even when nobody typed:
+	// `raw === initial` missed, and merely focusing the cell and tabbing away
+	// committed the flattened string. Silent data loss, from an edit that was
+	// never made. Prose columns are refused an editor upstream, but any string
+	// column can hold a line break — one import or one API write is enough — so
+	// the guard belongs here, where the sanitization happens.
+	const holdable = initial.replace(/[\r\n]/g, '')
 	function commit(raw: string) {
 		// Untouched text is a cancel — this also keeps a stored ISO timestamp from
 		// being rewritten as its truncated `YYYY-MM-DD` editor text on a stray blur.
-		if (raw === initial) return done(NO_CHANGE)
+		if (raw === initial || raw === holdable) return done(NO_CHANGE)
 		if (column.type === 'number') {
 			if (raw.trim() === '') return done(null)
 			const n = Number(raw)
