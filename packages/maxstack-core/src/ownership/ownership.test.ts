@@ -47,6 +47,46 @@ describe('emit (ts-morph generator-side emission)', () => {
 		expect(src).not.toMatch(/;\s*$/m)
 	})
 
+	it('omits the Slot import entirely when the page declares no slots', () => {
+		// A slotless page is the default shape, and `<Slot>` is only emitted by
+		// slotJsx — so an unconditional import is dead code in a DO-NOT-EDIT file.
+		// The moment the scaffold runs a linter, `noUnusedImports` reddens the
+		// user's gate on framework-owned code they are told not to edit.
+		const src = emitResourcePage({ ...TASK, slots: [] })
+		expect(src).not.toContain('Slot')
+		expect(src).not.toContain('@maxstack/ui')
+		expect(src).not.toContain('import')
+		// The page itself still emits.
+		expect(src).toContain('export default function TaskListPage()')
+		// …and a slotted page keeps both imports.
+		const slotted = emitResourcePage(TASK)
+		expect(slotted).toContain("import { Slot } from '@maxstack/ui'")
+		expect(slotted).toContain("import * as slots from './task.slots.tsx'")
+	})
+
+	it('never emits an import binding the module does not use', () => {
+		// Generic guard so the next unconditional import cannot land the same way.
+		for (const slots of [[], ['afterList'], ['afterList', 'beforeList']]) {
+			const src = emitResourcePage({ ...TASK, slots })
+			const lines = src.split('\n')
+			const bindings = lines.flatMap((line) => {
+				const named = /^import \{ ([^}]+) \} from /.exec(line)
+				if (named?.[1]) return named[1].split(',').map((n) => n.trim())
+				const ns = /^import \* as (\w+) from /.exec(line)
+				return ns?.[1] ? [ns[1]] : []
+			})
+			const body = lines
+				.filter((line) => !line.startsWith('import '))
+				.join('\n')
+			for (const binding of bindings) {
+				expect(
+					new RegExp(`\\b${binding}\\b`).test(body),
+					`unused import \`${binding}\` at slots=[${slots.join(',')}]`,
+				).toBe(true)
+			}
+		}
+	})
+
 	it('is deterministic — same descriptor yields byte-identical output', () => {
 		expect(emitResourcePage(TASK)).toBe(emitResourcePage(TASK))
 	})

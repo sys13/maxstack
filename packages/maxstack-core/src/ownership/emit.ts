@@ -118,11 +118,17 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 	const project = newProject()
 	const sf = project.createSourceFile(`${resource}.tsx`)
 
-	sf.addImportDeclaration({
-		moduleSpecifier: '@maxstack/ui',
-		namedImports: ['Slot'],
-	})
+	// Both imports are conditional on the page actually declaring slots: `<Slot>`
+	// is only ever emitted by `slotJsx` below, which is empty at zero slots. An
+	// unconditional import left every slotless page — the default — with a dead
+	// import in a file stamped DO-NOT-EDIT, so the moment a scaffold runs a
+	// linter (`noUnusedImports` is on by default in Biome) the user's own gate
+	// went red on framework-owned code they cannot fix without ejecting.
 	if (slots.length > 0) {
+		sf.addImportDeclaration({
+			moduleSpecifier: '@maxstack/ui',
+			namedImports: ['Slot'],
+		})
 		sf.addImportDeclaration({
 			moduleSpecifier: slotModuleSpecifier(resource),
 			namespaceImport: 'slots',
