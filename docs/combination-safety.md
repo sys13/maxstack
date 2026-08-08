@@ -91,6 +91,17 @@ standalone, and about **264s** inside `validate`, past that suite's 120s
 per-test budget. The gate was not wrong; it was too big for the tier it was in.
 So it moved, which is the response this document sanctioned in advance.
 
+**Fifteen, not seventeen.** The catalog has **17** entries; two of them
+(`db-plugins` and `di`) are plumbing that exists only so an install record can
+drive composition-root wiring, and nobody adds them for their own sake. The
+lattice is enumerated over the **15 user-facing** bundles, which is the number
+[`bundle-reference.md`](bundle-reference.md) — generated from the catalog —
+leads with, and the number the site publishes as its module count. Fixture
+coverage in [`upgrade-safety.md`](upgrade-safety.md) counts all **17** instead,
+because a plumbing bundle still has a version and a project sitting on an old
+one still has to be able to walk forward. Both figures are right; they count
+different things, and every bundle count on either page says which.
+
 One implementation, `runLatticeGate`, at two tiers:
 
 | | PR tier (`--tier pr`) | Nightly (`--require-ratchet`) |
@@ -143,8 +154,8 @@ the harness runner (or
 `LATTICE_RATCHET` in `lattice.ts` records the largest lattice ever proven green
 — subsets *and* the catalog size they were drawn from, because proving the same
 subset count over a smaller catalog is a coverage regression dressed as a pass.
-It stands at **4047 subsets over 15 bundles**, and moving the sweep to the
-nightly did not lower it by a single point.
+It stands at **4047 subsets over 15 user-facing bundles**, and moving the sweep
+to the nightly did not lower it by a single point.
 A `check-lattice-ratchet` gate (the `governance` job) fails any PR that lowers
 either number, and `--require-ratchet` fails any run that does not reach them.
 That gate, `lattice.ts` and the harness runner named above are all part of the

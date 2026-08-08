@@ -235,7 +235,12 @@ sitting on:
   must survive a regeneration that had nothing to migrate;
 - every codemod's `from`, so the adjacent step is exercised on its own.
 
-That is **18 cells over 17 catalog entries**, covered by 6 fixtures.
+That is **20 cells over 17 catalog entries**, covered by 8 fixtures. The 17 is
+deliberate and is not the 15 the subset sweep above counts: coverage includes the
+two plumbing bundles, because a plumbing bundle still has a version and a project
+sitting on an old one still has to be able to walk forward, while the lattice is
+enumerated over user-facing bundles only.
+[`combination-safety.md`](combination-safety.md) states the split.
 `UPGRADE_RATCHET` records `{ cells, subsets, catalogSize }` and a
 `check-upgrade-ratchet` gate (the `governance` job) fails any PR that lowers any
 of them — both part of the apparatus this page opened by placing in the
@@ -258,7 +263,7 @@ established for the lattice, deliberately rather than as a second convention.
 
 | | PR tier (`--tier pr`) | Nightly (`--require-ratchet`) |
 | --- | --- | --- |
-| Fixtures (upgrade + cascading install + drift) | **all 6** — never sampled | all 6 |
+| Fixtures (upgrade + cascading install + drift) | **all 8** — never sampled | all 8 |
 | Coverage check | yes, hard | yes, hard |
 | Subsets | **101 of 3976** (2.5%) | all 3976 |
 | Selection | top of the *combination gate's* adversarial ranking, extended to a whole score band | none — everything |
@@ -278,14 +283,14 @@ convergence is a claim about an upgraded project *versus* a fresh one.
 **It says so.** Every run at either tier prints `describeUpgradeRun`:
 
 ```
-upgrade [pr]: 6 pinned fixtures covering 18/18 (bundle, version) cells over 17 catalog entries
+upgrade [pr]: 8 pinned fixtures covering 20/20 (bundle, version) cells over 17 catalog entries
   fixtures: the COMPLETE set — coverage is a hard check, not a sample
   subsets: 101/3976 closed subsets carrying an upgradable bundle
   selection: the 101 highest-scoring points of the adversarial ranking (PR tier: top 96 by
     prerequisite depth and contention over user / organization / the audit sink, extended to
     the end of the score band so no band is cut mid-tie)
   SAMPLE, NOT THE FULL SWEEP — 3875 lower-scoring subsets were NOT checked (checked down to
-    score 78, highest skipped 77); the full sweep and the G5 ratchet (3976 subsets, 18 cells
+    score 78, highest skipped 77); the full sweep and the G5 ratchet (3976 subsets, 20 cells
     over 17 bundles) run nightly
 ```
 

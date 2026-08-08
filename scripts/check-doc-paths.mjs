@@ -30,7 +30,8 @@
  * otherwise.
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -56,11 +57,11 @@ const SKIP_DIRS = new Set([
 const SKIP_FILES = new Set(['CHANGELOG.md', 'CHANGELOG.archive.md'])
 
 /**
- * Paths that are absent on a clean checkout on purpose. Each is created at
- * runtime and gitignored, so "it does not exist" is the documented state rather
- * than a broken citation — and the sentence citing it is about deleting it.
+ * Paths that are absent on a clean checkout on purpose: each is gitignored and
+ * written by a build or at runtime, so "not in the tree" is the documented
+ * state rather than a broken citation.
  */
-const RUNTIME_PATHS = new Set(['apps/web/.maxstack/'])
+const GENERATED_PATHS = new Set(['apps/web/.maxstack/', 'apps/web/build'])
 
 /**
  * The top-level directories a citation can point into. Anchoring on these keeps
@@ -91,6 +92,32 @@ function docFiles(dir) {
 
 const lineOf = (source, index) => source.slice(0, index).split('\n').length
 
+/**
+ * Existence is judged against what git tracks, not against the working tree. A
+ * reader clones the repo; they do not inherit the maintainer's build outputs.
+ * On its first run this gate was green locally and red in CI over exactly that
+ * — a citation of `apps/web/build`, which every local checkout has and no fresh
+ * one does. Tracked-only means a gate that passes here passes there.
+ */
+function trackedPaths() {
+	const files = execFileSync('git', ['ls-files', '-z'], {
+		cwd: root,
+		encoding: 'utf8',
+		maxBuffer: 64 * 1024 * 1024,
+	})
+		.split('\0')
+		.filter(Boolean)
+	const set = new Set(files)
+	// A citation may name a directory, which git never lists on its own.
+	for (const file of files) {
+		for (let i = file.indexOf('/'); i !== -1; i = file.indexOf('/', i + 1))
+			set.add(file.slice(0, i))
+	}
+	return set
+}
+
+const tracked = trackedPaths()
+
 /** @type {{ file: string, line: number, path: string }[]} */
 const violations = []
 let checked = 0
@@ -101,9 +128,9 @@ for (const file of docFiles(root)) {
 	for (const match of source.matchAll(CITATION_RE)) {
 		// A leading `./` or `/` is a way of writing the same repo-relative path.
 		const path = match[1].replace(/^\.?\//, '')
-		if (RUNTIME_PATHS.has(path)) continue
+		if (GENERATED_PATHS.has(path)) continue
 		checked++
-		if (!existsSync(join(root, path)))
+		if (!tracked.has(path.replace(/\/$/, '')))
 			violations.push({ file: rel, line: lineOf(source, match.index), path })
 	}
 }
@@ -124,8 +151,8 @@ Each of these renders as a file a reader can open, and cannot be opened.
              not \`scripts/publish.ts\`)
   not here   say so — "lives in the maintainer's own repository rather than
              here" — and drop the repo-relative shape
-  runtime    if it is a gitignored path created at runtime, add it to
-             RUNTIME_PATHS in this file, with the reason
+  generated  if it is a gitignored path written by a build or at runtime, add
+             it to GENERATED_PATHS in this file, with the reason
 `,
 )
 process.exit(1)
