@@ -48,6 +48,13 @@ import type { Project } from './project.ts'
 interface ExpectedCheck {
 	script: string
 	summary: string
+	/**
+	 * The consequence clause, completing "…, so ${why}". Every sentence this
+	 * module composes ends in it — "no package.json, so …", "dependencies are not
+	 * installed, so …" — so it has to read as a consequence on its own, in the
+	 * present tense, with no lead-in of its own. A clause written for one of the
+	 * three prefixes produces a sentence that parses nowhere else.
+	 */
 	why: string
 	/** A real command that implements this script. */
 	command: string
@@ -63,6 +70,19 @@ interface ExpectedCheck {
 	precondition?: (
 		project: Project,
 	) => Promise<{ reason: string; remedy: string } | null>
+	/**
+	 * Whether this check withholds the green when it could not run, if the project
+	 * owns no code yet. Defaults to `ownsCode(project)` — see below — which is the
+	 * right question for a check whose subject IS the owned code.
+	 *
+	 * `e2e` sets it `true`: its subject is the running application, which every
+	 * generated project has, and its applicability was already decided by the
+	 * spec (`declaresE2eTests`). A declared e2e suite that did not run is
+	 * unexamined whether or not anybody has ejected a route yet, and calling it
+	 * "did not apply here" is false about the one check whose subject demonstrably
+	 * existed.
+	 */
+	alwaysBlocking?: true
 }
 
 const EXPECTED: ExpectedCheck[] = [
@@ -260,35 +280,19 @@ export async function projectCheckRunner(
 	// one that HAS declared them is the gap that sends an agent back to driving a
 	// browser by hand, because the chain it was told about dead-ends.
 	const expected = [...EXPECTED]
-	if (await declaresE2eTests(project))
-		expected.push({
-			script: 'e2e',
-			summary: 'The declared end-to-end tests.',
-			why: 'the pages declare e2eTests and nothing runs them',
-			command: 'playwright test',
-			install: '@playwright/test',
-			precondition: async () =>
-				(await hasPlaywrightBrowsers())
-					? null
-					: {
-							reason:
-								'"e2e" is declared but Playwright has no browsers on this machine, so the declared end-to-end tests did not run',
-							remedy:
-								'Run `npx playwright install chromium` (a one-time ~100MB download `npm install` does not do for you) and check again.',
-						},
-		})
+	if (await declaresE2eTests(project)) expected.push(E2E_EXPECTATION)
 
 	// A check that cannot run over code that does not exist yet is named, but does
-	// not withhold the green — see `ownsCode`.
-	const blocking = await ownsCode(project)
+	// not withhold the green — see `ownsCode`. `alwaysBlocking` opts a check out
+	// of that softening entirely, because its subject is not the owned code.
+	const owns = await ownsCode(project)
 
 	if (scripts === null) {
-		for (const { script, why, command } of expected)
+		for (const check of expected)
 			unavailable.push({
-				name: script,
-				blocking,
-				reason: `this project has no package.json, so ${why}`,
-				remedy: `Add a package.json with \`"${script}": "${command}"\` in its scripts block.`,
+				name: check.script,
+				blocking: check.alwaysBlocking ?? owns,
+				...noPackageJson(check),
 			})
 		return createCheckRegistry(checks, unavailable)
 	}
@@ -300,45 +304,106 @@ export async function projectCheckRunner(
 	// so it is reported as unexamined, which is what it is.
 	const installed = await hasNodeModules(project.root)
 
-	for (const {
-		script,
-		summary,
-		why,
-		command,
-		install,
-		precondition,
-	} of expected) {
-		// Ordered strictly: no package.json beats no install beats an unmet
-		// precondition. Each reason is only worth printing once the one above it
-		// holds — "no test files" is noise at a project that has not installed
-		// vitest yet, and following it would not make the check run.
-		const unmet =
-			scripts[script] && installed && precondition
-				? await precondition(project)
-				: null
-		if (scripts[script] && !installed) {
+	for (const check of expected) {
+		const unmet = await blockerFor(project, check, scripts, installed)
+		if (unmet) {
 			unavailable.push({
-				name: script,
-				blocking,
-				reason: `"${script}" is declared but this project's dependencies are not installed, so ${why}`,
-				remedy: 'Run `npm install` (or `pnpm install`) and check again.',
+				name: check.script,
+				blocking: check.alwaysBlocking ?? owns,
+				...unmet,
 			})
-		} else if (unmet) {
-			unavailable.push({ name: script, blocking, ...unmet })
-		} else if (scripts[script]) {
-			checks.push(
-				shellCheck(script, summary, `npm run --silent ${script}`, {
-					cwd: project.root,
-				}),
-			)
 		} else {
-			unavailable.push({
-				name: script,
-				blocking,
-				reason: `package.json declares no "${script}" script, so ${why}`,
-				remedy: `Add \`"${script}": "${command}"\` to the scripts block (\`npm i -D ${install}\`) and run it again.`,
-			})
+			checks.push(
+				shellCheck(
+					check.script,
+					check.summary,
+					`npm run --silent ${check.script}`,
+					{ cwd: project.root },
+				),
+			)
 		}
 	}
 	return createCheckRegistry(checks, unavailable)
+}
+
+const E2E_EXPECTATION: ExpectedCheck = {
+	script: 'e2e',
+	summary: 'The declared end-to-end tests.',
+	why: 'nothing runs the end-to-end tests the pages declare',
+	command: 'playwright test',
+	install: '@playwright/test',
+	alwaysBlocking: true,
+	precondition: async () =>
+		(await hasPlaywrightBrowsers())
+			? null
+			: {
+					reason:
+						'"e2e" is declared but Playwright has no browsers on this machine, so the declared end-to-end tests did not run',
+					remedy:
+						'Run `npx playwright install chromium` (a one-time ~100MB download `npm install` does not do for you) and check again.',
+				},
+}
+
+function noPackageJson(check: ExpectedCheck): {
+	reason: string
+	remedy: string
+} {
+	return {
+		reason: `this project has no package.json, so ${check.why}`,
+		remedy: `Add a package.json with \`"${check.script}": "${check.command}"\` in its scripts block.`,
+	}
+}
+
+/**
+ * Why this expected check cannot run here — or `null` if it can.
+ *
+ * Ordered strictly: no package.json beats no install beats an unmet
+ * precondition. Each reason is only worth printing once the one above it holds —
+ * "no test files" is noise at a project that has not installed vitest yet, and
+ * following it would not make the check run.
+ *
+ * One function rather than a branch inside the loop so the generator that WRITES
+ * the e2e specs can ask the same question the gate will later answer, and quote
+ * the same remedy — see {@link e2eBlocker}.
+ */
+async function blockerFor(
+	project: Project,
+	check: ExpectedCheck,
+	scripts: Record<string, string> | null,
+	installed: boolean,
+): Promise<{ reason: string; remedy: string } | null> {
+	if (scripts === null) return noPackageJson(check)
+	if (!scripts[check.script])
+		return {
+			reason: `package.json declares no "${check.script}" script, so ${check.why}`,
+			remedy: `Add \`"${check.script}": "${check.command}"\` to the scripts block (\`npm i -D ${check.install}\`) and run it again.`,
+		}
+	if (!installed)
+		return {
+			reason: `"${check.script}" is declared but this project's dependencies are not installed, so ${check.why}`,
+			remedy: 'Run `npm install` (or `pnpm install`) and check again.',
+		}
+	return check.precondition ? await check.precondition(project) : null
+}
+
+/**
+ * Can this project's declared e2e suite actually run — and if not, why, in the
+ * gate's own words?
+ *
+ * Exported for the generator that scaffolds the specs. Writing four Playwright
+ * files onto a machine where nothing can execute them, and saying only
+ * "scaffolded 4 e2e spec files", is how a session produces a test suite it
+ * never learns went unrun (#377). The generator asks this at write time and
+ * repeats the answer, so the remedy arrives with the file rather than a gate
+ * later — and it is literally the same string, because it comes from here.
+ */
+export async function e2eBlocker(
+	project: Project,
+): Promise<{ reason: string; remedy: string } | null> {
+	return blockerFor(
+		project,
+		E2E_EXPECTATION,
+		await projectScripts(project.root),
+		await hasNodeModules(project.root),
+	)
 }

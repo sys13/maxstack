@@ -50,7 +50,7 @@ import {
 } from '../lib/generate.ts'
 import { resolveAgentIdentity } from '../lib/origin.ts'
 import { loadProject, type Project } from '../lib/project.ts'
-import { projectCheckRunner } from '../lib/project-checks.ts'
+import { e2eBlocker, projectCheckRunner } from '../lib/project-checks.ts'
 import { projectReviewCost } from '../lib/review-cost.ts'
 import { ownershipRiskContext } from '../lib/review-risk.ts'
 
@@ -125,10 +125,27 @@ export function diskE2eGenerator(project: Project): RegisteredGenerator {
 				await writeFile(path, artifact.content, 'utf8')
 				notes.push(`wrote: ${artifact.path}`)
 			}
+			// A spec file nothing on this machine can execute is worse than no file:
+			// it reads as coverage, and the caller only finds out when the gate
+			// reports `e2e` unavailable — or, before #377, did not report it at all.
+			// Said here, at write time, the remedy arrives with the file. The
+			// wording is the check registry's own, so the two can never disagree
+			// about what makes this suite runnable.
+			const blocker = notes.some((n) => n.startsWith('wrote: '))
+				? await e2eBlocker(project)
+				: null
 			return {
 				generator: 'e2e-tests',
 				artifacts: [],
-				notes: notes.length ? notes : built.notes,
+				notes: [
+					...(notes.length ? notes : built.notes),
+					...(blocker
+						? [
+								`NOT RUNNABLE YET: ${blocker.reason}`,
+								`To run them: ${blocker.remedy}`,
+							]
+						: []),
+				],
 			}
 		},
 	}

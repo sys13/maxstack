@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from './project.ts'
-import { projectCheckRunner } from './project-checks.ts'
+import { e2eBlocker, projectCheckRunner } from './project-checks.ts'
 
 const dirs: string[] = []
 
@@ -215,7 +215,9 @@ describe('the e2e check', () => {
 		const e2e = ((await runner.unavailable?.()) ?? []).find(
 			(u) => u.name === 'e2e',
 		)
-		expect(e2e?.reason).toMatch(/pages declare e2eTests and nothing runs them/)
+		expect(e2e?.reason).toMatch(
+			/nothing runs the end-to-end tests the pages declare/,
+		)
 		expect(e2e?.remedy).toMatch(/playwright test/)
 	})
 
@@ -238,6 +240,75 @@ describe('the e2e check', () => {
 			},
 		} as unknown as Project)
 		expect(runner.list().map((c) => c.name)).toContain('e2e')
+	})
+
+	it('withholds the green even from a project that owns no code (#377)', async () => {
+		// The dogfood project: a global CLI, no `node_modules`, four declared
+		// e2eTests, the specs on disk and the app serving — and `run_checks`
+		// answering `pass` with `e2e` listed as "did not apply here". `blocking`
+		// is `ownsCode` for typecheck/lint/test because THEIR subject is the owned
+		// code. `e2e`'s subject is the running application, which every generated
+		// project has, and its applicability was already settled by the spec.
+		const project = await projectAt(
+			{ scripts: { e2e: 'playwright test' } },
+			{ manifest: { entries: [] } },
+		)
+		const runner = await projectCheckRunner({
+			...project,
+			spec: {
+				load: async () => ({
+					pages: { pages: [{ e2eTests: ['a user can archive a deck'] }] },
+				}),
+			},
+		} as unknown as Project)
+		const unavailable = (await runner.unavailable?.()) ?? []
+		// The other three still soften — this fix is narrow on purpose.
+		expect(
+			unavailable.filter((u) => u.blocking === false).map((u) => u.name).sort(),
+		).toEqual(['lint', 'test', 'typecheck'])
+		expect(
+			unavailable.find((u) => u.name === 'e2e')?.blocking,
+		).toBe(true)
+	})
+
+	it('reads as one sentence when the deps are the thing missing', async () => {
+		// The `why` clause completes "…, so ${why}" for all three prefixes. Written
+		// for one of them, it produces `"e2e" is declared but this project's
+		// dependencies are not installed, so the pages declare e2eTests and nothing
+		// runs them` — which parses as nothing.
+		const project = await projectAt({ scripts: { e2e: 'playwright test' } })
+		const runner = await projectCheckRunner({
+			...project,
+			spec: {
+				load: async () => ({
+					pages: { pages: [{ e2eTests: ['a user can archive a deck'] }] },
+				}),
+			},
+		} as unknown as Project)
+		expect(
+			((await runner.unavailable?.()) ?? []).find((u) => u.name === 'e2e')
+				?.reason,
+		).toBe(
+			`"e2e" is declared but this project's dependencies are not installed, so nothing runs the end-to-end tests the pages declare`,
+		)
+	})
+})
+
+describe('e2eBlocker', () => {
+	it('answers with the gate\'s own reason and remedy', async () => {
+		const project = await projectAt({ scripts: { e2e: 'playwright test' } })
+		const blocker = await e2eBlocker(project)
+		expect(blocker?.reason).toMatch(/dependencies are not installed/)
+		expect(blocker?.remedy).toMatch(/npm install/)
+	})
+
+	it('answers null when the suite can actually run', async () => {
+		vi.stubEnv('PLAYWRIGHT_BROWSERS_PATH', '0')
+		const project = await projectAt(
+			{ scripts: { e2e: 'playwright test' } },
+			{ installed: true },
+		)
+		expect(await e2eBlocker(project)).toBeNull()
 	})
 })
 

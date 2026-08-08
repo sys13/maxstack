@@ -70,6 +70,49 @@ describe('diskE2eGenerator', () => {
 		).toBe(mine)
 	})
 
+	it('says at write time that nothing here can run them (#377)', async () => {
+		// A project entered through the global CLI has no `node_modules`, and
+		// nothing in the quickstart path asks for one — so "scaffolded 1 e2e spec
+		// file" is a report of coverage that does not exist. The remedy belongs
+		// with the file, not in a gate the caller may never reach.
+		const project = await tempProject()
+		await writeFile(
+			join(project.root, 'package.json'),
+			JSON.stringify({ scripts: { e2e: 'playwright test' } }),
+		)
+		const notes = (await diskE2eGenerator(project).run(spec, {})).notes ?? []
+		expect(notes.join('\n')).toMatch(
+			/NOT RUNNABLE YET: .*dependencies are not installed/,
+		)
+		expect(notes.join('\n')).toMatch(/To run them: .*npm install/)
+	})
+
+	it('stays quiet when the suite it just wrote can actually run', async () => {
+		const project = await tempProject()
+		await writeFile(
+			join(project.root, 'package.json'),
+			JSON.stringify({ scripts: { e2e: 'playwright test' } }),
+		)
+		await mkdir(join(project.root, 'node_modules'), { recursive: true })
+		process.env.PLAYWRIGHT_BROWSERS_PATH = '0'
+		try {
+			const notes = (await diskE2eGenerator(project).run(spec, {})).notes ?? []
+			expect(notes.join('\n')).not.toMatch(/NOT RUNNABLE YET/)
+		} finally {
+			delete process.env.PLAYWRIGHT_BROWSERS_PATH
+		}
+	})
+
+	it('does not warn about a suite it did not write', async () => {
+		// Every file was already there. Nothing new is unrunnable, and repeating
+		// the remedy on a no-op turns it into noise.
+		const project = await tempProject()
+		await mkdir(join(project.root, 'e2e'), { recursive: true })
+		await writeFile(join(project.root, 'e2e/decks.spec.ts'), '// mine\n')
+		const notes = (await diskE2eGenerator(project).run(spec, {})).notes ?? []
+		expect(notes.join('\n')).not.toMatch(/NOT RUNNABLE YET/)
+	})
+
 	it('says so plainly when no page declares any test', async () => {
 		const project = await tempProject()
 		const empty = { pages: { pages: [] } } as unknown as SpecSystem
