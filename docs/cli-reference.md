@@ -4,7 +4,7 @@
 
 # CLI reference
 
-Every `maxstack` verb, rendered from the command tree itself (CLI v0.11.13).
+Every `maxstack` verb, rendered from the command tree itself (CLI v0.11.14).
 
 This is the **consult** doc — it tells you what a flag does, not when to
 reach for it. For the narrative, start with [`quickstart.md`](quickstart.md)
