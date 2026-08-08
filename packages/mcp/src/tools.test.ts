@@ -316,6 +316,92 @@ describe('query_spec', () => {
 	})
 })
 
+// ===========================================================================
+// query_spec {section:"pages"} — the page's OWN contract (#376)
+// ===========================================================================
+
+/**
+ * `section:"api"` documents `/api/<resource>` down to per-field prose. The
+ * pages a *user* clicks — and therefore what an e2e-shaped verification drives
+ * — were `route`, `blocks`, `e2eTests` and nothing else, so the session that
+ * filed #376 grepped rendered HTML for `href=`, guessed `{"intent":"delete"}`
+ * and `DELETE /<id>`, got a 500 from each, and reported the delete path
+ * unverified.
+ */
+describe('query_spec {section:"pages"}', () => {
+	beforeEach(async () => {
+		await executePlatformTool(ctx, 'apply_spec_change', {
+			op: 'data.addEntity',
+			args: { entity },
+		})
+		await executePlatformTool(ctx, 'apply_spec_change', {
+			op: 'page.addPage',
+			args: { page },
+		})
+	})
+
+	const pages = async () =>
+		(
+			data(
+				await executePlatformTool(ctx, 'query_spec', { section: 'pages' }),
+			) as { pages: { id: string; contract: { endpoints: unknown[] } }[] }
+		).pages
+
+	const orders = async () => (await pages()).find((p) => p.id === 'pg-orders')
+
+	it("carries the page's own routes beside its blocks", async () => {
+		const contract = (await orders())?.contract as {
+			endpoints: { request: string }[]
+		}
+		expect(contract.endpoints.map((e) => e.request)).toEqual([
+			'GET /orders',
+			'GET /orders/new',
+			'POST /orders/new',
+			'POST /orders/parse',
+			'GET /orders/:id',
+			'POST /orders/:id',
+			'POST /orders/:id',
+		])
+	})
+
+	it('states the delete shape that was guessed at twice', async () => {
+		const contract = (await orders())?.contract as {
+			endpoints: { request: string; purpose: string; body: string | null }[]
+		}
+		const del = contract.endpoints.find((e) => e.purpose.startsWith('delete'))
+		expect(del?.request).toBe('POST /orders/:id')
+		expect(del?.body).toContain('intent=delete')
+		// And the verb-shaped delete that does exist, one layer over.
+		expect(del?.body).toContain('DELETE /api/order/:id')
+	})
+
+	it('points at `section:"api"` rather than inlining the field schemas', async () => {
+		// The ops section reached 107k characters by inlining everything it could
+		// reference; this section must not repeat that. A page costs a fixed
+		// handful of sentences, not a copy of its entity's JSON Schema.
+		const res = await executePlatformTool(ctx, 'query_spec', {
+			section: 'pages',
+		})
+		expect(res.content[0]?.text?.length ?? 0).toBeLessThan(40_000)
+		const contract = (await orders())?.contract as {
+			endpoints: { body: string | null }[]
+		}
+		expect(
+			contract.endpoints.some((e) => e.body?.includes('section:"api"')),
+		).toBe(true)
+	})
+
+	it('explains a page with the same contract query_spec publishes', async () => {
+		const explained = data(
+			await executePlatformTool(ctx, 'explain_feature', {
+				pageId: 'pg-orders',
+			}),
+		) as { kind: string; contract: unknown }
+		expect(explained.kind).toBe('page')
+		expect(explained.contract).toEqual((await orders())?.contract)
+	})
+})
+
 describe('propose vs apply (suggest → accept)', () => {
 	const addEntity = { op: 'data.addEntity', args: { entity } }
 

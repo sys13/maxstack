@@ -43,6 +43,8 @@ import {
 	type McpTool,
 	type McpToolResult,
 	mcpFail,
+	type PageContract,
+	pageContract,
 } from '@maxstack/core'
 import {
 	applyOp,
@@ -51,6 +53,7 @@ import {
 	groupForBulkReview,
 	type LedgerEntry,
 	type OpId,
+	type PageSpec,
 	pendingProposals,
 	type ReviewTarget,
 	type RiskContext,
@@ -78,7 +81,7 @@ import type {
 	UnavailableCheck,
 } from './context.ts'
 import { PlatformToolError } from './errors.ts'
-import { groundedEntityShapes } from './grounding.ts'
+import { groundedEntityShapes, resourceName } from './grounding.ts'
 import { initReport } from './init.ts'
 import { slotInventory } from './slots.ts'
 import { type SteeringFacts, steer } from './steering.ts'
@@ -274,7 +277,7 @@ export function platformTools(ctx: PlatformContext): McpTool[] {
 		{
 			name: 'query_spec',
 			description:
-				'Read the project spec, or the API generated from it. Pick a section; "summary" gives counts + title, "ops" lists the spec-op vocabulary you can propose — pass `ops` alongside it to get the JSON Schema for those ops\' args, so you never have to guess the arg shape — "requirements" lists ids + user stories + acceptance criteria, "data" lists the entities and their fields as the SPEC declares them, "api" is what a CLIENT talks to (per resource: the REST routes, plus a JSON Schema for the POST body and for the PATCH body, including which fields accept null to clear them) so you never have to probe a running server, and "slots" lists every place bespoke UI can be written *without* ejecting (page-level extension slots plus the derived block-level slots, with the typed props each one receives).',
+				'Read the project spec, or the API generated from it. Pick a section; "summary" gives counts + title, "ops" lists the spec-op vocabulary you can propose — pass `ops` alongside it to get the JSON Schema for those ops\' args, so you never have to guess the arg shape — "requirements" lists ids + user stories + acceptance criteria, "data" lists the entities and their fields as the SPEC declares them, "api" is what a CLIENT talks to (per resource: the REST routes, plus a JSON Schema for the POST body and for the PATCH body, including which fields accept null to clear them) so you never have to probe a running server, "pages" lists the declared pages and — beside each — the contract of the page\'s OWN routes (`<route>`, `<route>/new`, `<route>/parse`, `<route>/:id`) with the payload shape each one accepts, so driving the app the way a USER does needs no probing either, and "slots" lists every place bespoke UI can be written *without* ejecting (page-level extension slots plus the derived block-level slots, with the typed props each one receives).',
 			inputSchema: {
 				type: 'object',
 				properties: {
@@ -576,6 +579,21 @@ function opsSection(names: unknown): unknown {
 	}
 }
 
+/**
+ * The page's **own** routes and what each accepts (#376).
+ *
+ * `section: "api"` describes `/api/<resource>`; this describes the URLs the app
+ * actually renders links and forms to, which is what an e2e-shaped verification
+ * drives. Both come from `@maxstack/core` — this one from the same endpoint list
+ * the runtime's actions compose their 405s and 400s out of, so the contract
+ * published here cannot describe a page that refuses it.
+ */
+const contractOf = (page: PageSpec): PageContract =>
+	pageContract({
+		route: page.route,
+		resource: page.entityId ? resourceName(page.entityId) : null,
+	})
+
 function querySection(
 	spec: SpecSystem,
 	section: string,
@@ -606,7 +624,18 @@ function querySection(
 		case 'data':
 			return spec.data
 		case 'pages':
-			return spec.pages
+			// The declared pages, each carrying the contract of its own routes —
+			// the thing #376's session grepped rendered HTML for and still guessed
+			// wrong about twice. Only the endpoint list is added, not the REST
+			// schemas it points at: `section:"api"` already carries those, and
+			// inlining them per page is how the ops section reached 107k characters.
+			return {
+				...spec.pages,
+				pages: spec.pages.pages.map((page) => ({
+					...page,
+					contract: contractOf(page),
+				})),
+			}
 		case 'slots':
 			// Where bespoke code goes without ejecting. Availability
 			// only: fill state is a disk fact, and the MCP context has a spec store,
@@ -705,6 +734,9 @@ function explain(spec: SpecSystem, args: Record<string, unknown>): unknown {
 			entityId: p.entityId,
 			blocks: p.blocks.map((b) => ({ id: b.id, type: b.type })),
 			e2eTests: p.e2eTests ?? [],
+			// Explaining a page without saying what it accepts is what left an
+			// agent probing the live server for its delete shape (#376).
+			contract: contractOf(p),
 		}
 	}
 	throw new PlatformToolError(
