@@ -180,6 +180,24 @@ describe('init as the orienting call', () => {
 		expect(d.unavailable).toEqual([])
 	})
 
+	// #374, same family as the four false strings #313 fixed: the description
+	// promised "the FULL spec-op vocabulary with the JSON Schema for each op's
+	// args" long after the summary split stopped returning it, and told you two
+	// sentences later that the full form is one hosts refuse.
+	it('describes the payload it actually returns', async () => {
+		const description = platformTools(ctx).find(
+			(t) => t.name === 'init',
+		)?.description
+		if (!description) throw new Error('init missing from the listing')
+		expect(description).not.toMatch(/FULL spec-op vocabulary/)
+		expect(description).toMatch(/name, layer and one-line summary/)
+		// And the trim is part of the contract, not an implementation detail: a
+		// caller that does not know its second call is trimmed reads six missing
+		// keys as six empty ones.
+		expect(description).toMatch(/TRIMS the orientation/)
+		expect(description).toMatch(/`omitted`/)
+	})
+
 	it('writes nothing when called bare', async () => {
 		const before = await ctx.spec.load()
 		await call(ctx)
@@ -345,6 +363,82 @@ describe('init as a batch', () => {
 		expect(batch.headline).toMatch(
 			/"pg-shelf" was declared by op 0 \(page\.addPage\) in this same batch/,
 		)
+	})
+
+	// Issue #374 — `apply` defaults to false, so the documented flow is two calls
+	// over the SAME batch. Re-sending the orientation half on the second one
+	// re-sends what the caller read a moment ago and what, outside the batch,
+	// cannot have changed.
+	it('drops the orientation blocks the caller already has — by name', async () => {
+		const d = await call(ctx, { ops: orderBatch }).then(data)
+		for (const key of [
+			'data',
+			'pages',
+			'slots',
+			'api',
+			'vocabulary',
+			'catalog',
+		])
+			expect(d, `a batch reply re-sent "${key}"`).not.toHaveProperty(key)
+
+		// Absent must not read as empty — the rule `unavailable` applies to a check
+		// that could not run, for the same reason, and the way back is in the
+		// payload rather than only in the docs.
+		const omitted = d.omitted as {
+			keys: string[]
+			reason: string
+			restoreWith: string
+		}
+		expect(omitted.keys).toEqual([
+			'data',
+			'pages',
+			'slots',
+			'api',
+			'vocabulary',
+			'catalog',
+		])
+		expect(omitted.reason).toMatch(/OMITTED, not empty/)
+		expect(omitted.restoreWith).toMatch(/init \{\}/)
+		expect(d.headline).toMatch(/omitted, not empty/)
+		expect(d.headline).toMatch(/no `ops`/)
+	})
+
+	it('keeps everything the caller is deciding about', async () => {
+		const d = await call(ctx, { ops: orderBatch, apply: true }).then(data)
+		for (const key of [
+			'project',
+			'requirements',
+			'theme',
+			'generators',
+			'checks',
+			'pending',
+			'unavailable',
+			'batch',
+			'omitted',
+			'headline',
+		])
+			expect(d, `a batch reply dropped "${key}"`).toHaveProperty(key)
+		// The trim must not cost the caller the answer it called for, nor leave it
+		// reading a pre-batch spec: the merged effect is here, and the counts are
+		// the post-batch ones.
+		expect((d.batch as { effect: unknown }).effect).not.toBeNull()
+		expect((d.project as { entities: number }).entities).toBe(1)
+	})
+
+	it('omits nothing when there is no batch', async () => {
+		expect((await call(ctx).then(data)).omitted).toBeNull()
+	})
+
+	// The standing budget, from #313: `query_spec {section:"ops"}` returned
+	// 107,533 characters and the reference host REFUSED it. `init` is the call an
+	// agent makes first and, in the dry-run/apply pair, twice over one batch —
+	// both forms have to be ones a host will deliver.
+	it('keeps both forms of the call inside what a host will return', async () => {
+		const orienting = await call(ctx)
+		expect(orienting.content[0]?.text?.length ?? 0).toBeLessThan(40_000)
+
+		const reply = await call(ctx, { ops: orderBatch, apply: true })
+		expect(reply.content[0]?.text?.length ?? 0).toBeLessThan(10_000)
 	})
 
 	it('spends no real op ids on a batch it only previewed', async () => {

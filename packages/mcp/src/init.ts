@@ -39,6 +39,32 @@
  * a forty-op batch auto-accepting is exactly the volume the review queue exists
  * to slow down, so committing it is a thing the caller says out loud.
  *
+ * ## What a batch reply leaves out
+ *
+ * The orientation payload is the right default for the *first* call and that
+ * argument stands. It is the second call that pays for it: the documented flow
+ * is deliberately two calls over the same batch — `apply` defaults to false, so
+ * the caller consents to the effect before it lands — which re-sends the
+ * expensive half at the one moment it is guaranteed to be redundant. The caller
+ * read it a moment ago, and by construction nothing outside the batch moved in
+ * between.
+ *
+ * So a call carrying `ops` answers about the batch. It keeps `batch` and its
+ * merged `effect`, the derived counts in `project`, the requirements those ops
+ * are meant to serve, and the small host-shaped keys; it drops the four
+ * inventories (`data`, `pages`, `slots`, `api`), the `vocabulary` and the
+ * `catalog`. Measured on an eight-op applied batch against the Taskly fixture:
+ * 31,921 characters becomes 6,986, and the dry run that preceded it 25,561
+ * becomes 6,583.
+ *
+ * This does not weaken the rule that an agent must never reason about a
+ * pre-batch spec. Everything a batch reply *does* carry is computed from the
+ * post-batch spec, and the part that moved is described better by `effect` — in
+ * app shape, which is what the caller is deciding about — than by a re-sent
+ * inventory the caller would have to diff by eye. What is left out is left out
+ * *by name*, in `omitted` and in the headline, together with the one call that
+ * brings it back: `init` with no `ops`.
+ *
  * ## What is deliberately absent
  *
  * No `intent` / `description` field. No spec-op writes the product's intent, so
@@ -101,22 +127,34 @@ export interface InitBatch {
 	headline: string
 }
 
+/** What a batch reply left out on purpose, and the call that returns it. */
+export interface InitOmission {
+	keys: string[]
+	reason: string
+	restoreWith: string
+}
+
 export interface InitReport {
 	project: unknown
 	requirements: unknown
-	data: unknown
-	pages: unknown
-	slots: unknown
-	api: unknown
+	/** The orientation blocks: present on an orienting call, absent on a batch
+	 * reply — where `omitted` names them rather than letting a missing key read
+	 * as an empty one. */
+	data?: unknown
+	pages?: unknown
+	slots?: unknown
+	api?: unknown
 	theme: unknown
-	vocabulary: unknown
+	vocabulary?: unknown
 	generators: unknown
 	checks: unknown
-	catalog: unknown
+	catalog?: unknown
 	install: unknown
 	pending: unknown
 	unavailable: UnavailableCheck[]
 	batch: InitBatch | null
+	/** Null on an orienting call, which omits nothing. */
+	omitted: InitOmission | null
 	headline: string
 }
 
@@ -301,20 +339,21 @@ async function runBatch(
 /**
  * Every op this agent could reach for — by default without the arg schemas.
  *
- * Measured, not guessed: the full vocabulary is ~28k tokens and 96% of that is
- * the schemas. A tool that costs a quarter of a small context window to call is
- * a tool an agent learns to skip, which would defeat the entire point of making
- * the complete picture the cheapest thing to fetch. Names, layers and summaries
- * are ~4k and answer the question this tool exists for — *what could I be using
- * that I do not know exists?* — because you cannot reach for an op you have
- * never heard of, while you can always look up the args of one you have.
+ * Measured, not guessed: the full vocabulary is 112,974 characters (~28k tokens)
+ * and 84% of that is the schemas. A tool that costs a fifth of a small context
+ * window to call is a tool an agent learns to skip, which would defeat the
+ * entire point of making the complete picture the cheapest thing to fetch.
+ * Names, layers and summaries are ~4k and answer the question this tool exists
+ * for — *what could I be using that I do not know exists?* — because you cannot
+ * reach for an op you have never heard of, while you can always look up the
+ * args of one you have.
  *
  * So the default is the discovery half, and the payload says in-band where the
  * other half is: `query_spec {section:"ops", ops:[…]}`, a handful at a time.
  *
  * `{vocabulary: "full"}` still exists, but it is NOT the fallback and the
- * default payload no longer offers it as one. All 60 schemas is
- * ~170k characters, and the reference host does not charge for that — it
+ * default payload no longer offers it as one. Every schema at once is
+ * ~113k characters, and the reference host does not charge for that — it
  * REFUSES it, so a call that recommends it is recommending a call that cannot
  * return. It survives only for a host with a context budget that can take it.
  */
@@ -325,13 +364,28 @@ function vocabularyFor(full: boolean): unknown {
 		count: all.length,
 		ops: all.map((v) => ({ name: v.name, layer: v.layer, summary: v.summary })),
 		argSchemas:
-			'OMITTED here to keep this call cheap. Get the ones you need with query_spec {section:"ops", ops:["page.addPage", ...]} — ask for a handful, not all 60. That is the working path; do NOT reach for `init {vocabulary:"full"}` instead, which is all 60 schemas (~170k characters) and hosts refuse a payload that size. You never have to guess an arg shape.',
+			'OMITTED here to keep this call cheap. Get the ones you need with query_spec {section:"ops", ops:["page.addPage", ...]} — ask for a handful, not the whole vocabulary. That is the working path; do NOT reach for `init {vocabulary:"full"}` instead, which is every op\'s schema at once (~113k characters) and hosts refuse a payload that size. You never have to guess an arg shape.',
 	}
 }
 
 // ===========================================================================
 // The report
 // ===========================================================================
+
+/**
+ * Issue #374 — said in-band, because a key that is not there is indistinguishable
+ * from a key that came back empty, and "this project declares no pages" is
+ * exactly the kind of wrong conclusion `unavailable` exists to prevent one layer
+ * over. `unavailable` is for what this host *could not* answer; this is for what
+ * the caller already has.
+ */
+const BATCH_OMISSION: InitOmission = {
+	keys: ['data', 'pages', 'slots', 'api', 'vocabulary', 'catalog'],
+	reason:
+		'OMITTED, not empty. You are two calls into the same batch, so these are the blocks your orienting init already returned and nothing outside the batch has changed since. What the batch itself moved is in `batch.effect`, in app shape.',
+	restoreWith:
+		'init {} — the same call with no `ops` — returns the whole picture, computed after this batch.',
+}
 
 /**
  * Everything an agent needs before its first move, plus whatever opening batch
@@ -351,12 +405,17 @@ export async function initReport(
 	// agent that applied eight ops and then read a pre-batch inventory would be
 	// reasoning about a project that no longer exists.
 	const now = saved ?? spec
+	// A batch reply answers about the batch; only an orienting call orients. See
+	// the header — this is the second call in the documented dry-run/apply pair.
+	const orienting = batch === null
 
 	const unavailable: UnavailableCheck[] = []
 	let catalog: unknown = null
-	if (ctx.catalog) {
+	// Only an orienting call asks: a batch reply omits the catalog by name in
+	// `omitted`, which is a different claim from "this host could not look".
+	if (orienting && ctx.catalog) {
 		catalog = { modules: await ctx.catalog.list() }
-	} else {
+	} else if (orienting) {
 		// The house rule from `run_checks` and `workbench`: a category this host
 		// could not evaluate is NAMED, never dropped. An absent catalog silently
 		// omitted reads exactly like a catalog with nothing in it, and "there is
@@ -412,15 +471,21 @@ export async function initReport(
 			userStory: r.userStory,
 			acceptanceCriteria: r.acceptanceCriteria,
 		})),
-		data: now.data,
-		pages: now.pages,
-		slots: slotInventory(now),
-		api: apiContract(groundedEntityShapes(now)),
+		...(orienting
+			? {
+					data: now.data,
+					pages: now.pages,
+					slots: slotInventory(now),
+					api: apiContract(groundedEntityShapes(now)),
+				}
+			: {}),
 		theme: resolveTheme(now),
-		vocabulary: vocabularyFor(args.vocabulary === 'full'),
+		...(orienting
+			? { vocabulary: vocabularyFor(args.vocabulary === 'full') }
+			: {}),
 		generators: ctx.generators.list(),
 		checks: ctx.checks.list(),
-		catalog,
+		...(orienting ? { catalog } : {}),
 		install,
 		pending: {
 			count: proposals.length,
@@ -433,6 +498,7 @@ export async function initReport(
 		},
 		unavailable,
 		batch,
+		omitted: orienting ? null : BATCH_OMISSION,
 		headline: headlineFor(now, batch, unavailable),
 	}
 	return { report, saved }
@@ -450,7 +516,12 @@ function headlineFor(
 		unavailable.length > 0
 			? ` ${unavailable.length} part(s) of this picture could not be answered by this host — see \`unavailable\`; they are unknown, not empty.`
 			: ''
+	// Said here as well as in `omitted`, because the headline is the one field a
+	// caller is certain to read. A batch reply is the trimmed one, always.
+	const trim = batch
+		? ` Orientation was TRIMMED for this batch reply — ${BATCH_OMISSION.keys.map((k) => `\`${k}\``).join(', ')} are omitted, not empty; call init with no \`ops\` for the whole picture.`
+		: ''
 	return batch
-		? `${batch.headline} ${shape}${unwritten}${gap}`
+		? `${batch.headline} ${shape}${unwritten}${gap}${trim}`
 		: `${shape}${unwritten}${gap}`
 }

@@ -2168,7 +2168,7 @@ export interface SpecOpMeta {
 	 * JSON Schema for the op's `args` object, so `query_spec {section:"ops",
 	 * ops:[…]}` is genuinely self-describing — an agent reads the arg shape
 	 * instead of guessing it or falling back to CLI sugar. It is
-	 * served per named op, not for all 60 at once: that payload is ~170k
+	 * served per named op, not for every op at once: that payload is ~113k
 	 * characters and hosts refuse it.
 	 */
 	args: OpArgSchema

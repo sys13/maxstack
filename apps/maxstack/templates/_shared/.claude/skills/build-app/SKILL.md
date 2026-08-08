@@ -37,6 +37,11 @@ add-entity <slug> --field title:text!`.
 A batch is all-or-nothing: one bad op and *nothing* lands, including the ops
 before it. Fix that op and resend the whole list.
 
+A batch reply answers about the batch. The orientation blocks step 1 gave you —
+`data`, `pages`, `slots`, `api`, `vocabulary`, `catalog` — come back omitted
+rather than re-sent, named in `omitted` so absent never reads as empty. Call
+`init` with no `ops` when you want the whole picture again.
+
 The canonical field types are exactly six — `string` · `number` · `boolean` ·
 `date` · `enum` · `json`. Raw ops accept **only** these. The CLI `--field` DSL
 also takes aliases it folds into them (`text`→`string`, `int`/`float`→`number`,
@@ -54,7 +59,7 @@ Don't go spelunking for this. `query_spec {section:"ops"}` returns the full
 vocabulary — every op's name, layer and summary — and
 `query_spec {section:"ops", ops:["data.addField", …]}` returns the argument
 JSON Schema for the handful you name. Ask for the ones you're about to use:
-all 60 schemas at once is a payload hosts refuse.
+every schema at once is a payload hosts refuse.
 
 **3. Add the pages.** `page.addPage` per screen the user asked for (`maxstack
 add-page <entity>`). An entity with no page isn't reachable in the app.
