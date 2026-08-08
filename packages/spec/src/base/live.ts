@@ -19,8 +19,8 @@
  * entire risk of the work.
  *
  * So conflict resolution beyond **last-write-wins** is out — and out as a
- * *recorded decision* (`d-live-last-write-wins` in `packages/spec/src/maxstack.prd.ts`,
- * the `d-live-last-write-wins` entry in the ledger)
+ * *recorded decision* (`d-live-last-write-wins`, an entry in the decision ledger
+ * of MAXSTACK's own spec, which lives in the maintainer's own repository)
  * rather than as an assumption somebody later "fixes." An assumption gets fixed
  * by whoever finds it inconvenient; a decision record has to be argued down.
  *

@@ -31,10 +31,10 @@ on:
 jobs:
   # Everything in the local `pnpm validate` chain except the tests: lint,
   # boundaries, write-paths, guarded-statements, client-safe-imports,
-  # test-integrity, docs-reference, the shard-coverage check, typecheck. All of
-  # it fits in about a hundred seconds, so it is not worth sharding and it is
-  # worth keeping together — a contributor reading this job is reading the same
-  # sequence they ran locally.
+  # test-integrity, docs-reference, doc-paths, the shard-coverage check,
+  # typecheck. All of it fits in about a hundred seconds, so it is not worth
+  # sharding and it is worth keeping together — a contributor reading this job
+  # is reading the same sequence they ran locally.
   validate-checks:
     name: validate (checks)
     runs-on: ubuntu-latest

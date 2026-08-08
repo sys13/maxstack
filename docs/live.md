@@ -30,10 +30,10 @@ it.
 
 **We push changes and we report presence. That is the whole of it.**
 
-Out of scope, and out as a **recorded decision** (`d-live-last-write-wins` in
-`packages/spec/src/maxstack.prd.ts`, summarized in
-the `d-live-last-write-wins` ledger entry) rather than as
-an assumption somebody later "fixes":
+Out of scope, and out as a **recorded decision** (`d-live-last-write-wins`, an
+entry in the decision ledger of MAXSTACK's own spec — which, like the rest of
+the self-hosting apparatus, lives in the maintainer's own repository rather than
+here) rather than as an assumption somebody later "fixes":
 
 - **Conflict resolution beyond last-write-wins.**
 - **Cursor-level co-editing** — a per-pointer, per-frame ephemeral channel.

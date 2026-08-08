@@ -145,9 +145,11 @@ the harness runner (or
 subset count over a smaller catalog is a coverage regression dressed as a pass.
 It stands at **4047 subsets over 15 bundles**, and moving the sweep to the
 nightly did not lower it by a single point.
-`scripts/check-lattice-ratchet.mjs` (the `governance` job) fails any PR that
-lowers either number, and `--require-ratchet` fails any run that does not reach
-them.
+A `check-lattice-ratchet` gate (the `governance` job) fails any PR that lowers
+either number, and `--require-ratchet` fails any run that does not reach them.
+That gate, `lattice.ts` and the harness runner named above are all part of the
+apparatus this page opened by placing in the maintainer's own repository rather
+than here — none of them is a file to open in this tree.
 
 The cheapest way to keep a combinatorial gate green is to check fewer
 combinations, and that edit is a two-character diff that reads like tuning.

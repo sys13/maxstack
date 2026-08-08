@@ -192,10 +192,11 @@ it, because pruning walks edges, and only then does the CLI die at load with
 init` threw `Cannot find package 'drizzle-orm' imported from
 @better-auth/drizzle-adapter` for anyone whose npx cache had been written twice
 (#348). So the smoke test **runs the CLI, reinstalls, and runs it again** — in
-`release.yml`, in `scripts/publish.ts`, and in the recipe below. The other half
-of that fix is `scripts/bundle-externals.mjs`, a two-directional ratchet on the
-external set that fails the build (and `pnpm test`) when the bundle gains or
-loses a dependency without the list being updated deliberately.
+`release.yml`, in `apps/maxstack/scripts/publish.ts`, and in the recipe below.
+The other half of that fix is `apps/maxstack/scripts/bundle-externals.mjs`, a
+two-directional ratchet on the external set that fails the build (and `pnpm
+test`) when the bundle gains or loses a dependency without the list being
+updated deliberately.
 
 The `@maxstack/*` packages are **build-only `devDependencies`** (`workspace:*`).
 They must NOT appear in the published manifest, so we publish from a **staging
@@ -211,9 +212,9 @@ One command, from `maxstack/`:
 pnpm release patch        # or minor | major | 1.2.3   (--dry-run prints the plan)
 ```
 
-That is the whole release. `scripts/cut-release.ts` bumps the two version sites
-in lockstep, regenerates `docs/cli-reference.md` (it stamps the version, so the
-`docs-reference` gate goes red otherwise), commits
+That is the whole release. `apps/maxstack/scripts/cut-release.ts` bumps the two
+version sites in lockstep, regenerates `docs/cli-reference.md` (it stamps the
+version, so the `docs-reference` gate goes red otherwise), commits
 `chore(release): maxstack@X.Y.Z`, tags `vX.Y.Z` and pushes — **it never talks to
 npm**. The tag push triggers
 `.github/workflows/release.yml`, which does everything else on a runner:
@@ -284,9 +285,9 @@ in a green check.
 
 #### Break-glass: publishing from a laptop
 
-If GitHub Actions is down, `apps/maxstack`'s interactive
-`npm run release` (`scripts/publish.ts`) still does the whole cut locally —
-stage, smoke test, `npm login` (browser auth), publish runtime then CLI, verify,
+If GitHub Actions is down, the interactive `npm run release`
+(`apps/maxstack/scripts/publish.ts`) still does the whole cut locally — stage,
+smoke test, `npm login` (browser auth), publish runtime then CLI, verify,
 commit, GitHub release. It needs the npm account owner at the keyboard, which is
 exactly the dependency the CI path removes; use it only as a fallback. The
 manual equivalent of its two publish steps is:

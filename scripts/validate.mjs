@@ -90,6 +90,16 @@ const steps = [
 		cmd: 'pnpm',
 		args: ['run', 'check:docs-reference'],
 	},
+	// The hand-written half of the same idea: every repo path the docs cite in
+	// backticks must exist. A path inside a sentence is invisible to typecheck,
+	// lint and every test, so a file that moves leaves the page telling a
+	// stranger to open something that is not there — which is how the split out
+	// of the maintainer's repo published seven such citations (#368).
+	{
+		name: 'doc-paths',
+		cmd: 'node',
+		args: ['scripts/check-doc-paths.mjs'],
+	},
 	// Every package with a `test` task is named by exactly one CI shard, and no
 	// shard resolves to zero test files. Runs here rather than only in CI
 	// because the failure it catches — a new package whose tests no shard runs

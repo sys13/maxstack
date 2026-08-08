@@ -236,10 +236,12 @@ sitting on:
 - every codemod's `from`, so the adjacent step is exercised on its own.
 
 That is **18 cells over 17 catalog entries**, covered by 6 fixtures.
-`UPGRADE_RATCHET` records `{ cells, subsets, catalogSize }` and
-`scripts/check-upgrade-ratchet.mjs` (the `governance` job) fails any PR that
-lowers any of them. `cells` is the one with teeth: lowering it is how you would
-delete the requirement that a release ships a fixture at the previous version.
+`UPGRADE_RATCHET` records `{ cells, subsets, catalogSize }` and a
+`check-upgrade-ratchet` gate (the `governance` job) fails any PR that lowers any
+of them — both part of the apparatus this page opened by placing in the
+maintainer's own repository rather than here, so neither is a file to open in
+this tree. `cells` is the one with teeth: lowering it is how you would delete
+the requirement that a release ships a fixture at the previous version.
 
 **How a version bump is actually blocked.** Bumping `billing` to 0.4.0 adds a
 required cell at `billing@0.3.0`. Today that cell is already covered — by the

@@ -23,6 +23,7 @@
 		"check:client-safe-imports": "node scripts/check-client-safe-imports.mjs",
 		"check:test-integrity": "node scripts/check-test-integrity.mjs",
 		"check:payload-budget": "node scripts/check-payload-budget.mjs",
+		"check:doc-paths": "node scripts/check-doc-paths.mjs",
 		"docs:reference": "pnpm --filter maxstack run docs:reference",
 		"check:docs-reference": "pnpm --filter maxstack run docs:reference:check",
 		"release": "node --experimental-transform-types apps/maxstack/scripts/cut-release.ts",
