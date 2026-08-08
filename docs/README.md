@@ -68,6 +68,19 @@ adds a verb, flag or op without regenerating them.
   bundle catalog has to work.
 - [**upgrade-safety.md**](upgrade-safety.md) — why an upgrade may not silently
   change what you added by hand.
+- [**harness-metrics.md**](harness-metrics.md) — the measurement protocol behind
+  the published leverage and iteration-cost figures, and where the instrument is
+  behind the claim.
+- [**long-lived-fixture.md**](long-lived-fixture.md) — a fifty-change project
+  replayed change by change, to see whether anything gets worse with age.
+- [**corpus-integrity.md**](corpus-integrity.md) — how the benchmark corpus is
+  kept from getting easier as the platform gets better.
+- [**evidence/first-build-surface-verification.md**](evidence/first-build-surface-verification.md)
+  — a real running app probed endpoint by endpoint, including the count that
+  turned out to be inflated.
+
+The apparatus that produces those four pages' numbers lives in the maintainer's
+own repository rather than here; each page opens by saying so.
 
 ## Contributing
 
