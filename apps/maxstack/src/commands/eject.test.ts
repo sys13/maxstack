@@ -163,6 +163,17 @@ describe('maxstack eject warns off a page it cannot materialize (#349)', () => {
 								required: false,
 								provenance,
 							},
+							{
+								id: 'fld-status',
+								name: 'status',
+								type: 'enum',
+								required: false,
+								options: [
+									{ label: 'Todo', value: 'todo' },
+									{ label: 'Done', value: 'done' },
+								],
+								provenance,
+							},
 						],
 					},
 				},
@@ -194,6 +205,37 @@ describe('maxstack eject warns off a page it cannot materialize (#349)', () => {
 				},
 			}),
 		})
+		// A second page over the same entity, drawn as a chart. It is the one
+		// arrangement the emitter still cannot write — an aggregate's buckets are
+		// a GROUP BY the server computed, which never reaches the rows contract an
+		// owned module is handed — so it is what the warning is now about.
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'page.addPage',
+				args: {
+					page: {
+						id: 'pg-chart',
+						name: 'Chart',
+						route: '/chart',
+						entityId: 'e-task',
+						provenance: { ...provenance, priority: 'high' },
+						blocks: [
+							{
+								id: 'blk-agg',
+								type: 'aggregate',
+								aggregate: {
+									groupField: 'status',
+									fn: 'count',
+									display: 'table',
+									limit: 5,
+								},
+								provenance,
+							},
+						],
+					},
+				},
+			}),
+		})
 		await genCommand(dir)
 	})
 
@@ -203,17 +245,34 @@ describe('maxstack eject warns off a page it cannot materialize (#349)', () => {
 	})
 
 	it('names the trade before making it', async () => {
-		// Ejecting a view page swaps a working calendar for a placeholder,
-		// because an owned module replaces the framework's whole surface. That is
-		// a foot-gun the command has to name before it fires.
+		// Ejecting a page the generator could not write swaps a working chart for
+		// a placeholder, because an owned module replaces the framework's whole
+		// surface. That is a foot-gun the command has to name before it fires.
+		const log = vi.mocked(console.log)
+		log.mockClear()
+		await ejectCommand(dir, 'chart', { dryRun: true })
+		const out = log.mock.calls.flat().join('\n')
+		expect(out).toContain('PLACEHOLDER, not the page')
+		expect(out).toContain('aggregate')
+		expect(out).toContain('block slot')
+		// The materialized wording must NOT appear — that is the claim #349 is about.
+		expect(out).not.toContain('This module now renders the page')
+	})
+
+	it('stops warning about a view page the moment it materializes (#349 stage 2)', async () => {
+		// The warning used to say this of every calendar, timeline and board.
+		// Stage 2 made it false for all three, and a warning that outlives its
+		// truth teaches people to ignore the ones that are still true. The
+		// condition needs no maintenance — it reads the file being handed over —
+		// but this is what pins that the words moved with it.
 		const log = vi.mocked(console.log)
 		log.mockClear()
 		await ejectCommand(dir, 'task', { dryRun: true })
 		const out = log.mock.calls.flat().join('\n')
-		expect(out).toContain('PLACEHOLDER, not the page')
-		expect(out).toContain('calendar')
-		expect(out).toContain('block slot')
-		// The materialized wording must NOT appear — that is the claim #349 is about.
-		expect(out).not.toContain('This module now renders the page')
+		expect(out).not.toContain('PLACEHOLDER, not the page')
+		expect(out).toContain('This module now renders the page')
+		// And the file it is handing over really is the calendar.
+		expect(out).toContain('<CalendarView')
+		expect(out).toContain('dateField="dueAt"')
 	})
 })

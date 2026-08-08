@@ -93,7 +93,7 @@ Three levels, in increasing order of commitment:
   owned in the manifest, and never regenerated.
 
 **What eject hands over is the page's render, not the whole page.** The route
-module is the real thing — it composes the declared list from the props the
+module is the real thing — it composes the declared surface from the props the
 runtime passes it, so editing it changes what you see, and an ejected page keeps
 its rows, its inline editing and its permission gating. What it does *not* take
 over is the loader: rows, introspected columns, capabilities and resolved
@@ -102,13 +102,26 @@ from `spec/` on every request, so an ejected page still needs its spec entry.
 The banner in the file says exactly this, because "you own it now" was being
 read as "this file is the whole app" and it is not.
 
-One surface is not materialized yet: a page arranged by a `calendar`,
-`timeline` or `board` block, or one whose list a `mode: 'replace'` slot owns.
-The generator cannot write those as owned code, so their route module is a
-placeholder that says so, and `maxstack eject` warns before handing one over —
-because an ejected module replaces the framework's whole surface, ejecting a
-board today trades a working board for that placeholder. Fill a block slot
-instead until they materialize.
+That holds for the *arranged* pages too. A `board`, `calendar` or `timeline`
+page emits its declared view component drawn from the same props (`view` on the
+contract, beside `list`), with the declaration — the grouping column, the date
+column, the display, the timezone — inlined as literals. What is deliberately
+**not** inlined is a board's `options`: `<BoardView>` draws its columns from the
+grouping column's *introspected* options, and the only other reader of the
+declared list is the guard that refuses a drop on a destination the enum does
+not declare. That guard is a write-side check, so it stays in framework code
+rather than moving into a file the user is invited to edit — and the server
+enforces it again on the record's own edit route, which is what actually makes
+it safe. A page whose list a `mode: 'replace'` slot owns materializes as well:
+the runtime renders nothing in that region, and so does the emitted module.
+
+Two surfaces are still not materialized: a page arranged by an `aggregate`
+block, whose buckets are a `GROUP BY` the server computed and never reach the
+rows contract an owned module is handed, and a page with no entity behind it.
+Their route module is a placeholder that says so, and `maxstack eject` warns
+before handing one over — because an ejected module replaces the framework's
+whole surface, ejecting one of those trades a working chart for the placeholder.
+Fill a block slot instead until they materialize.
 
 **A generated list surface is featureful by default.** Search, the derived
 filter facets, sortable column headers and CSV export are on every list page

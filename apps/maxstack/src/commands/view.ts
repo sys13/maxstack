@@ -60,7 +60,9 @@ export async function addViewCommand(
 		(p) => p.entityId && resourceOf(p.entityId) === resource,
 	)
 	const hasPage = pages.length > 0
-	const surface = pages.map((p) => pageDescriptor(p).list).find((l) => l)
+	const surface = pages
+		.map((p) => pageDescriptor(p, spec.data.entities).list)
+		.find((l) => l)
 	const content = renderViewModule(view, surface)
 
 	const fs = createNodeFs(project.appPath)
@@ -131,22 +133,30 @@ export async function addViewCommand(
 			`\n  request and arrive as props — so this page keeps its spec entry.`,
 	)
 
-	// The one case this verb reaches that `maxstack eject` refuses: the page a
-	// scaffolded view would render at is arranged by a calendar/timeline/board
-	// block, or its list region is owned by a `mode: 'replace'` slot. The props
-	// contract still serves it — `project.page.tsx` builds the list props before
-	// the owned-route branch either way — so the emitted module *works*; it just
-	// draws a table where a working board used to be, because an owned module
-	// replaces the page's whole surface. Same trade as ejecting a board, so it
-	// gets the same warning rather than a silent downgrade.
-	const arranged = pages.filter((p) => !pageDescriptor(p).list)
+	// The one case this verb still reaches that `maxstack eject` no longer has:
+	// the page a scaffolded view would render at is arranged by a
+	// calendar/timeline/board block, or its list region is owned by a
+	// `mode: 'replace'` slot. The props contract serves it — `project.page.tsx`
+	// builds the list props before the owned-route branch either way — so the
+	// emitted module *works*; it just draws a table where a working board used
+	// to be, because `add view` only ever emits a table and an owned module
+	// replaces the page's whole surface.
+	//
+	// Since #349 stage 2 there is a better answer than "don't", and the warning
+	// names it: `maxstack gen` writes the board/calendar/timeline module itself
+	// now, so ejecting *that* keeps the arrangement.
+	const arranged = pages.filter(
+		(p) => !pageDescriptor(p, spec.data.entities).list,
+	)
 	if (arranged.length > 0) {
 		console.log(
 			`  ⚠ ${arranged.map((p) => `"${p.name}"`).join(', ')} arranges these rows` +
 				`\n    with a view block (calendar / timeline / board) or a` +
 				`\n    list-replacing slot. An owned module replaces the page's whole` +
-				`\n    surface, so this scaffold renders a TABLE there instead. Keep the` +
-				`\n    arrangement by filling a block slot instead of scaffolding a view.`,
+				`\n    surface, so this scaffold renders a TABLE there instead.` +
+				`\n    Keep the arrangement instead: "maxstack gen" already writes that` +
+				`\n    page's own module, so "maxstack eject" hands over the real board /` +
+				`\n    calendar / timeline. A block slot keeps it too, and costs no eject.`,
 		)
 	}
 

@@ -29,7 +29,7 @@ import { loadProject } from '../lib/project.ts'
 const OWNERSHIP_NOTE = [
 	'  This module now renders the page: it is handed the loader’s rows,',
 	'  columns, permissions and resolved references as props, and composes the',
-	'  list from them. Edit it freely.',
+	'  surface — list, board, calendar or timeline — from them. Edit it freely.',
 	'  The loader itself is still framework code and still resolves this page',
 	'  from spec/ at request time, so the page keeps its spec entry.',
 ]
@@ -37,15 +37,27 @@ const OWNERSHIP_NOTE = [
 /**
  * Printed when the file being ejected is a placeholder rather than the page.
  *
- * A view page's surface (calendar / timeline / board) cannot be emitted as
- * owned code yet, and an ejected module *replaces* the framework's surface —
- * so ejecting one trades a working board for a heading. That is a foot-gun the
- * command has to name before it fires, not a comment to find afterwards.
+ * An ejected module *replaces* the framework's surface, so ejecting a page the
+ * generator could not write trades a working page for a heading. That is a
+ * foot-gun the command has to name before it fires, not a comment to find
+ * afterwards.
+ *
+ * It used to say this of every view page, and stopped being true of most of
+ * them in stage 2 of #349: board, calendar and timeline pages materialize now,
+ * and so does a page whose list a `mode: 'replace'` slot owns. What is left is
+ * an `aggregate` block — a chart over a GROUP BY the server computes, which
+ * never reaches the rows contract an owned module is handed — and a page with
+ * no entity behind it. The condition itself is unchanged and needs no
+ * maintenance: the warning fires on {@link isMaterializedPage} reading the file
+ * being handed over, so a page that starts materializing stops being warned
+ * about on the same commit. Only these words had to catch up.
  */
 const UNMATERIALIZED_WARNING = [
 	'⚠ This route module is a PLACEHOLDER, not the page.',
-	'  Its surface is a view block (calendar / timeline / board) or a',
-	'  list-replacing slot, which the generator cannot yet emit as owned code.',
+	'  Its surface is an aggregate block (a chart over a GROUP BY the server',
+	'  computes), or the page has no entity behind it — neither of which the',
+	'  generator can yet emit as owned code. List, board, calendar and timeline',
+	'  pages do materialize; this one does not.',
 	'  The framework renders the real surface only while the route is generated:',
 	'  ejecting it replaces that surface with the stub in this file.',
 	'  Prefer filling a block slot, which keeps the surface and costs no eject.',

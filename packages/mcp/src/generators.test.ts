@@ -75,6 +75,53 @@ describe('pageDescriptor (issue #42 — agrees with the runtime slot derivation)
 })
 
 /**
+ * An entity whose `status` field carries declared options — what a `board`
+ * block needs to be a board at all. The runtime resolves a board's columns from
+ * exactly this, and skips the block when it is missing.
+ */
+const BOARDED: EntitySpec = {
+	id: 'e-subscription',
+	name: 'Subscription',
+	provenance: suggested(),
+	fields: [
+		{
+			id: 'fld-status',
+			name: 'status',
+			type: 'enum',
+			required: false,
+			options: [
+				{ label: 'Trial', value: 'trial' },
+				{ label: 'Active', value: 'active' },
+			],
+			provenance: suggested(),
+		},
+	],
+}
+
+/**
+ * A minimal valid declaration per view block type, so the sweep below tests
+ * blocks the runtime would actually arrange by. A type with no entry here fails
+ * the sweep loudly — see the assertion in it.
+ */
+const VIEW_DECLARATION: Record<string, Record<string, unknown>> = {
+	calendar: {
+		calendar: { dateField: 'renewsAt', display: 'month', timezone: 'UTC' },
+	},
+	timeline: {
+		timeline: { startField: 'startsAt', endField: 'endsAt', timezone: 'UTC' },
+	},
+	board: { board: { groupField: 'status' } },
+	aggregate: {
+		aggregate: {
+			groupField: 'status',
+			fn: 'count',
+			display: 'table',
+			limit: 5,
+		},
+	},
+}
+
+/**
  * Issue #349: which list surface the emitter is allowed to materialize.
  *
  * `pageDescriptor.list` decides whether the emitted route module is the page or
@@ -131,18 +178,50 @@ describe('pageDescriptor list surface (#349)', () => {
 		// Every declared view block, read from the spec — so a new one is covered
 		// the day it is declared rather than the day somebody remembers this test.
 		for (const type of VIEW_BLOCK_TYPES) {
+			const declaration = VIEW_DECLARATION[type]
+			// A view block type with no fixture here is a view block the derivation
+			// has never been checked against. Failing is the point: the alternative
+			// is a new block type silently emitting a list over a page the runtime
+			// arranges some other way.
+			expect(declaration, `no fixture for view block "${type}"`).toBeDefined()
 			const view: PageSpec = {
+				...base,
+				blocks: [
+					{ id: 'blk-table', type: 'table', provenance: suggested() },
+					{
+						id: `blk-${type}`,
+						type,
+						...declaration,
+						provenance: suggested(),
+					},
+				],
+			}
+			expect(pageDescriptor(view, [BOARDED]).list, type).toBeUndefined()
+		}
+	})
+
+	it('lists a page whose view block carries no declaration — as the runtime does', () => {
+		// A hand-edited spec file can produce a `calendar` block with no calendar
+		// on it; the op cannot. The runtime *skips* such a block (`viewOf` returns
+		// null) and renders the page's list, so the generator materializes a list
+		// too. This is not leniency — it is the agreement: the direction that
+		// costs a user their page is claiming a surface the runtime does not
+		// render, and a page the runtime lists is a page the emitter must write.
+		for (const type of VIEW_BLOCK_TYPES) {
+			const bare: PageSpec = {
 				...base,
 				blocks: [
 					{ id: 'blk-table', type: 'table', provenance: suggested() },
 					{ id: `blk-${type}`, type, provenance: suggested() },
 				],
 			}
-			expect(pageDescriptor(view).list, type).toBeUndefined()
+			expect(pageDescriptor(bare, [BOARDED]).list, type).toEqual({
+				variant: 'table',
+			})
 		}
 	})
 
-	it('refuses a page whose list a slot replaces', () => {
+	it('materializes a page whose list a slot replaces — with no list in it', () => {
 		const replaced: PageSpec = {
 			...base,
 			blocks: [
@@ -155,7 +234,12 @@ describe('pageDescriptor list surface (#349)', () => {
 				},
 			],
 		}
+		// No list surface — the runtime renders nothing in that region — but the
+		// page is still fully materializable: header, controls and the slot that
+		// owns the region. `listReplacedBy` is what says which of those two facts
+		// this is, so the emitter does not fall back to the placeholder.
 		expect(pageDescriptor(replaced).list).toBeUndefined()
+		expect(pageDescriptor(replaced).listReplacedBy).toBe('player')
 		// An *appending* slot is not a replacement, and must not disable the list.
 		const appended: PageSpec = {
 			...base,
@@ -172,6 +256,169 @@ describe('pageDescriptor list surface (#349)', () => {
 		// to `resource: null` and never reaches a list.
 		const { entityId: _, ...pageless } = base
 		expect(pageDescriptor(pageless).list).toBeUndefined()
+		expect(pageDescriptor(pageless).view).toBeUndefined()
+		expect(pageDescriptor(pageless).listReplacedBy).toBeUndefined()
+	})
+})
+
+/**
+ * Issue #349 stage 2: which *arranged* surface the emitter materializes.
+ *
+ * Same contract as the list half above and the same failure mode — an ejected
+ * module replaces the page's whole surface, so a descriptor that names the
+ * wrong arrangement hands the user a file that replaces a working board with
+ * something else. The runtime half is pinned in
+ * `apps/web/app/project-routes.test.ts`.
+ */
+describe('pageDescriptor view surface (#349 stage 2)', () => {
+	const base: PageSpec = {
+		id: 'pg-subscriptions',
+		name: 'Subscriptions',
+		route: '/subscriptions',
+		entityId: 'e-subscription',
+		provenance: suggested(),
+		blocks: [{ id: 'blk-table', type: 'table', provenance: suggested() }],
+	}
+	const arranged = (
+		id: `blk-${string}`,
+		block: Omit<PageSpec['blocks'][number], 'id' | 'provenance'>,
+	): PageSpec => ({
+		...base,
+		blocks: [
+			{ id: 'blk-table', type: 'table', provenance: suggested() },
+			{ id, ...block, provenance: suggested() },
+		],
+	})
+
+	it('carries a board’s drawing declaration, and no list', () => {
+		const page = arranged('blk-board', {
+			type: 'board',
+			board: {
+				groupField: 'status',
+				rankField: 'boardRank',
+				titleField: 'name',
+				cardFields: ['renewsAt'],
+				move: true,
+			},
+		})
+		const descriptor = pageDescriptor(page, [BOARDED])
+		expect(descriptor.list).toBeUndefined()
+		expect(descriptor.view).toEqual({
+			kind: 'board',
+			groupField: 'status',
+			rankField: 'boardRank',
+			titleField: 'name',
+			cardFields: ['renewsAt'],
+			move: true,
+		})
+	})
+
+	it('carries a calendar’s and a timeline’s declaration', () => {
+		expect(
+			pageDescriptor(
+				arranged('blk-cal', {
+					type: 'calendar',
+					calendar: {
+						dateField: 'renewsAt',
+						display: 'month',
+						timezone: 'America/New_York',
+					},
+				}),
+			).view,
+		).toEqual({
+			kind: 'calendar',
+			dateField: 'renewsAt',
+			display: 'month',
+			timezone: 'America/New_York',
+		})
+		expect(
+			pageDescriptor(
+				arranged('blk-gantt', {
+					type: 'timeline',
+					timeline: {
+						startField: 'startsAt',
+						endField: 'endsAt',
+						timezone: 'UTC',
+						dependsOn: 'blockedBy',
+					},
+				}),
+			).view,
+		).toMatchObject({ kind: 'timeline', dependsOn: 'blockedBy' })
+	})
+
+	it('takes the FIRST view block, in declaration order — as the runtime does', () => {
+		const both: PageSpec = {
+			...base,
+			blocks: [
+				{
+					id: 'blk-gantt',
+					type: 'timeline',
+					timeline: { startField: 'a', endField: 'b', timezone: 'UTC' },
+					provenance: suggested(),
+				},
+				{
+					id: 'blk-cal',
+					type: 'calendar',
+					calendar: { dateField: 'a', display: 'month', timezone: 'UTC' },
+					provenance: suggested(),
+				},
+			],
+		}
+		expect(both.blocks.length).toBe(2)
+		expect(pageDescriptor(both).view?.kind).toBe('timeline')
+	})
+
+	/**
+	 * The one decision the descriptor cannot make from the page alone. A board's
+	 * columns ARE its grouping field's declared options, so a board whose
+	 * grouping field has none is skipped by the runtime and the page renders as a
+	 * plain list. Getting this backwards is the exact "claim a surface the
+	 * runtime arranges differently" failure the whole derivation exists to avoid.
+	 */
+	describe('a board whose grouping field has no declared options', () => {
+		const boardPage = arranged('blk-board', {
+			type: 'board',
+			board: { groupField: 'status', move: true },
+		})
+		const optionless: EntitySpec = {
+			...BOARDED,
+			fields: [
+				{ ...(BOARDED.fields[0] as EntitySpec['fields'][0]), options: [] },
+			],
+		}
+
+		it('is a list, not a board, when the entities say so', () => {
+			const descriptor = pageDescriptor(boardPage, [optionless])
+			expect(descriptor.view).toBeUndefined()
+			expect(descriptor.list).toEqual({ variant: 'table' })
+		})
+
+		it('is still a board when the caller has no entities to check against', () => {
+			// Erring the other way would emit a *list* onto a page the runtime may
+			// well board — and the file replaces the whole surface. The callers that
+			// actually write code all pass entities; the ones that do not want only
+			// the resource name.
+			expect(pageDescriptor(boardPage).view).toMatchObject({ kind: 'board' })
+		})
+	})
+
+	it('leaves an aggregate page unmaterialized, rather than listing it', () => {
+		// The one arrangement still unwritable: it draws a GROUP BY the server
+		// computed, which never reaches the rows contract an owned module is
+		// handed. Neither a view nor a list — the placeholder, deliberately.
+		const chart = arranged('blk-agg', {
+			type: 'aggregate',
+			aggregate: {
+				groupField: 'status',
+				fn: 'count',
+				display: 'table',
+				limit: 5,
+			},
+		})
+		const descriptor = pageDescriptor(chart, [BOARDED])
+		expect(descriptor.view).toBeUndefined()
+		expect(descriptor.list).toBeUndefined()
+		expect(descriptor.listReplacedBy).toBeUndefined()
 	})
 })
 

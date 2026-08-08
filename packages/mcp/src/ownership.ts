@@ -138,18 +138,20 @@ export function liveDescriptors(spec: SpecSystem): LiveDescriptor[] {
  * stays keyed by resource, as it is on disk.
  */
 function pageTargets(spec: SpecSystem): RegenTarget[] {
-	return pageDescriptors(spec.pages.pages).map((descriptor) => {
-		const key = pageModuleKey(descriptor)
-		return {
-			id: key,
-			file: pageFilePaths(key).routeFile,
-			routePath: descriptor.routePath,
-			...(descriptor.slots.length > 0
-				? { slotFile: pageFilePaths(descriptor.resource).slotFile }
-				: {}),
-			nextContent: emitResourcePage(descriptor),
-		}
-	})
+	return pageDescriptors(spec.pages.pages, spec.data.entities).map(
+		(descriptor) => {
+			const key = pageModuleKey(descriptor)
+			return {
+				id: key,
+				file: pageFilePaths(key).routeFile,
+				routePath: descriptor.routePath,
+				...(descriptor.slots.length > 0
+					? { slotFile: pageFilePaths(descriptor.resource).slotFile }
+					: {}),
+				nextContent: emitResourcePage(descriptor),
+			}
+		},
+	)
 }
 
 /**

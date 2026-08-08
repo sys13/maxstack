@@ -194,7 +194,9 @@ export async function validateCommand(dir: string | undefined): Promise<void> {
 		// pruning deliberately leaves those alone, so failing on them would be a
 		// gate nobody could ever get green.
 		const live = new Set(
-			pageDescriptors(spec.pages.pages).map((d) => pageModuleKey(d)),
+			pageDescriptors(spec.pages.pages, spec.data.entities).map((d) =>
+				pageModuleKey(d),
+			),
 		)
 		for (const entry of manifest.entries) {
 			if (entry.ownership !== 'generated') continue

@@ -72,7 +72,7 @@ export async function generateProject(project: Project): Promise<GenerateSummary
 	// Descriptors for the whole page list at once — a page's route module is a
 	// fact about its siblings (two pages over one entity are two modules, #337),
 	// which a per-page fold cannot see.
-	const descriptors = pageDescriptors(spec.pages.pages)
+	const descriptors = pageDescriptors(spec.pages.pages, spec.data.entities)
 
 	// Reconcile DOWN before emitting: anything the manifest tracks as a route
 	// module that these descriptors no longer justify is retired first (#338).

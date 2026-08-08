@@ -27,7 +27,9 @@
  */
 
 import type { ReactNode } from 'react'
+import type { BoardDrop } from './BoardView.tsx'
 import type { LinkLike, ResourceListProps } from './ResourceList.tsx'
+import type { IntrospectedResource, Row } from './resource-types.ts'
 
 export interface OwnedRouteProps {
 	/**
@@ -44,6 +46,24 @@ export interface OwnedRouteProps {
 	 * into either of those is safe too; the extra keys are ignored.
 	 */
 	list: ResourceListProps
+	/**
+	 * The *arranged* half of the same handover: what a `board`, `calendar` or
+	 * `timeline` page is drawn from (stage 2 of #349).
+	 *
+	 * Present exactly when the framework would have arranged this page's rows
+	 * with a view block, so a generated view module can render the real board
+	 * rather than a placeholder. Absent on an ordinary list page — {@link list}
+	 * is that page's surface — which is why the emitted view module opens with a
+	 * guard rather than assuming it.
+	 *
+	 * The *declaration* (which column groups the cards, which date column places
+	 * an entry, the display and the timezone) is not here: the emitter inlines it
+	 * into the owned module as a literal, because that is the spec-derived
+	 * decision an ejected page genuinely takes over. What stays here is
+	 * everything only the route can produce — the rows, the introspection, the
+	 * paging links, and the write handler.
+	 */
+	view?: OwnedViewProps
 	/** Route to this resource's create form, for the page's own "+ New" link. */
 	newHref: string
 	/**
@@ -69,4 +89,81 @@ export interface OwnedRouteProps {
 	 * importing the router. Capitalized because that is how it is used in JSX.
 	 */
 	Link: LinkLike
+}
+
+/**
+ * What a `<BoardView>` / `<CalendarView>` / `<TimelineView>` on an owned page is
+ * handed — the derivation half of an arranged surface.
+ *
+ * Deliberately one flat bag, spreadable into any of the three exactly as
+ * {@link OwnedRouteProps.list} spreads into any of the three list variants. The
+ * keys a given component does not accept are ignored, which is the same trade
+ * `list` already makes and the reason a materialized page keeps working when
+ * the runtime learns to pass something new.
+ *
+ * The two things a *view* needs that a list does not — where the viewer is in
+ * time, and what a drag writes — are here rather than reimplemented in owned
+ * code, for the same reason `toolbar` is: they are wiring, not composition.
+ */
+export interface OwnedViewProps {
+	/** The introspected resource — columns, primary key, display name. */
+	resource: IntrospectedResource
+	/** The window of rows the loader read, live-merged. */
+	rows: Row[]
+	/** A per-row detail/edit link. */
+	rowHref: (row: Row) => string
+	/** The host router's link, in the `linkComponent` shape the views take. */
+	linkComponent: LinkLike
+	/** Shown when the window holds nothing to draw. */
+	emptyState: ReactNode
+	/** Primary keys created by the demo seeder — marked as sample data. */
+	demoIds: readonly string[]
+	/**
+	 * The day a calendar's grid is drawn around, in the view's declared timezone.
+	 * Read from the URL by the loader, so the grid the server renders and the one
+	 * the client hydrates are the same grid.
+	 */
+	anchor: string
+	/**
+	 * A timeline's axis — the window the loader actually queried, not the extent
+	 * of the rows that came back. Derived from {@link anchor} by the route, so an
+	 * owned page cannot draw an axis its "Earlier"/"Later" links disagree with.
+	 */
+	window: { from: string; to: string }
+	/**
+	 * Period navigation (`← Earlier · Today · Later →`), already pointing at the
+	 * URLs this page's loader reads back.
+	 *
+	 * An element rather than a set of props, for the `toolbar` reason: the step
+	 * is view-specific (a week, a month boundary, a year, a timeline's own axis
+	 * width) and the links are what make a window bookmarkable. An owned page
+	 * chooses only where the bar goes. Empty for a board, which has no time axis.
+	 */
+	paging: ReactNode
+	/**
+	 * The truncation notice, when the row cap cut this window short — and `null`
+	 * when it did not. A truncated chart looks exactly like a complete one, so
+	 * this is not decoration.
+	 */
+	notice: ReactNode
+	/**
+	 * A move — a card dropped in another column, or an entry dragged to another
+	 * day — as a write. Absent when the block did not declare `move` /
+	 * `reschedule`, which is what makes a read-only view read-only.
+	 *
+	 * One handler for both gestures because there is one write path: it turns the
+	 * gesture into the field values that gesture means and submits them to the
+	 * record's ordinary edit route, so the update runs the identical validation,
+	 * permission check, WIP limit and audit entry as editing that field in the
+	 * form. There is no reschedule or board endpoint to secure separately.
+	 *
+	 * It stays here — framework code — rather than being inlined into the owned
+	 * module with the rest of the declaration, and that is the one deliberate
+	 * asymmetry in this contract. Deriving a board move needs the grouping
+	 * field's *declared* options, and the check that a drop's destination is one
+	 * of them is a guard, not a drawing decision. Inlining it would move a
+	 * write-side check into a file the user is invited to edit. Drawing is
+	 * inlined; the guard is not.
+	 */
+	onMove?: (row: Row, dest: BoardDrop | string) => void
 }

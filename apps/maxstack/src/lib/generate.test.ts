@@ -242,8 +242,13 @@ describe('generateProject — the sibling inherits the bare module (issue #338)'
 		expect(routes).not.toContain('shelf.tsx')
 		expect(routes).not.toContain('/books')
 
-		// The inherited module renders the page that now owns it.
-		expect(await appFile(dir, 'routes/book.tsx')).toContain('<h1>Shelf</h1>')
+		// The inherited module renders the page that now owns it. (The `board`
+		// block here carries no declaration, so the runtime skips it and renders
+		// the page's list — and since #349 stage 2 the emitter mirrors that
+		// instead of writing a placeholder over a page the runtime lists.)
+		expect(await appFile(dir, 'routes/book.tsx')).toContain(
+			'<h1 className="text-2xl font-semibold">Shelf</h1>',
+		)
 
 		const second = await generateProject(await loadProject(dir))
 		expect(second.pruned).toEqual([])

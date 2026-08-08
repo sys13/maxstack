@@ -45,6 +45,7 @@ import {
 	monthGrid,
 	monthStart,
 	narrowFilters,
+	type OwnedViewProps,
 	ResourceList,
 	type RowSlotProps,
 	Slot,
@@ -65,7 +66,7 @@ import { OWNED_ROUTES, OWNED_SLOTS } from '~/owned.generated'
 import { pageNoun } from '~/page-noun'
 import { pagePath } from '~/page-path'
 import { ProjectFrame } from '~/project-nav'
-import type { PageRowView, ProjectRoute } from '~/project-routes'
+import type { PageDateView, PageRowView, ProjectRoute } from '~/project-routes'
 import { ROW_EDIT_ENCTYPE, rescheduleValues, rowEditRoute } from '~/reschedule'
 import { useLiveRows } from '~/use-live-rows'
 
@@ -640,22 +641,79 @@ export default function ProjectListPage({
 		})
 	}
 
+	/**
+	 * The arranged surface's props, built here for the same reason the list's
+	 * are: a page the runtime draws as a board is a page an owned module has to
+	 * be able to draw as a board (#349 stage 2).
+	 *
+	 * Everything in here is something only this route can produce — the windowed
+	 * rows, the introspection, the paging links whose URLs the loader reads back,
+	 * and the handler that turns a gesture into a validated write. The *declared*
+	 * half (which column groups the cards, which date column places an entry) is
+	 * not here at all: the generator inlines it into the owned module, because
+	 * that is the decision an ejected page genuinely takes over.
+	 *
+	 * `ArrangedView` below is handed exactly this, so the framework's own board
+	 * and an ejected one are drawn from one prop bag rather than two that agree
+	 * for now.
+	 */
+	const viewProps: OwnedViewProps | undefined =
+		page.view && page.view.kind !== 'aggregate'
+			? {
+					resource: resourceShape,
+					rows,
+					rowHref,
+					linkComponent: link,
+					emptyState,
+					demoIds,
+					anchor,
+					// The axis is the window the loader queried, not the extent of the
+					// rows that came back. Deriving it from the data made the chart
+					// rescale every time a row moved, and made "earlier" meaningless.
+					window: timelineWindow(anchor),
+					paging:
+						page.view.kind === 'board' ? null : (
+							<ViewPaging view={page.view} slug={page.slug} anchor={anchor} />
+						),
+					// The cap is the only thing that truncates: every date view queries a
+					// window, so the rows that are missing are the ones that did not fit
+					// in the window the viewer is looking at. The notice stays, and stays
+					// loud, because a truncated chart looks exactly like a complete one.
+					notice: truncated ? (
+						<p className="mt-2 text-muted-foreground text-xs">
+							Showing the first {rows.length} records in this period — there are
+							more, and they are not drawn.
+						</p>
+					) : null,
+					...(viewMoveHandler(page.view, rows, primaryKey, (values, id) =>
+						move.submit(values as Parameters<typeof move.submit>[0], {
+							method: 'post',
+							action: rowEditRoute(page.slug, id),
+							encType: ROW_EDIT_ENCTYPE,
+						}),
+					) ?? {}),
+				}
+			: undefined
+
 	// Bar 2, the render half: the project's ejected module owns this page's
 	// whole surface. It is handed the list props above so it can render the
 	// real list rather than a heading — see `OwnedRouteProps`. The write-refusal
 	// banner stays outside it: a refused cell edit has to be visible whether or
 	// not the page was ejected, and no owned module should have to remember to
-	// render it.
+	// render it. Both fetchers' refusals, because an owned module may render a
+	// list or a board and the page has no way to know which.
 	if (OwnedRoute) {
 		return (
 			<ProjectFrame pages={nav} title={title} theme={theme} demoRows={demoRows}>
 				<OwnedRoute
 					list={{ ...listProps, editable, can, onCellSave }}
+					{...(viewProps ? { view: viewProps } : {})}
 					newHref={newHref}
 					toolbar={toolbar}
 					Link={link}
 				/>
 				<WriteRefusal data={cellEdit.data} />
+				<WriteRefusal data={move.data} />
 			</ProjectFrame>
 		)
 	}
@@ -736,26 +794,9 @@ export default function ProjectListPage({
 						options={page.view.options}
 						display={page.view.display}
 					/>
-				) : page.view ? (
+				) : page.view && viewProps ? (
 					<>
-						<ArrangedView
-							view={page.view}
-							resource={resourceShape}
-							rows={rows}
-							anchor={anchor}
-							truncated={truncated}
-							slug={page.slug}
-							rowHref={rowHref}
-							emptyState={emptyState}
-							demoIds={demoIds}
-							onSubmit={(values, id) =>
-								move.submit(values as Parameters<typeof move.submit>[0], {
-									method: 'post',
-									action: rowEditRoute(page.slug, id),
-									encType: ROW_EDIT_ENCTYPE,
-								})
-							}
-						/>
+						<ArrangedView view={page.view} {...viewProps} />
 						<WriteRefusal data={move.data} />
 					</>
 				) : listReplaced ? null : ListSlot ? (
@@ -815,18 +856,6 @@ export default function ProjectListPage({
 }
 
 /**
- * A page's arranged view — the calendar/heatmap/timeline or
- * board block, plus the two things a *route* has to supply that the components
- * deliberately do not own: where the viewer is in time (the anchor and its
- * paging links), and what a move actually writes.
- *
- * `onSubmit` is only ever reached with values `rescheduleValues` produced, and
- * those are only ever the view's own declared date columns. It submits them to
- * the record's edit route, so the update runs the identical validation,
- * permission check and audit entry as saving the same field in the form. There
- * is no reschedule endpoint to secure separately, by construction.
- */
-/**
  * What the server said when it refused a write from a list surface — a board or
  * calendar move, or an inline cell edit.
  *
@@ -855,90 +884,90 @@ function WriteRefusal({ data }: { data: unknown }) {
 	)
 }
 
+/**
+ * The framework's own arranged surface — and, prop for prop, an ejected page's.
+ *
+ * It takes the {@link OwnedViewProps} bundle the route built plus the view
+ * declaration, and does the one thing an emitted view module does: pick the
+ * declared component and spread. Written this way deliberately (#349 stage 2):
+ * if the framework's board and a generated board were assembled from two
+ * different prop sets, "eject gives you the page you were looking at" would be
+ * a claim nothing checks.
+ */
 function ArrangedView({
 	view,
-	resource,
-	rows,
-	anchor,
-	truncated,
-	slug,
-	rowHref,
-	emptyState,
-	demoIds,
-	onSubmit,
-}: {
-	view: PageRowView
-	resource: { name: string; primaryKey: string; columns: SproutColumn[] }
-	rows: Record<string, unknown>[]
-	anchor: string
-	truncated: boolean
-	slug: string
-	rowHref: (row: Record<string, unknown>) => string
-	emptyState: React.ReactNode
-	demoIds: readonly string[]
-	onSubmit: (values: Record<string, string>, id: string) => void
-}) {
-	// The cap is now the *only* thing that truncates: every date view queries a
-	// window, so the rows that are missing are the ones that did not
-	// fit in the window the viewer is looking at, not the ones outside it. The
-	// notice stays, and stays loud, because a truncated chart looks exactly like
-	// a complete one.
-	const notice = truncated ? (
-		<p className="mt-2 text-muted-foreground text-xs">
-			Showing the first {rows.length} records in this period — there are more,
-			and they are not drawn.
-		</p>
-	) : null
-
+	...props
+}: { view: PageRowView } & OwnedViewProps) {
 	// A board is the one arrangement with no time axis: cards move between the
 	// declared values of a column, and their order inside one is a rank key.
-	if (view.kind === 'board') {
-		const onBoardMove = view.move
-			? (row: Record<string, unknown>, drop: BoardDrop) => {
-					const values = boardMoveValues(
-						view,
-						row,
-						drop,
-						rows,
-						resource.primaryKey,
-					)
-					if (values) onSubmit(values, String(row[resource.primaryKey]))
-				}
-			: undefined
+	if (view.kind === 'board')
 		return (
 			<>
 				<BoardView
-					resource={resource}
-					rows={rows}
+					{...props}
 					groupField={view.groupField}
 					rankField={view.rankField}
 					titleField={view.titleField}
 					cardFields={view.cardFields}
-					rowHref={rowHref}
-					linkComponent={link}
-					emptyState={emptyState}
-					onMove={onBoardMove}
-					demoIds={demoIds}
 				/>
-				{notice}
+				{props.notice}
 			</>
 		)
-	}
 
-	const onMove = view.reschedule
-		? (row: Record<string, unknown>, day: string) => {
-				const values = rescheduleValues(view, row, day)
-				if (values) onSubmit(values, String(row[resource.primaryKey]))
-			}
-		: undefined
+	if (view.kind === 'timeline')
+		return (
+			<>
+				{props.paging}
+				<TimelineView
+					{...props}
+					startField={view.startField}
+					endField={view.endField}
+					titleField={view.titleField}
+					dependsOnField={view.dependsOn}
+					timezone={view.timezone}
+				/>
+				{props.notice}
+			</>
+		)
 
-	// Paging is plain links, so a date view works without JavaScript and every
-	// window is a URL somebody can bookmark or send.
+	return (
+		<>
+			{props.paging}
+			<CalendarView
+				{...props}
+				dateField={view.dateField}
+				endField={view.endField}
+				titleField={view.titleField}
+				display={view.display}
+				timezone={view.timezone}
+			/>
+			{props.notice}
+		</>
+	)
+}
+
+/**
+ * Period navigation for a date-arranged view.
+ *
+ * Plain links, so a date view works without JavaScript and every window is a
+ * URL somebody can bookmark or send — and so an owned page gets them as one
+ * node (`view.paging`) rather than having to re-derive a step size the loader
+ * is the other half of.
+ */
+function ViewPaging({
+	view,
+	slug,
+	anchor,
+}: {
+	view: PageDateView
+	slug: string
+	anchor: string
+}) {
 	const step = (n: number) => {
-		// A timeline has no natural period, so it steps by its own axis width
-		//. Before that it had no paging at all: the axis spanned
-		// whatever the capped row set happened to contain, so "earlier" was not a
-		// place a viewer could go.
+		// A timeline has no natural period, so it steps by its own axis width.
+		// Before that it had no paging at all: the axis spanned whatever the
+		// capped row set happened to contain, so "earlier" was not a place a
+		// viewer could go.
 		if (view.kind === 'timeline')
 			return `${pagePath(slug)}?on=${addDays(monthStart(anchor), n * TIMELINE_WINDOW_DAYS)}`
 		if (view.display === 'week')
@@ -950,7 +979,7 @@ function ArrangedView({
 		const start = monthStart(anchor)
 		return `${pagePath(slug)}?on=${n > 0 ? addDays(start, daysInMonth(start)) : addDays(start, -1)}`
 	}
-	const paging = (
+	return (
 		<nav
 			className="mb-2 flex items-center gap-3 text-sm"
 			aria-label="Change period"
@@ -966,52 +995,51 @@ function ArrangedView({
 			</Link>
 		</nav>
 	)
+}
 
-	if (view.kind === 'timeline')
-		return (
-			<>
-				{paging}
-				<TimelineView
-					resource={resource}
-					rows={rows}
-					startField={view.startField}
-					endField={view.endField}
-					titleField={view.titleField}
-					dependsOnField={view.dependsOn}
-					timezone={view.timezone}
-					// The axis is the window the loader queried, not the extent of the
-					// rows that came back. Deriving it from the data made the chart
-					// rescale every time a row moved, and made "earlier" meaningless.
-					window={timelineWindow(anchor)}
-					rowHref={rowHref}
-					linkComponent={link}
-					emptyState={emptyState}
-					onMove={onMove}
-					demoIds={demoIds}
-				/>
-				{notice}
-			</>
-		)
-
-	return (
-		<>
-			{paging}
-			<CalendarView
-				resource={resource}
-				rows={rows}
-				dateField={view.dateField}
-				endField={view.endField}
-				titleField={view.titleField}
-				display={view.display}
-				timezone={view.timezone}
-				anchor={anchor}
-				rowHref={rowHref}
-				linkComponent={link}
-				emptyState={emptyState}
-				onMove={onMove}
-				demoIds={demoIds}
-			/>
-			{notice}
-		</>
-	)
+/**
+ * A move gesture, as a write — `{ onMove }` when the block declared one, and
+ * nothing at all when it did not.
+ *
+ * Both gestures fold into one handler because there is one write path: the
+ * values are submitted to the record's ordinary edit route, so the update runs
+ * the identical validation, permission check, WIP-limit enforcement and audit
+ * entry as editing that field in a form. There is no board or reschedule
+ * endpoint to secure separately, by construction.
+ *
+ * It stays here, in framework code, rather than being inlined into the owned
+ * module with the rest of the declaration. A board move is derived against the
+ * grouping field's **declared options** and `boardMoveValues` returns `null`
+ * for a destination that is not one of them — a guard, not a drawing decision,
+ * and one that has no business in a file the user is invited to edit. The
+ * server enforces the same thing again in `opUpdate`, which is what actually
+ * makes it safe; this keeps the client from offering the move at all.
+ */
+export function viewMoveHandler(
+	view: PageRowView,
+	rows: Record<string, unknown>[],
+	primaryKey: string,
+	submit: (values: Record<string, string>, id: string) => void,
+): Pick<OwnedViewProps, 'onMove'> | undefined {
+	if (view.kind === 'board') {
+		if (!view.move) return undefined
+		return {
+			onMove: (row, dest) => {
+				// A board only ever receives a drop. The string arm belongs to the
+				// date views, and typing it away here would cost the one handler that
+				// lets a materialized page spread one bag into any of the three.
+				if (typeof dest === 'string') return
+				const values = boardMoveValues(view, row, dest, rows, primaryKey)
+				if (values) submit(values, String(row[primaryKey]))
+			},
+		}
+	}
+	if (!view.reschedule) return undefined
+	return {
+		onMove: (row, dest) => {
+			if (typeof dest !== 'string') return
+			const values = rescheduleValues(view, row, dest)
+			if (values) submit(values, String(row[primaryKey]))
+		},
+	}
 }

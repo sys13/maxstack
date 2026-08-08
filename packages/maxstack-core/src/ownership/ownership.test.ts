@@ -6,7 +6,7 @@ import {
 	emitUserSlotStub,
 	isMaterializedPage,
 	type PageDescriptor,
-	type PageListSurface,
+	type PageViewSurface,
 	UNMATERIALIZED_MARKER,
 } from './emit.ts'
 import { generateResourcePage, pageFilePaths } from './generate.ts'
@@ -37,6 +37,41 @@ const TASK: PageDescriptor = {
 	routePath: '/admin/tasks',
 	slots: ['afterList'],
 }
+
+/** One of each arranged surface, in the shapes the descriptor actually carries. */
+const VIEW_SURFACES: PageViewSurface[] = [
+	{ kind: 'board', groupField: 'status' },
+	{
+		kind: 'board',
+		groupField: 'status',
+		rankField: 'rank',
+		titleField: 'name',
+		cardFields: ['a', 'b'],
+	},
+	{ kind: 'calendar', dateField: 'dueAt', display: 'month', timezone: 'UTC' },
+	{
+		kind: 'calendar',
+		dateField: 'dueAt',
+		endField: 'endsAt',
+		titleField: 'name',
+		display: 'week',
+		timezone: 'America/New_York',
+	},
+	{
+		kind: 'timeline',
+		startField: 'startsAt',
+		endField: 'endsAt',
+		timezone: 'UTC',
+	},
+	{
+		kind: 'timeline',
+		startField: 'startsAt',
+		endField: 'endsAt',
+		titleField: 'name',
+		dependsOn: 'blockedBy',
+		timezone: 'UTC',
+	},
+]
 
 describe('emit (ts-morph generator-side emission)', () => {
 	it('emits a slot-bearing route module with the generated banner', () => {
@@ -72,19 +107,20 @@ describe('emit (ts-morph generator-side emission)', () => {
 		// Swept across the list variants too (#349): each pulls a different
 		// component out of `@maxstack/ui`, so this is where an emitter that
 		// imports `ResourceList` and renders `CardGrid` gets caught.
-		const surfaces: (PageListSurface | undefined)[] = [
-			undefined,
-			{ variant: 'table' },
-			{ variant: 'cards', fields: ['title'] },
-			{ variant: 'feed' },
+		const surfaces: Partial<PageDescriptor>[] = [
+			{},
+			{ list: { variant: 'table' } },
+			{ list: { variant: 'cards', fields: ['title'] } },
+			{ list: { variant: 'feed' } },
+			// …and over the arranged variants (stage 2), each of which pulls a
+			// different component out of `@maxstack/ui`, plus the replaced-list page
+			// which pulls none at all and must therefore import none.
+			...VIEW_SURFACES.map((view) => ({ view })),
+			{ listReplacedBy: 'player' },
 		]
 		for (const slots of [[], ['afterList'], ['afterList', 'beforeList']]) {
-			for (const list of surfaces) {
-				const src = emitResourcePage({
-					...TASK,
-					slots,
-					...(list ? { list } : {}),
-				})
+			for (const surface of surfaces) {
+				const src = emitResourcePage({ ...TASK, slots, ...surface })
 				const lines = src.split('\n')
 				const bindings = lines.flatMap((line) => {
 					const named = /^import \{ ([^}]+) \} from /.exec(line)
@@ -97,13 +133,32 @@ describe('emit (ts-morph generator-side emission)', () => {
 					const ns = /^import \* as (\w+) from /.exec(line)
 					return ns?.[1] ? [ns[1]] : []
 				})
+				const signature = lines
+					.join('\n')
+					.match(/\(\{([^}]*)\}: OwnedRouteProps/)
 				const body = lines
 					.filter((line) => !line.startsWith('import '))
 					.join('\n')
+					// The destructuring goes; the type annotation stays, because it is a
+					// binding the body has to justify like any other.
+					.replace(signature?.[0] ?? ' ', ': OwnedRouteProps')
+				// The same rule one level in: a destructured prop the body never
+				// mentions is `noUnusedFunctionParameters` on a file the user is told
+				// not to edit. It is how `toolbar` would reach a board page, where
+				// the runtime passes nothing.
+				for (const param of (signature?.[1] ?? '')
+					.split(',')
+					.map((p) => p.trim())
+					.filter(Boolean)) {
+					expect(
+						new RegExp(`\\b${param}\\b`).test(body),
+						`unused prop \`${param}\` at slots=[${slots.join(',')}] surface=${JSON.stringify(surface)}`,
+					).toBe(true)
+				}
 				for (const binding of bindings) {
 					expect(
 						new RegExp(`\\b${binding}\\b`).test(body),
-						`unused import \`${binding}\` at slots=[${slots.join(',')}] variant=${list?.variant ?? 'none'}`,
+						`unused import \`${binding}\` at slots=[${slots.join(',')}] surface=${JSON.stringify(surface)}`,
 					).toBe(true)
 				}
 			}
@@ -172,13 +227,17 @@ describe('emit (ts-morph generator-side emission)', () => {
 		})
 
 		it('says so, in the file, when the surface cannot be materialized', () => {
-			// A view page (calendar/timeline/board) has no `list`. Ejecting one
-			// trades a working board for this stub, so the file names the trade
-			// rather than looking like an ordinary page that happens to be empty.
+			// What is left after stage 2: an aggregate block, and a page with no
+			// entity behind it. Ejecting one trades a working chart for this stub,
+			// so the file names the trade rather than looking like an ordinary page
+			// that happens to be empty — and it no longer names the four surfaces
+			// that DO materialize, which is the note's whole job.
 			const src = emitResourcePage(TASK)
 			expect(isMaterializedPage(src)).toBe(false)
 			expect(src).toContain(UNMATERIALIZED_MARKER)
 			expect(src).toContain('placeholder, not the page')
+			expect(src).toContain('aggregate')
+			expect(src).not.toMatch(/cannot yet emit[\s\S]{0,120}board/)
 			// No props: a placeholder that destructured them would trip the
 			// scaffold's own unused-binding lint.
 			expect(src).toContain('export default function TaskListPage()')
@@ -205,6 +264,153 @@ describe('emit (ts-morph generator-side emission)', () => {
 				{ variant: 'feed' as const },
 			]) {
 				const d = { ...TASK, list }
+				expect(emitResourcePage(d)).toBe(emitResourcePage(d))
+			}
+		})
+	})
+
+	/**
+	 * Issue #349 stage 2. Stage 1 materialized the list page and left every
+	 * *arranged* page — board, calendar, timeline — as the placeholder, which is
+	 * the harder half: a benchmark app whose home page is a board had literally
+	 * zero of its UI in generated code, so `eject` handed over 100% stub.
+	 *
+	 * These assert the emitted module is the board: it renders the declared view
+	 * component from the props the runtime hands down, with the spec's
+	 * declaration inlined as literals.
+	 */
+	describe('materialized view surface (#349 stage 2)', () => {
+		it('renders the declared board from the props the runtime hands down', () => {
+			const src = emitResourcePage({
+				...TASK,
+				slots: [],
+				view: {
+					kind: 'board',
+					groupField: 'status',
+					rankField: 'boardRank',
+					titleField: 'name',
+					cardFields: ['due', 'owner'],
+				},
+			})
+			expect(isMaterializedPage(src)).toBe(true)
+			expect(src).toContain('import { BoardView, type OwnedRouteProps }')
+			expect(src).toContain(
+				'export default function TaskListPage({ view, newHref, Link }: OwnedRouteProps)',
+			)
+			expect(src).toContain('<BoardView')
+			expect(src).toContain('{...view}')
+			expect(src).toContain('groupField="status"')
+			expect(src).toContain('rankField="boardRank"')
+			expect(src).toContain('titleField="name"')
+			// The card fields, inlined as a literal — the spec-derived drawing
+			// decision this file now owns.
+			expect(src).toContain("const CARD_FIELDS = ['due', 'owner']")
+			expect(src).toContain('cardFields={CARD_FIELDS}')
+			expect(src).toContain('{view.notice}')
+			// No control bar and no period navigation: the runtime gives a board
+			// neither, and a bar that changed nothing would be a lie.
+			expect(src).not.toContain('{toolbar}')
+			expect(src).not.toContain('{view.paging}')
+		})
+
+		/**
+		 * The snag the stage-1 design note flagged, and the answer to it.
+		 *
+		 * A board's `options` look like a drawing input. They are not: `<BoardView>`
+		 * derives its columns from the grouping column's *introspected* options,
+		 * which arrive in `{...view}`, and the only other reader is the guard that
+		 * refuses a drop on a destination the enum does not declare. Inlining them
+		 * would move a write-side check into a file the user is invited to edit
+		 * while changing nothing about what is drawn — so the emitted module
+		 * carries no option list and no move derivation at all. The rendering half
+		 * of this is asserted in `project.page.owned-route.test.tsx`.
+		 */
+		it('inlines no board options and no move derivation — the guard stays framework-side', () => {
+			const src = emitResourcePage({
+				...TASK,
+				slots: [],
+				view: { kind: 'board', groupField: 'status' },
+			})
+			expect(src).not.toContain('options')
+			expect(src).not.toContain('onMove')
+			expect(src).not.toContain('boardMoveValues')
+			// It reaches the board all the same — through the one spread that keeps
+			// a materialized page working when the runtime learns something new.
+			expect(src).toContain('<BoardView {...view} groupField="status" />')
+		})
+
+		it('renders a calendar and a timeline with their declarations inlined', () => {
+			const cal = emitResourcePage({
+				...TASK,
+				slots: [],
+				view: {
+					kind: 'calendar',
+					dateField: 'dueAt',
+					endField: 'endsAt',
+					display: 'heatmap',
+					timezone: 'America/New_York',
+				},
+			})
+			expect(cal).toContain('<CalendarView')
+			expect(cal).toContain('dateField="dueAt"')
+			expect(cal).toContain('endField="endsAt"')
+			expect(cal).toContain('display="heatmap"')
+			expect(cal).toContain('timezone="America/New_York"')
+			// Period navigation is the route's, handed over as one node — an owned
+			// page chooses only where it goes, exactly as with the list's toolbar.
+			expect(cal).toContain('{view.paging}')
+			expect(cal).not.toContain('TimelineView')
+
+			const gantt = emitResourcePage({
+				...TASK,
+				slots: [],
+				view: {
+					kind: 'timeline',
+					startField: 'startsAt',
+					endField: 'endsAt',
+					dependsOn: 'blockedBy',
+					timezone: 'UTC',
+				},
+			})
+			expect(gantt).toContain('<TimelineView')
+			expect(gantt).toContain('startField="startsAt"')
+			expect(gantt).toContain('dependsOnField="blockedBy"')
+			expect(gantt).not.toContain('CalendarView')
+		})
+
+		it('guards the one optional prop rather than assuming it', () => {
+			// `view` is optional on the contract because most pages are lists. The
+			// framework passes it for exactly the pages it arranges, so the guard
+			// never fires — but a DO-NOT-EDIT file that did not typecheck would be
+			// worse than one that carries a line of control flow.
+			const src = emitResourcePage({
+				...TASK,
+				view: { kind: 'board', groupField: 'status' },
+			})
+			expect(src).toContain('if (!view) return null')
+		})
+
+		it('materializes a page whose list a slot replaces, with no list in it', () => {
+			// The runtime renders header, controls, then *nothing* where the list
+			// would be — the replacing slot owns the region and mounts with the
+			// page's other slots. So this page is materializable after all; what it
+			// must not do is emit a list the user has already declared away.
+			const src = emitResourcePage({
+				...TASK,
+				slots: ['player'],
+				listReplacedBy: 'player',
+			})
+			expect(isMaterializedPage(src)).toBe(true)
+			expect(src).toContain('<Slot name="player" render={slots.player} />')
+			expect(src).toContain('{toolbar}')
+			expect(src).toContain('+ New')
+			for (const component of ['ResourceList', 'CardGrid', 'FeedList'])
+				expect(src).not.toContain(component)
+		})
+
+		it('is deterministic across every arranged variant', () => {
+			for (const view of VIEW_SURFACES) {
+				const d = { ...TASK, view }
 				expect(emitResourcePage(d)).toBe(emitResourcePage(d))
 			}
 		})

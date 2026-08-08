@@ -397,8 +397,16 @@ describe('maxstack add view (integration)', () => {
 							{
 								id: 'fld-sprint-status',
 								name: 'status',
-								type: 'string',
+								type: 'enum',
 								required: true,
+								// The declared options are what make this a board at all:
+								// they are its columns, and the runtime skips a board
+								// whose grouping field has none — rendering the page as a
+								// plain list, which is not a case worth warning about.
+								options: [
+									{ label: 'Todo', value: 'todo' },
+									{ label: 'Done', value: 'done' },
+								],
 								provenance,
 							},
 						],
@@ -416,7 +424,14 @@ describe('maxstack add view (integration)', () => {
 						route: '/sprints',
 						entityId: 'e-sprint',
 						provenance,
-						blocks: [{ id: 'blk-board', type: 'board', provenance }],
+						blocks: [
+							{
+								id: 'blk-board',
+								type: 'board',
+								board: { groupField: 'status' },
+								provenance,
+							},
+						],
 					},
 				},
 			}),

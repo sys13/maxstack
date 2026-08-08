@@ -29,9 +29,11 @@ import {
 	isSlotBlockType,
 	type PageDescriptor,
 	type PageListSurface,
+	type PageViewSurface,
 	slotBlockName,
 } from '@maxstack/core/ownership'
 import {
+	type EntitySpec,
 	type PageSpec,
 	type SpecSystem,
 	unauthoredPrdNotice,
@@ -276,9 +278,33 @@ export const e2eTestsGenerator: RegisteredGenerator = {
  * the whole page list. This stays the fold for callers that only want the
  * page's *resource* (the review surfaces group rows by it).
  */
-export function pageDescriptor(page: PageSpec): PageDescriptor {
+export function pageDescriptor(
+	page: PageSpec,
+	/**
+	 * The spec's entities, when the caller has them.
+	 *
+	 * Needed for exactly one decision, and it is a decision the runtime makes the
+	 * same way: a `board` block's columns are its grouping field's *declared*
+	 * options, and a board whose grouping field has none is skipped — the runtime
+	 * renders that page as a plain list. Without the entities the generator
+	 * cannot tell those apart, so it errs the safe way (see
+	 * {@link resolvedViewOf}) and leaves the page unmaterialized rather than
+	 * claiming a surface the runtime arranges differently.
+	 *
+	 * Optional because two callers legitimately want nothing but the page's
+	 * *resource* (the review surfaces group rows by it) and have no spec to hand.
+	 */
+	entities: readonly EntitySpec[] = [],
+): PageDescriptor {
 	const resource = (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
-	const list = listSurfaceOf(page)
+	const view = resolvedViewOf(page, entities)
+	const list = view ? undefined : listSurfaceOf(page)
+	const replacedBy = view
+		? undefined
+		: page.blocks
+				.filter((b) => isSlotBlockType(b.type) && b.mode === 'replace')
+				.map((b) => slotBlockName(b.type))[0]
+	const surface = view?.kind === 'unwritable' ? undefined : view
 	return {
 		resource,
 		title: page.name,
@@ -287,41 +313,110 @@ export function pageDescriptor(page: PageSpec): PageDescriptor {
 			.filter((b) => isSlotBlockType(b.type))
 			.map((b) => slotBlockName(b.type)),
 		...(list ? { list } : {}),
+		...(surface ? { view: surface } : {}),
+		...(replacedBy ? { listReplacedBy: replacedBy } : {}),
 	}
 }
 
 /**
+ * The page's arranged view, resolved the way the runtime resolves it — the
+ * first `calendar`/`timeline`/`board`/`aggregate` block that carries a
+ * declaration, in block order.
+ *
+ * **A deliberate duplicate of `viewOf` in `apps/web/app/project-routes.ts`**,
+ * not an import: `@maxstack/mcp` cannot reach into `apps/web` and the runtime
+ * must not depend on the generator. Pinned against it by an agreement test
+ * (`apps/web/app/project-routes.test.ts`), in the direction that matters —
+ * the generator must never claim a surface the runtime arranges differently,
+ * because an ejected module replaces the page's *whole* surface.
+ *
+ * The board rule is the subtle one, and it is the runtime's rule verbatim: the
+ * declared options are the columns, so a board whose grouping field has none is
+ * not a board and the page falls through to its list. With no entities in hand
+ * the block is still treated as a view — unmaterialized is a missed
+ * opportunity, a board emitted over a page the runtime lists is a wrong file.
+ */
+function resolvedViewOf(
+	page: PageSpec,
+	entities: readonly EntitySpec[],
+): PageViewSurface | UnwritableView | undefined {
+	const entity = entities.find((e) => e.id === page.entityId)
+	for (const block of page.blocks) {
+		if (block.type === 'calendar' && block.calendar)
+			return { kind: 'calendar', ...block.calendar }
+		if (block.type === 'timeline' && block.timeline)
+			return { kind: 'timeline', ...block.timeline }
+		if (block.type === 'board' && block.board) {
+			const options = entity?.fields.find(
+				(f) => f.name === block.board?.groupField,
+			)?.options
+			// No entities to check against ⇒ assume the board draws. Erring the
+			// other way would emit a *list* onto a page the runtime boards, which is
+			// the failure this whole derivation exists to prevent.
+			if (entities.length === 0 || (options && options.length > 0))
+				return { kind: 'board', ...block.board }
+		}
+		// An aggregate is an arranged view the emitter cannot write: it draws a
+		// GROUP BY the server computed, which never reaches the rows contract an
+		// owned view module is handed. Returned rather than skipped, so the page
+		// keeps its placeholder instead of falling through to a list the runtime
+		// does not render.
+		if (block.type === 'aggregate' && block.aggregate) return UNWRITABLE_VIEW
+	}
+	// A view block this function has never heard of. `VIEW_BLOCK_TYPES` comes
+	// from the spec rather than being restated here for exactly this: the four
+	// branches above are a local copy, and a local copy is a list that silently
+	// stops including the newest view block. `aggregate` (#299) would otherwise
+	// have emitted a plain list over a page the runtime draws as a chart, and
+	// this is that guard, arriving one block type early instead of one late.
+	//
+	// Declaration-*less* blocks of the four known kinds are deliberately not
+	// caught here: the runtime skips those and renders the page's list, so
+	// mirroring it is what agreement means.
+	const unknown = page.blocks.some(
+		(b) =>
+			(VIEW_BLOCK_TYPES as readonly string[]).includes(b.type) &&
+			!KNOWN_VIEW_BLOCKS.includes(b.type),
+	)
+	return unknown ? UNWRITABLE_VIEW : undefined
+}
+
+/** The view block types {@link resolvedViewOf} knows how to answer for. */
+const KNOWN_VIEW_BLOCKS: readonly string[] = [
+	'calendar',
+	'timeline',
+	'board',
+	'aggregate',
+]
+
+/**
+ * "This page is arranged, and the emitter cannot write that arrangement" — the
+ * one case that still keeps the placeholder, distinct from "no view at all".
+ */
+interface UnwritableView {
+	kind: 'unwritable'
+}
+const UNWRITABLE_VIEW: UnwritableView = { kind: 'unwritable' }
+
+/**
  * The page's list surface as far as the generator can materialize it, or
- * `undefined` when it cannot (issue #349).
+ * `undefined` when there is none to materialize (issue #349).
  *
  * **This mirrors the runtime's own derivation** in `apps/web/app/project-routes.ts`
  * (`getRoutes`): same `blocks.find(b => b.type === 'table')` for the variant and
- * fields, same view-block precedence, same `mode: 'replace'` slot rule. It is a
- * deliberate duplicate rather than an import — `@maxstack/mcp` cannot reach into
- * `apps/web`, and the runtime cannot depend on the generator — and it is pinned
- * by an agreement test (`generators.test.ts`) so the two cannot drift into
- * emitting a list for a page the runtime arranges as a board.
+ * fields, same `mode: 'replace'` slot rule. It is a deliberate duplicate rather
+ * than an import — `@maxstack/mcp` cannot reach into `apps/web`, and the
+ * runtime cannot depend on the generator — and it is pinned by an agreement
+ * test (`generators.test.ts`) so the two cannot drift into emitting a list for
+ * a page the runtime arranges as a board.
  *
- * The two `undefined` cases are not "no list": they are surfaces the emitter
- * cannot write yet, and it says so in the file instead of emitting a plausible
- * list that would replace a working board.
+ * View blocks are handled by {@link resolvedViewOf} before this is reached.
  */
 function listSurfaceOf(page: PageSpec): PageListSurface | undefined {
-	// A view replaces the list rather than sitting beside it, so a page with one
-	// has no list surface to materialize.
-	// Imported from the spec rather than restated: this list used to be a local
-	// copy, and a copy is a list that silently stops including the newest view
-	// block. `aggregate` (#299) would then have emitted a plain list over a page
-	// the runtime draws as a chart — the exact failure this guard exists for,
-	// arriving through the guard itself.
-	if (
-		page.blocks.some((b) =>
-			(VIEW_BLOCK_TYPES as readonly string[]).includes(b.type),
-		)
-	)
-		return
 	// A `mode: 'replace'` slot owns the list region the moment it is filled.
 	// Emitting a list here would contradict a declaration the user already made.
+	// The page is still materialized — see `PageDescriptor.listReplacedBy` — it
+	// just has no list in it, exactly as the runtime renders none.
 	if (page.blocks.some((b) => isSlotBlockType(b.type) && b.mode === 'replace'))
 		return
 	// No entity behind the page ⇒ no rows, so nothing to list.
@@ -374,13 +469,17 @@ function moduleStem(pageId: string): string {
  * resource (a page `pg-author` over `e-book`, in a spec that also has an
  * `author` page) fall back to `<resource>-<stem>`, then a numeric suffix.
  */
-export function pageDescriptors(pages: readonly PageSpec[]): PageDescriptor[] {
+export function pageDescriptors(
+	pages: readonly PageSpec[],
+	/** The spec's entities — see {@link pageDescriptor}. Every writing caller has them. */
+	entities: readonly EntitySpec[] = [],
+): PageDescriptor[] {
 	// Every bare resource is claimed up front: a later page's id-derived stem
 	// must not steal a name a page further down the list is going to want.
-	const taken = new Set(pages.map((p) => pageDescriptor(p).resource))
+	const taken = new Set(pages.map((p) => pageDescriptor(p, entities).resource))
 	const claimed = new Set<string>()
 	return pages.map((page) => {
-		const descriptor = pageDescriptor(page)
+		const descriptor = pageDescriptor(page, entities)
 		if (!claimed.has(descriptor.resource)) {
 			claimed.add(descriptor.resource)
 			return descriptor

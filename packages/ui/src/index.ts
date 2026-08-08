@@ -408,7 +408,10 @@ export {
 	ListControls,
 	type ListControlsProps,
 } from './resource/ListControls.tsx'
-export type { OwnedRouteProps } from './resource/owned-route.ts'
+export type {
+	OwnedRouteProps,
+	OwnedViewProps,
+} from './resource/owned-route.ts'
 export {
 	pickDate,
 	pickDescription,

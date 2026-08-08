@@ -62,14 +62,88 @@ export interface PageDescriptor {
 	 * The rows surface this page renders — present only when the emitter can
 	 * actually *materialize* it as owned code (issue #349).
 	 *
-	 * Absent means "this page's surface is not one this generator can write
-	 * yet": it is arranged by a `calendar`/`timeline`/`board` view block, or a
-	 * `mode: 'replace'` slot owns the region. Those pages keep the placeholder
-	 * body, and {@link emitResourcePage} says so in the file rather than
-	 * pretending the heading is the page.
+	 * Absent means the page's rows are not arranged as a plain list: a
+	 * `calendar`/`timeline`/`board` view block arranges them ({@link view}), a
+	 * `mode: 'replace'` slot owns the region ({@link listReplacedBy}), an
+	 * `aggregate` block draws a chart instead of rows, or the page has no entity
+	 * behind it at all. Only the last two are unmaterializable; see
+	 * {@link emitResourcePage}.
 	 */
 	list?: PageListSurface
+	/**
+	 * The arranged surface this page renders instead of a list — its first
+	 * `board`, `calendar` or `timeline` block, resolved (stage 2 of #349).
+	 *
+	 * Mutually exclusive with {@link list}, exactly as the runtime is: a view
+	 * block replaces the list rather than sitting beside it.
+	 *
+	 * Only the *drawing* half is here. What a move writes, where the viewer is in
+	 * time, and the rows themselves arrive as `OwnedRouteProps.view` at render
+	 * time — a board's `options` in particular are deliberately absent, because
+	 * the one thing they are used for outside the renderer is refusing a drop on
+	 * an undeclared destination, and that guard stays in framework code.
+	 */
+	view?: PageViewSurface
+	/**
+	 * The `mode: 'replace'` slot that owns this page's list region, when one
+	 * does — the slot's name, as `slots` carries it.
+	 *
+	 * A page like this has neither a list nor a view and is still fully
+	 * materializable: the runtime renders its header, its control bar and its
+	 * slots, and renders *nothing* where the list would have been. So the
+	 * emitted module does the same, rather than claiming a surface the user
+	 * already declared away.
+	 */
+	listReplacedBy?: string
 }
+
+/**
+ * A page's arranged view, as far as the *spec* determines it — the declaration
+ * inlined into an owned module as a literal instead of being re-derived from
+ * `spec/` on every request.
+ *
+ * A discriminated union rather than one optional-everything bag: which fields
+ * exist is the whole content of the decision, and a `calendar` carrying a
+ * `groupField` is not a thing the spec can express.
+ */
+export type PageViewSurface =
+	| {
+			kind: 'board'
+			/** The enum column whose value places a card in a column. */
+			groupField: string
+			/** The `rank: true` column ordering cards within a column. */
+			rankField?: string
+			/** The column rendered as a card's title. */
+			titleField?: string
+			/** Extra columns rendered on the card under its title. */
+			cardFields?: string[]
+	  }
+	| {
+			kind: 'calendar'
+			/** The date column each row is placed by. */
+			dateField: string
+			/** An optional second date column ending a multi-day entry. */
+			endField?: string
+			/** The column rendered as an entry's label. */
+			titleField?: string
+			/** How the grid is drawn. */
+			display: 'month' | 'week' | 'heatmap'
+			/** IANA zone the days are bucketed in. */
+			timezone: string
+	  }
+	| {
+			kind: 'timeline'
+			/** The date column a bar starts at. */
+			startField: string
+			/** The date column a bar ends at. */
+			endField: string
+			/** The column rendered as a bar's label. */
+			titleField?: string
+			/** A self-referencing column drawn as a dependency arrow. */
+			dependsOn?: string
+			/** IANA zone the days are bucketed in. */
+			timezone: string
+	  }
 
 /**
  * A page's list surface, as far as the *spec* determines it — the part that can
@@ -190,19 +264,24 @@ export const VARIANT_COMPONENT = {
 } as const
 
 /**
+ * The `@maxstack/ui` component each arranged view renders through — the view
+ * half of {@link VARIANT_COMPONENT}, and the same rule: the emitter picks one
+ * component and imports only that one, so an unused import can never reach a
+ * DO-NOT-EDIT file.
+ */
+export const VIEW_COMPONENT = {
+	board: 'BoardView',
+	calendar: 'CalendarView',
+	timeline: 'TimelineView',
+} as const
+
+/**
  * The "+ New" affordance, matching the framework list's own header.
  *
  * Exported because `maxstack add view` emits the same header from the same
  * `OwnedRouteProps` (issue #356). Two owned-page emitters that agree about the
  * contract and disagree about the button are still two shapes.
  */
-/**
- * The destructured `OwnedRouteProps` an emitted page takes. One definition
- * because it is printed once and rewritten once (see the wrap below), and the
- * two must name the same bindings or the rewrite silently does nothing.
- */
-const OWNED_PARAMS = '{ list, newHref, toolbar, Link }'
-
 export const NEW_LINK_CLASS =
 	'inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground no-underline shadow transition-colors hover:bg-primary/90'
 
@@ -233,12 +312,13 @@ export function isMaterializedPage(source: string): boolean {
 }
 
 const UNMATERIALIZED_NOTE = [
-	`\t\t\t{/* ${UNMATERIALIZED_MARKER}. This page is arranged by a view block (calendar,`,
-	'\t\t    timeline or board) or its list is replaced by a slot, and the',
+	`\t\t\t{/* ${UNMATERIALIZED_MARKER}. This page draws an aggregate (a chart over a`,
+	'\t\t    GROUP BY the server computes) or has no entity behind it, and the',
 	'\t\t    generator cannot yet emit that surface as owned code — so this is a',
 	'\t\t    placeholder, not the page. While the route is generated the runtime',
 	'\t\t    still renders the real surface; ejecting it replaces that surface',
-	'\t\t    with this stub. Prefer a block slot until view pages materialize. */}',
+	'\t\t    with this stub. Prefer a block slot until it materializes. List,',
+	'\t\t    board, calendar and timeline pages DO materialize — this is not one. */}',
 ].join('\n')
 
 /**
@@ -250,15 +330,27 @@ const UNMATERIALIZED_NOTE = [
  * `maxstack eject` a real handover — before #349 the body was a comment, so the
  * file a user "took ownership of" had never rendered their page.
  *
- * For a page whose surface the generator cannot write (a view block, a
- * list-replacing slot) the old placeholder body stays, with
+ * A page arranged by a `board`, `calendar` or `timeline` block materializes the
+ * same way (stage 2 of #349): the declaration is inlined as literal attributes
+ * and the declared view component is rendered from `OwnedRouteProps.view`. So
+ * is a page whose list a `mode: 'replace'` slot owns — the runtime renders
+ * nothing in that region, and so does this.
+ *
+ * What is left is a page the generator genuinely cannot write: an `aggregate`
+ * block (a chart over a GROUP BY that never reaches the rows contract) and a
+ * page with no entity behind it. Those keep the placeholder body, with
  * {@link UNMATERIALIZED_NOTE} saying so out loud.
  *
  * Deterministic — the same descriptor always yields byte-identical output,
  * which is what makes regeneration-as-diff meaningful.
  */
 export function emitResourcePage(descriptor: PageDescriptor): string {
-	const { resource, title, slots, list } = descriptor
+	const { resource, title, slots, list, view, listReplacedBy } = descriptor
+	// The three materialized shapes, and the one that is not. Read once, because
+	// the parameter list, the imports, the header and the body each have to make
+	// the same call and a disagreement between any two of them is either an
+	// unused binding or an undefined one.
+	const materialized = Boolean(list || view || listReplacedBy)
 	// The component is named for the *module* — two pages over one entity are two
 	// modules, and naming both `BookListPage` would make a stack trace or an
 	// import in owned code ambiguous about which route it came from. `meta` and
@@ -276,10 +368,9 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 	// cannot fix without ejecting. Sorted case-insensitively, which is the order
 	// Biome's import organizer wants, so a scaffold is clean on first run.
 	const uiImports = new Set<string>()
-	if (list) {
-		uiImports.add(VARIANT_COMPONENT[list.variant])
-		uiImports.add('type OwnedRouteProps')
-	}
+	if (list) uiImports.add(VARIANT_COMPONENT[list.variant])
+	if (view) uiImports.add(VIEW_COMPONENT[view.kind])
+	if (materialized) uiImports.add('type OwnedRouteProps')
 	if (slots.length > 0) uiImports.add('Slot')
 	if (uiImports.size > 0) {
 		sf.addImportDeclaration({
@@ -322,6 +413,20 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 		})
 	}
 
+	// A board's card fields, inlined for the same reason the list's are: it is a
+	// spec-derived drawing decision, and this is the file that now owns it.
+	if (view?.kind === 'board' && view.cardFields && view.cardFields.length > 0) {
+		sf.addVariableStatement({
+			declarationKind: VariableDeclarationKind.Const,
+			declarations: [
+				{
+					name: 'CARD_FIELDS',
+					initializer: `[${view.cardFields.map((f) => `'${f}'`).join(', ')}]`,
+				},
+			],
+		})
+	}
+
 	const slotJsx = slots
 		.map((name) => `\t\t\t<Slot name="${name}" render={slots.${name}} />`)
 		.join('\n')
@@ -329,8 +434,19 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 	// The note lives in the JSX, not the file header: `eject()` strips the
 	// leading comment block when it swaps in its own banner, so a header comment
 	// would vanish at exactly the moment the user most needs to read it.
-	const surfaceJsx = list ? listSurfaceJsx(list) : UNMATERIALIZED_NOTE
-	const header = list
+	//
+	// A `mode: 'replace'` page contributes nothing here on purpose: the runtime
+	// renders *nothing* where the list would be, and the slot that owns the
+	// region is already mounted below with the page's other slots. Emitting a
+	// list here would contradict a declaration the user has already made.
+	const surfaceJsx = list
+		? listSurfaceJsx(list)
+		: view
+			? viewSurfaceJsx(view)
+			: listReplacedBy
+				? ''
+				: UNMATERIALIZED_NOTE
+	const header = materialized
 		? [
 				'\t\t\t<header className="mb-4 flex items-center justify-between">',
 				`\t\t\t\t<h1 className="text-2xl font-semibold">${title}</h1>`,
@@ -351,8 +467,25 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 	// line and the bar moves; delete it and the page loses search, facets and
 	// export, which is a choice the owner is now able to make rather than one
 	// the eject made for them.
-	const toolbarJsx = list ? '\t\t\t{toolbar}' : ''
+	//
+	// A view page gets none, matching the runtime: a calendar's rows are a window
+	// on a date column and a board's are ordered by a rank key, so the loader
+	// reads no filters there and a bar that changed nothing would be a lie. What
+	// a view page gets instead is `{view.paging}`, emitted with the surface.
+	const toolbarJsx = list || listReplacedBy ? '\t\t\t{toolbar}' : ''
+	// The one line of control flow in an emitted page. `view` is optional on the
+	// contract because most pages are lists, and TypeScript is right to insist:
+	// the framework passes it for exactly the pages it arranges, which is the
+	// page this module was generated for.
+	const guard = view
+		? [
+				'// The framework hands `view` to the pages it arranges — this is one.',
+				'if (!view) return null',
+				'',
+			].join('\n')
+		: ''
 	const body = [
+		guard,
 		'return (',
 		`\t\t<section data-resource="${resource}">`,
 		header,
@@ -365,6 +498,17 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 		.filter(Boolean)
 		.join('\n')
 
+	// Exactly the bindings the body above mentions. An unused one fails the
+	// scaffold's own lint (`noUnusedFunctionParameters`) on a DO-NOT-EDIT file,
+	// and a missing one does not compile — so this list is derived from the same
+	// three flags the body was, never restated.
+	const params = [
+		...(list ? ['list'] : []),
+		...(view ? ['view'] : []),
+		'newHref',
+		...(list || listReplacedBy ? ['toolbar'] : []),
+		'Link',
+	]
 	const fn = sf.addFunction({
 		name: component,
 		isExported: true,
@@ -373,28 +517,39 @@ export function emitResourcePage(descriptor: PageDescriptor): string {
 		// and an unused binding would fail the scaffold's lint. Omitting the
 		// parameter keeps it assignable to `ComponentType<OwnedRouteProps>` all
 		// the same, so `OWNED_ROUTES` stays uniformly typed.
-		parameters: list ? [{ name: OWNED_PARAMS, type: 'OwnedRouteProps' }] : [],
+		parameters: materialized
+			? [{ name: `{ ${params.join(', ')} }`, type: 'OwnedRouteProps' }]
+			: [],
 	})
 	fn.setBodyText(body)
 
 	// Normalize to Biome-ish style: tabs, no semicolons.
 	sf.formatText({ indentSize: 1, convertTabsToSpaces: false })
-	const printed = sf
-		.getFullText()
-		.replace(/;\n/g, '\n')
-		.replace(/;$/gm, '')
-		// The four-binding signature is 86 characters before the component name is
-		// even added, so it never fits Biome's 80-column line and ts-morph's
-		// printer does not wrap parameters. Emitting the one-line form would hand
-		// the user a DO-NOT-EDIT file their own `lint --write` immediately
-		// reformats — a scaffold whose first diff is noise, in a file they cannot
-		// edit without ejecting.
-		.replace(
-			`(${OWNED_PARAMS}: OwnedRouteProps)`,
-			'({\n\tlist,\n\tnewHref,\n\ttoolbar,\n\tLink,\n}: OwnedRouteProps)',
-		)
+	let printed = sf.getFullText().replace(/;\n/g, '\n').replace(/;$/gm, '')
+	// ts-morph's printer never wraps a parameter list, so a signature past
+	// Biome's 80 columns would hand the user a DO-NOT-EDIT file their own `lint
+	// --write` immediately reformats — a scaffold whose first diff is noise, in a
+	// file they cannot edit without ejecting. Measured rather than assumed: the
+	// list page's four bindings never fit, a view page's three sometimes do, and
+	// wrapping one that fits is the same defect in the other direction.
+	if (materialized) {
+		const oneLine = `${params.length > 0 ? `{ ${params.join(', ')} }` : ''}: OwnedRouteProps`
+		const signature = `export default function ${component}(${oneLine}) {`
+		if (signature.length > BIOME_LINE_WIDTH) {
+			printed = printed.replace(
+				`(${oneLine})`,
+				`({\n${params.map((p) => `\t${p},\n`).join('')}}: OwnedRouteProps)`,
+			)
+		}
+	}
 	return `${BANNER}\n${printed.startsWith('\n') ? printed.slice(1) : printed}`
 }
+
+/** Biome's `formatter.lineWidth` for this repo, and for a scaffolded project. */
+const BIOME_LINE_WIDTH = 80
+
+/** Biome's `formatter.indentWidth` — how many columns one emitted tab counts as. */
+const BIOME_INDENT_WIDTH = 2
 
 /**
  * The list surface itself: the declared variant, spread with exactly the props
@@ -411,13 +566,93 @@ function listSurfaceJsx(list: PageListSurface): string {
 	// database introspection, which no literal in this file could stand in for.
 	const fielded =
 		list.variant !== 'table' && list.fields && list.fields.length > 0
-	if (!fielded) return `\t\t\t<${component} {...list} />`
+	if (!fielded) return jsxElement(component, ['{...list}'])
+	return jsxElement(component, [
+		'{...list}',
+		'primaryField={LIST_FIELDS[0]}',
+		'secondaryFields={LIST_FIELDS}',
+	])
+}
+
+/**
+ * The arranged surface: the declared view component, spread with the props the
+ * framework's own `ArrangedView` would have rendered it with, and the spec's
+ * declaration inlined as literal attributes over the top.
+ *
+ * That split is the whole design. `{...view}` carries what only the route can
+ * produce — rows, introspection, the paging links, the write handler — so a
+ * materialized board keeps working when the runtime learns to pass something
+ * new. The attributes carry what the *spec* said, so the decision an ejected
+ * page genuinely takes over stops being re-read from `spec/` on every request
+ * and becomes a line the owner can edit.
+ *
+ * The board's `options` are deliberately NOT inlined. They look like a drawing
+ * input and are not one: `<BoardView>` derives its columns from the grouping
+ * column's introspected `meta.options`, which arrives in `{...view}`, and the
+ * only other reader is the guard that refuses a drop on a destination the enum
+ * does not declare. Inlining them would move a write-side check into a file the
+ * user is invited to edit while changing nothing about what is drawn.
+ */
+function viewSurfaceJsx(view: PageViewSurface): string {
+	const component = VIEW_COMPONENT[view.kind]
+	const attrs: string[] = ['{...view}']
+	if (view.kind === 'board') {
+		attrs.push(attr('groupField', view.groupField))
+		if (view.rankField) attrs.push(attr('rankField', view.rankField))
+		if (view.titleField) attrs.push(attr('titleField', view.titleField))
+		if (view.cardFields && view.cardFields.length > 0)
+			attrs.push('cardFields={CARD_FIELDS}')
+	} else if (view.kind === 'calendar') {
+		attrs.push(attr('dateField', view.dateField))
+		if (view.endField) attrs.push(attr('endField', view.endField))
+		if (view.titleField) attrs.push(attr('titleField', view.titleField))
+		attrs.push(attr('display', view.display), attr('timezone', view.timezone))
+	} else {
+		attrs.push(attr('startField', view.startField))
+		attrs.push(attr('endField', view.endField))
+		if (view.titleField) attrs.push(attr('titleField', view.titleField))
+		if (view.dependsOn) attrs.push(attr('dependsOnField', view.dependsOn))
+		attrs.push(attr('timezone', view.timezone))
+	}
 	return [
-		`\t\t\t<${component}`,
-		'\t\t\t\t{...list}',
-		'\t\t\t\tprimaryField={LIST_FIELDS[0]}',
-		'\t\t\t\tsecondaryFields={LIST_FIELDS}',
-		'\t\t\t/>',
+		// A board has no time axis, so it has no period navigation — the runtime
+		// renders none either, and `view.paging` is empty there. Emitting the line
+		// anyway would put an empty node in a file whose author would reasonably
+		// wonder what it was for.
+		...(view.kind === 'board' ? [] : ['\t\t\t{view.paging}']),
+		jsxElement(component, attrs),
+		// A truncated window looks exactly like a complete one, which is why this
+		// is on every arranged surface rather than the date ones alone.
+		'\t\t\t{view.notice}',
+	].join('\n')
+}
+
+/** One JSX string attribute, with the quoting Biome wants for JSX. */
+function attr(name: string, value: string): string {
+	return `${name}="${value.replace(/"/g, '&quot;')}"`
+}
+
+/**
+ * A self-closing JSX element at the page body's indent, printed the way Biome
+ * would print it: one line when it fits, one attribute per line when it does
+ * not.
+ *
+ * Measured, not assumed. `<BoardView {...view} groupField="status" />` fits and
+ * `<CalendarView …>` with a timezone does not, so an emitter that always split
+ * (or never did) would hand the user a DO-NOT-EDIT file their own `lint
+ * --write` reformats on first run — in a file they cannot edit without
+ * ejecting, which is the whole reason stage 1 measured the signature too.
+ */
+function jsxElement(component: string, attrs: readonly string[]): string {
+	const indent = '\t\t\t'
+	const oneLine = `${indent}<${component} ${attrs.join(' ')} />`
+	// A tab is `formatter.indentWidth` columns wide to Biome, not one.
+	const width = oneLine.length + indent.length * (BIOME_INDENT_WIDTH - 1)
+	if (width <= BIOME_LINE_WIDTH) return oneLine
+	return [
+		`${indent}<${component}`,
+		...attrs.map((a) => `${indent}\t${a}`),
+		`${indent}/>`,
 	].join('\n')
 }
 

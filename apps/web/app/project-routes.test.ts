@@ -1,6 +1,8 @@
+import { emitResourcePage, isMaterializedPage } from '@maxstack/core/ownership'
 import { pageDescriptor } from '@maxstack/mcp'
 import {
 	accept,
+	type EntitySpec,
 	manual,
 	newSpecSystem,
 	type PageSpec,
@@ -836,26 +838,25 @@ describe('pagePath', () => {
 		expect(pagePath('', '42')).toBe('/42')
 	})
 })
-
 /**
  * Issue #349, the runtime half of the materialization agreement.
  *
- * `pageDescriptor.list` (`@maxstack/mcp`'s `generators.ts`) decides whether
- * `maxstack gen` emits a real `<ResourceList>` into a page's route module or a
- * placeholder that says it is one. `getRoutes` decides what the runtime
- * actually renders. They are separate derivations — the generator cannot import
- * `apps/web`, and the runtime must not depend on the generator — so they are
- * pinned against each other here.
+ * `pageDescriptor` (`@maxstack/mcp`'s `generators.ts`) decides what `maxstack
+ * gen` emits into a page's route module — a real `<ResourceList>`, a real
+ * `<BoardView>`, or a placeholder that says it is one. `getRoutes` decides what
+ * the runtime actually renders. They are separate derivations — the generator
+ * cannot import `apps/web`, and the runtime must not depend on the generator —
+ * so they are pinned against each other here.
  *
- * The direction that matters: **the generator must never claim a list where the
- * runtime arranges a view**. An ejected module replaces the page's whole
+ * The direction that matters: **the generator must never claim a surface the
+ * runtime arranges differently**. An ejected module replaces the page's whole
  * surface, so a generator that emitted a table for a board page would hand the
  * user a file that silently replaces their working board with the wrong shape.
- * The reverse — refusing to materialize something the runtime does list — is
+ * The reverse — refusing to materialize something the runtime does render — is
  * only a missed opportunity, and is asserted separately so a future widening of
  * the emitter fails loudly here instead of drifting.
  */
-describe('list materialization agrees with the runtime (#349)', () => {
+describe('materialization agrees with the runtime (#349)', () => {
 	const calendarPage: PageSpec = {
 		id: 'pg-due',
 		name: 'Due',
@@ -868,6 +869,60 @@ describe('list materialization agrees with the runtime (#349)', () => {
 				id: 'blk-cal',
 				type: 'calendar',
 				calendar: { dateField: 'dueAt', display: 'month', timezone: 'UTC' },
+				provenance: suggested(),
+			},
+		],
+	}
+	const timelinePage: PageSpec = {
+		id: 'pg-plan',
+		name: 'Plan',
+		route: '/plan',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-gantt',
+				type: 'timeline',
+				timeline: {
+					startField: 'startedAt',
+					endField: 'finishedAt',
+					timezone: 'UTC',
+				},
+				provenance: suggested(),
+			},
+		],
+	}
+	const boardPage: PageSpec = {
+		id: 'pg-shelves',
+		name: 'Shelves',
+		route: '/shelves',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-board',
+				type: 'board',
+				board: { groupField: 'status', rankField: 'rank', move: true },
+				provenance: suggested(),
+			},
+		],
+	}
+	const chartPage: PageSpec = {
+		id: 'pg-stats',
+		name: 'Stats',
+		route: '/stats',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-agg',
+				type: 'aggregate',
+				aggregate: {
+					groupField: 'status',
+					fn: 'count',
+					display: 'table',
+					limit: 5,
+				},
 				provenance: suggested(),
 			},
 		],
@@ -910,6 +965,9 @@ describe('list materialization agrees with the runtime (#349)', () => {
 		reading,
 		cardsPage,
 		calendarPage,
+		timelinePage,
+		boardPage,
+		chartPage,
 		replacedPage,
 		// A page with no entity: the runtime resolves it to `resource: null`.
 		{
@@ -921,8 +979,37 @@ describe('list materialization agrees with the runtime (#349)', () => {
 		} satisfies PageSpec,
 	]
 
+	/**
+	 * The board needs its grouping field's declared options on both sides — they
+	 * are the runtime's columns, and their absence is what makes the generator
+	 * treat the block as no board at all.
+	 */
+	const readingItem: EntitySpec = {
+		id: 'e-reading-item',
+		name: 'Reading item',
+		provenance: suggested(),
+		fields: [
+			{
+				id: 'fld-status',
+				name: 'status',
+				type: 'enum',
+				required: false,
+				options: [
+					{ label: 'To read', value: 'to-read' },
+					{ label: 'Done', value: 'done' },
+				],
+				provenance: suggested(),
+			},
+		],
+	}
+	const spec = (): SpecSystem => {
+		const base = specWith(pages)
+		return { ...base, data: { entities: [readingItem] } }
+	}
+	const entities = [readingItem]
+
 	it('materializes exactly the pages the runtime renders as a plain list', () => {
-		const routes = getRoutes(specWith(pages))
+		const routes = getRoutes(spec())
 		for (const [i, page] of pages.entries()) {
 			const route = routes[i]
 			if (!route) throw new Error(`no route for ${page.id}`)
@@ -935,16 +1022,113 @@ describe('list materialization agrees with the runtime (#349)', () => {
 				route.view === null &&
 				route.replacesList === null
 			expect(
-				pageDescriptor(page).list !== undefined,
+				pageDescriptor(page, entities).list !== undefined,
 				`${page.id}: generator and runtime disagree about the surface`,
 			).toBe(runtimeLists)
 		}
 	})
 
 	it('emits the variant and fields the runtime would have rendered with', () => {
-		const route = resolveRoute(specWith(pages), 'shelf')
-		const list = pageDescriptor(cardsPage).list
+		const route = resolveRoute(spec(), 'shelf')
+		const list = pageDescriptor(cardsPage, entities).list
 		expect(list?.variant).toBe(route?.variant)
 		expect(list?.fields).toEqual(route?.fields)
+	})
+
+	/**
+	 * Stage 2, and the direction that costs a user their page: the generator
+	 * must claim a board exactly when the runtime draws a board, a calendar
+	 * exactly when it draws a calendar, and neither when it draws something else.
+	 * Emitting the wrong shape hands a user a file that replaces their working
+	 * page — which is why this is an equality, not a subset.
+	 */
+	it('claims the arranged surface the runtime arranges, and no other', () => {
+		const routes = getRoutes(spec())
+		for (const [i, page] of pages.entries()) {
+			const route = routes[i]
+			if (!route) throw new Error(`no route for ${page.id}`)
+			// An aggregate is a view the runtime arranges and the emitter still
+			// cannot write, so the descriptor must claim nothing for it.
+			const runtimeArranges =
+				route.view && route.view.kind !== 'aggregate' ? route.view.kind : null
+			expect(
+				pageDescriptor(page, entities).view?.kind ?? null,
+				`${page.id}: generator and runtime disagree about the arrangement`,
+			).toBe(runtimeArranges)
+		}
+	})
+
+	it('inlines the very declaration the runtime renders from', () => {
+		// Not just the *kind*: a board emitted with the wrong grouping column
+		// draws the right shape over the wrong data.
+		const route = resolveRoute(spec(), 'shelves')
+		if (route?.view?.kind !== 'board') throw new Error('expected a board route')
+		expect(pageDescriptor(boardPage, entities).view).toMatchObject({
+			kind: 'board',
+			groupField: route.view.groupField,
+			rankField: route.view.rankField,
+		})
+		const cal = resolveRoute(spec(), 'due')
+		if (cal?.view?.kind !== 'calendar') throw new Error('expected a calendar')
+		expect(pageDescriptor(calendarPage, entities).view).toMatchObject({
+			kind: 'calendar',
+			dateField: cal.view.dateField,
+			display: cal.view.display,
+			timezone: cal.view.timezone,
+		})
+	})
+
+	it('names the slot the runtime lets own the list region', () => {
+		const route = resolveRoute(spec(), 'player')
+		expect(pageDescriptor(replacedPage, entities).listReplacedBy ?? null).toBe(
+			route?.replacesList ?? null,
+		)
+	})
+
+	/**
+	 * The agreement, all the way to the bytes. Everything above compares two
+	 * derivations; this compares the derivation to the *file* — which is what an
+	 * eject actually hands over, and the only artifact a user ever sees.
+	 */
+	it('emits the component the runtime would have rendered', () => {
+		const expected: Record<string, string> = {
+			reading: 'ResourceList',
+			shelf: 'CardGrid',
+			due: 'CalendarView',
+			plan: 'TimelineView',
+			shelves: 'BoardView',
+		}
+		const routes = getRoutes(spec())
+		for (const [i, page] of pages.entries()) {
+			const route = routes[i]
+			if (!route) throw new Error(`no route for ${page.id}`)
+			const source = emitResourcePage(pageDescriptor(page, entities))
+			const component = expected[route.slug]
+			if (component) {
+				expect(source, `${page.id} should render <${component}>`).toContain(
+					`<${component}`,
+				)
+				// …and nothing else that renders rows. A page that emitted two would
+				// be a page whose surface depends on which branch a reader notices.
+				for (const other of Object.values(expected))
+					if (other !== component)
+						expect(
+							source,
+							`${page.id} must not render <${other}>`,
+						).not.toContain(`<${other}`)
+			}
+		}
+	})
+
+	it('leaves only the aggregate and the entity-less page unmaterialized', () => {
+		// The list of what `maxstack eject` still warns about, kept honest. This
+		// is the assertion that goes red the day a fifth surface materializes —
+		// deliberately, so the CLI warning and the in-file note get updated with
+		// it rather than quietly outliving their truth.
+		const unmaterialized = pages.filter(
+			(page) =>
+				!isMaterializedPage(emitResourcePage(pageDescriptor(page, entities))),
+		)
+		expect(unmaterialized.map((p) => p.id)).toEqual(['pg-stats', 'pg-about'])
 	})
 })

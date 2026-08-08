@@ -23,6 +23,7 @@
 import type { SproutColumn } from '@maxstack/core'
 import { DEFAULT_THEME } from '@maxstack/spec'
 import {
+	BoardView,
 	type ColumnOverrides,
 	EMPTY_FILTERS,
 	type OwnedRouteProps,
@@ -75,6 +76,20 @@ vi.mock('~/owned.generated', () => ({
 		// and mounts its own client-side stack. The runtime must keep rendering
 		// it — it is user-owned code in a project that may never re-scaffold.
 		relic: () => <p>the old view, still rendering</p>,
+		/**
+		 * Stage 2 of #349: exactly what `emitResourcePage` writes for a page the
+		 * runtime arranges as a board — `{...view}` spread, the declaration
+		 * inlined as literals, and **no option list and no move derivation**,
+		 * because those are the write-side guard rather than a drawing decision.
+		 * Pinned byte-wise in
+		 * `packages/maxstack-core/src/ownership/ownership.test.ts`.
+		 */
+		card: (props: OwnedRouteProps) => {
+			captured = props
+			const { view } = props
+			if (!view) return null
+			return <BoardView {...view} groupField="status" rankField="rank" />
+		},
 	},
 	OWNED_SCHEDULE_HANDLERS: {},
 	OWNED_SOURCE_REFINERS: {},
@@ -82,7 +97,9 @@ vi.mock('~/owned.generated', () => ({
 	OWNED_LIVE_SURFACES: {},
 }))
 
-const { default: ProjectListPage } = await import('./project.page')
+const { default: ProjectListPage, viewMoveHandler } = await import(
+	'./project.page'
+)
 
 const columns: SproutColumn[] = [
 	{
@@ -359,6 +376,179 @@ describe('an ejected route is handed the page it owns (#349)', () => {
 		// ejected — no owned module should have to remember to render it.
 		const html = render()
 		expect(html).toContain('Reader')
+	})
+})
+
+/**
+ * Stage 2 of #349: the same handover for a page the runtime *arranges*.
+ *
+ * The hard half. A benchmark app whose home page is a board had literally zero
+ * of its UI in generated code — `eject` handed over a placeholder that was
+ * 100% of the module — because an owned page had no way to reach the rows, the
+ * introspection, the paging links or the write path a board needs.
+ */
+describe('an ejected board is handed the board it owns (#349 stage 2)', () => {
+	const boardColumns: SproutColumn[] = [
+		...columns,
+		{
+			name: 'status',
+			type: 'enum',
+			nullable: false,
+			hasDefault: true,
+			isPrimaryKey: false,
+			enumValues: ['to-read', 'done'],
+			// The declared options, as the loader's introspection carries them.
+			// These are the board's columns — see the assertion below.
+			meta: {
+				label: 'Status',
+				options: [
+					{ label: 'To read', value: 'to-read' },
+					{ label: 'Done', value: 'done' },
+				],
+			},
+		},
+		{
+			name: 'rank',
+			type: 'string',
+			nullable: true,
+			hasDefault: false,
+			isPrimaryKey: false,
+			meta: {},
+		},
+	]
+
+	const boardView = {
+		kind: 'board' as const,
+		groupField: 'status',
+		rankField: 'rank',
+		move: true,
+		options: [
+			{ label: 'To read', value: 'to-read' },
+			{ label: 'Done', value: 'done' },
+		],
+	}
+
+	const boardPage: ProjectRoute = {
+		...page,
+		slug: 'cards',
+		route: '/cards',
+		name: 'Cards',
+		resource: 'card',
+		resourceLabel: 'Card',
+		editable: [],
+		view: boardView,
+	}
+
+	const boardData = {
+		...loaderData,
+		page: boardPage,
+		nav: [boardPage],
+		columns: boardColumns,
+		editable: [],
+		rows: [
+			{
+				id: '11111111-1111-1111-1111-111111111111',
+				title: 'Dune',
+				status: 'to-read',
+				rank: 'm',
+			},
+			{
+				id: '22222222-2222-2222-2222-222222222222',
+				title: 'Piranesi',
+				status: 'done',
+				rank: 'm',
+			},
+		],
+	}
+
+	beforeEach(() => {
+		captured = undefined
+	})
+
+	it('is handed the view props, not just the list ones', () => {
+		render(boardData)
+		if (!captured) throw new Error('owned route was never rendered')
+		const view = captured.view
+		if (!view) throw new Error('owned board route was handed no view props')
+		expect(view.rows).toEqual(boardData.rows)
+		expect(view.resource).toMatchObject({ name: 'card', primaryKey: 'id' })
+		expect(view.rowHref(boardData.rows[0] ?? {})).toBe(
+			'/cards/11111111-1111-1111-1111-111111111111',
+		)
+		expect(typeof view.linkComponent).toBe('function')
+		expect(view.anchor).toBe('2026-01-01')
+		// A board has no time axis, so it is handed no period navigation — the
+		// framework's own board renders none either.
+		expect(view.paging).toBeNull()
+		expect(view.notice).toBeNull()
+	})
+
+	it('draws the real cards, in the columns the enum declares', () => {
+		// The whole point, one level past the list: the module is the board.
+		const html = render(boardData)
+		expect(html).toContain('Dune')
+		expect(html).toContain('Piranesi')
+		// …and the framework's own surface did not render alongside it.
+		expect(html.match(/Dune/g)).toHaveLength(1)
+		// The columns. Note where they come from: the emitted module inlines NO
+		// option list, and `<BoardView>` resolves them from the grouping column's
+		// introspected `meta.options`, which arrived in `{...view}`. That is why
+		// inlining them would have bought nothing and cost a write-side guard.
+		expect(html).toContain('To read')
+		expect(html).toContain('Done')
+	})
+
+	it('is handed a move handler when the board declares one', () => {
+		render(boardData)
+		expect(typeof captured?.view?.onMove).toBe('function')
+	})
+
+	it('is handed none when the board does not', () => {
+		// A read-only board stays the read-only thing it looks like, ejected or
+		// not: the affordance follows the declaration, not the ownership. The
+		// view props still arrive — it is the write that is absent, not the page.
+		const readOnly = { ...boardPage, view: { ...boardView, move: false } }
+		render({ ...boardData, page: readOnly, nav: [readOnly] })
+		expect(captured?.view).toBeDefined()
+		expect(captured?.view?.onMove).toBeUndefined()
+	})
+
+	/**
+	 * The `options` snag from the stage-1 design note, answered.
+	 *
+	 * A board's declared options are read by exactly two things: `<BoardView>`,
+	 * which does not need them (it reads the introspected column, asserted
+	 * above), and `boardMoveValues`, which refuses a drop on a destination the
+	 * enum does not declare. So they are NOT inlined into the owned module —
+	 * that would move a write-side check into a file the user is invited to
+	 * edit — and the handler that applies them stays in framework code, reached
+	 * through `view.onMove`.
+	 *
+	 * The refusal that actually matters is the server's: the values below are
+	 * submitted to the record's own edit route, so `opUpdate` runs the same enum
+	 * validation, permission check, WIP limit and audit entry as a form save.
+	 * There is no board endpoint, which is why an ejected board cannot widen the
+	 * write surface no matter what its author writes in the file.
+	 */
+	it('refuses a drop on a destination the enum does not declare', () => {
+		const submitted: { values: Record<string, string>; id: string }[] = []
+		const handler = viewMoveHandler(boardView, boardData.rows, 'id', (v, id) =>
+			submitted.push({ values: v, id }),
+		)
+		const row = boardData.rows[0] as Record<string, unknown>
+
+		// A declared destination writes the grouping column, through the record's
+		// ordinary edit route.
+		handler?.onMove?.(row, { value: 'done', index: 0 })
+		expect(submitted).toHaveLength(1)
+		expect(submitted[0]?.values).toMatchObject({ status: 'done' })
+		expect(submitted[0]?.id).toBe('11111111-1111-1111-1111-111111111111')
+
+		// An undeclared one writes nothing at all — not an empty update, which
+		// would still cost an audit entry.
+		handler?.onMove?.(row, { value: 'archived', index: 0 })
+		handler?.onMove?.(row, { value: '', index: 0 })
+		expect(submitted).toHaveLength(1)
 	})
 })
 
