@@ -9,6 +9,13 @@ overrides:
   # patched line yet. The override is transitive-only; nothing here depends on
   # brace-expansion directly.
   brace-expansion@>=4.0.0 <5.0.9: '>=5.0.9'
+  # GHSA-2v37-7h3g-55p8 — a custom alphabet can make the generator loop
+  # indefinitely. Reachable only through postcss > vite, which still resolves
+  # the 3.x line; nothing here depends on nanoid directly, and no id we mint
+  # passes a custom alphabet. Patched in 3.3.17, so the override is a floor on
+  # the same major. Bounded to 3.x deliberately: an unbounded `>=3.3.17`
+  # resolves to 6.x, which is not what postcss declares.
+  nanoid@<3.3.17: '^3.3.17'
 
 allowBuilds:
   esbuild: true
