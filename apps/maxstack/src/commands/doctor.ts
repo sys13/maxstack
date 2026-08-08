@@ -319,8 +319,8 @@ async function toolchainChecks(opts: DoctorOptions): Promise<DoctorCheck[]> {
 					detail:
 						path.found === null
 							? 'no `maxstack` on PATH'
-							: `maxstack ${path.found} — predates the \`mcp\` verb`,
-					fix: `Agent sessions get no mcp__maxstack__* tools and the edit guard never runs — both fail silently.\nnpm install -g maxstack@${version}`,
+							: `maxstack ${path.found} — no \`mcp\`/\`guard-edit\` verb`,
+					fix: `Agent sessions get no mcp__maxstack__* tools and the edit guard never runs — both fail silently.\nnpm install -g maxstack@${version}${path.found === version ? ' --force' : ''}`,
 				},
 	)
 

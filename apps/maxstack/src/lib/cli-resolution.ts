@@ -87,23 +87,42 @@ export async function probePathCli(): Promise<PathCliStatus> {
 		return { found: null, usable: false }
 	}
 	// Version strings don't tell us which verbs exist (a fork or a local build
-	// can report anything), so ask the binary what it can do. Note `maxstack mcp
-	// --help` is NOT a usable probe: commander handles `--help` globally and
-	// exits 0 with the top-level help even for a verb it doesn't have. The
-	// command list in `--help` is the honest answer, and it has no side effects
-	// — running `maxstack mcp` for real would start a server and hang.
-	try {
-		const { stdout } = await run('maxstack', ['--help'], { timeout: 10_000 })
-		return { found, usable: listsVerb(stdout, 'mcp') }
-	} catch {
-		return { found, usable: false }
-	}
+	// can report anything), so ask the binary what it can do.
+	const verbs = await Promise.all(PROBED_VERBS.map((verb) => hasVerb(verb)))
+	return { found, usable: verbs.every(Boolean) }
 }
 
-/** Does commander's help list this verb? Matches the indented `  <verb> …` row
- * commander emits, not a bare mention inside some other command's description. */
-function listsVerb(help: string, verb: string): boolean {
-	return new RegExp(`^\\s+${verb}(\\s|$)`, 'm').test(help)
+/** The two verbs the scaffolded config invokes — the ones whose absence is
+ * silent. Both are registered `hidden`, so neither appears in `--help`. */
+const PROBED_VERBS = ['mcp', 'guard-edit'] as const
+
+/**
+ * Does the PATH CLI have this verb?
+ *
+ * Two probes have been wrong here, both in the same direction — reading an
+ * exit code or a command list that commander doesn't populate the way it looks
+ * like it does:
+ *
+ * - `maxstack <verb> --help` **exit status** says nothing: commander answers an
+ *   unknown verb with the top-level help and exits 0.
+ * - the `--help` **command list** omits `mcp` and `guard-edit` entirely, because
+ *   both are registered `{ hidden: true }`. Scanning it made the probe
+ *   always-false, so every install was told it "predates the `mcp` verb".
+ *
+ * The usage line is the honest signal: commander prints `Usage: maxstack mcp …`
+ * for a verb it has (hidden or not) and `Usage: maxstack [options] [command]`
+ * for one it doesn't. `--help` short-circuits before the action runs, so this
+ * neither starts the MCP server nor blocks reading the hook event on stdin.
+ */
+async function hasVerb(verb: string): Promise<boolean> {
+	try {
+		const { stdout } = await run('maxstack', [verb, '--help'], {
+			timeout: 10_000,
+		})
+		return new RegExp(`^Usage: \\S+ ${verb}(\\s|$)`, 'm').test(stdout)
+	} catch {
+		return false
+	}
 }
 
 /**
@@ -125,12 +144,23 @@ export function pathCliWarning(
 			`  Fix: ${install}`
 		)
 	}
+	// A PATH copy reporting *our own* version yet missing the verbs is not a
+	// stale global — it is a broken or shadowed install, and telling someone to
+	// install the version they already have reads as a no-op instruction.
+	const cause =
+		status.found === expected
+			? `reports ${status.found} — this CLI's own version — but has no \`mcp\` verb.`
+			: `is ${status.found}, which has no \`mcp\` verb.`
+	const fix =
+		status.found === expected
+			? `${install} --force   # the copy on PATH is broken or shadowed`
+			: install
 	return (
-		`⚠ the \`maxstack\` on PATH is ${status.found}, which predates the \`mcp\` verb.\n` +
+		`⚠ the \`maxstack\` on PATH ${cause}\n` +
 		'  The scaffolded .mcp.json and .claude/settings.json invoke it by name, so\n' +
 		'  agent sessions will have no mcp__maxstack__* tools and the edit guard\n' +
 		'  will not run — both fail silently.\n' +
-		`  Fix: ${install}`
+		`  Fix: ${fix}`
 	)
 }
 

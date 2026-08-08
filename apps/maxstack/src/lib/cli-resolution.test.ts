@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { buildProgram } from '../program.ts'
 import { pathCliWarning, probePathCli } from './cli-resolution.ts'
 
 describe('pathCliWarning', () => {
@@ -34,13 +35,48 @@ describe('pathCliWarning', () => {
 	})
 })
 
+describe('the verb probe', () => {
+	// The probe reads `maxstack <verb> --help` and matches the *usage line*.
+	// Two earlier probes were wrong in opposite directions and neither was
+	// caught, because the only real-binary test asserted `typeof usable`:
+	//
+	//   - exit status: commander answers an unknown verb with the top-level help
+	//     and exits 0, so a stale global looked fine and nothing ever warned.
+	//   - the `--help` command list: `mcp` and `guard-edit` are registered
+	//     `{ hidden: true }` and so never appear in it, which made the probe
+	//     always-false — every install was told it "predates the `mcp` verb",
+	//     and the fix line told you to install the version you already had.
+	//
+	// These pin the commander behaviour the current probe rests on, against
+	// this workspace's own program rather than whatever is on PATH.
+	/** What `maxstack <verb> --help` prints, or the top-level help commander
+	 * falls back to when it has no such verb. */
+	const helpFor = (verb?: string): string => {
+		const program = buildProgram()
+		if (verb === undefined) return program.helpInformation()
+		const sub = program.commands.find((c) => c.name() === verb)
+		return (sub ?? program).helpInformation()
+	}
+
+	it.each(['mcp', 'guard-edit'])(
+		'names `%s` in its usage line even though the verb is hidden',
+		(verb) => {
+			expect(helpFor()).not.toMatch(new RegExp(`^\\s+${verb}(\\s|$)`, 'm'))
+			expect(helpFor(verb)).toMatch(
+				new RegExp(`^Usage: \\S+ ${verb}(\\s|$)`, 'm'),
+			)
+		},
+	)
+
+	it('does not name an absent verb in the usage line it falls back to', () => {
+		expect(helpFor('definitely-not-a-verb')).not.toMatch(
+			/^Usage: \S+ definitely-not-a-verb(\s|$)/m,
+		)
+	})
+})
+
 describe('probePathCli (against whatever maxstack is really on PATH)', () => {
 	it('reports usability from the real binary without side effects', async () => {
-		// Regression guard for the probe itself: the first version asked
-		// `maxstack mcp --help`, which commander answers with the *top-level* help
-		// and exit 0 even when it has no `mcp` verb — so a stale global looked
-		// fine and the warning never fired. Probing the command list is the honest
-		// signal, and unlike running `maxstack mcp` for real it can't hang.
 		const status = await probePathCli()
 		if (status.found === null) return // no global install here; nothing to assert
 		expect(typeof status.usable).toBe('boolean')
