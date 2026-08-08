@@ -126,6 +126,40 @@ describe('tool listing', () => {
 		for (const t of tools) expect(t.description.length).toBeGreaterThan(20)
 	})
 
+	// #375: three tools change the spec and the batch one is called `init`, so the
+	// two an agent reaches for BY NAME are the two that have to name it. An agent
+	// that has read only the listing — the normal case, since descriptions are all
+	// it holds before it has called anything — was finding the 2N-call path
+	// documented and the 2-call path not, and "Always propose before apply" read as
+	// an instruction to loop rather than as a fact true of both paths.
+	it('points the single-op write tools at the batch path', () => {
+		const tools = platformTools({
+			...ctx,
+			catalog: { list: () => [], preview: () => ({}) },
+		})
+		const describe_ = (name: string): string => {
+			const d = tools.find((t) => t.name === name)?.description
+			if (!d) throw new Error(`${name} missing from the listing`)
+			return d
+		}
+
+		const propose = describe_('propose_spec_change')
+		expect(propose).toMatch(/multi-op change belongs in `init \{ops\}`/)
+		// The closing instruction must read as true of both paths. `init`'s
+		// `apply: false` default IS the propose half, so the sentence is a rule
+		// about consent, not a two-calls-per-op loop.
+		expect(propose).toMatch(/Always propose before apply, on EITHER path/)
+		expect(propose).toMatch(/`apply: false` default IS the propose half/)
+
+		const apply = describe_('apply_spec_change')
+		expect(apply).toMatch(/`init \{ops, apply: true\}`/)
+		expect(apply).toMatch(/all-or-nothing/)
+
+		// Same defect, same fix: an install is several ops by construction, and this
+		// description named only the one-op tool as the non-CLI route.
+		expect(describe_('browse_catalog')).toMatch(/`init \{ops, apply: true\}`/)
+	})
+
 	it('lists browse_catalog once a host supplies a catalog', () => {
 		const withCatalog = platformTools({
 			...ctx,

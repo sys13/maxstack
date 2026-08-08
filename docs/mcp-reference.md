@@ -108,7 +108,7 @@ _No arguments._
 
 ### `browse_catalog`
 
-Browse the installable feature-bundle catalog, and preview what installing one would do. With no arguments: every module with its title, one-line description, transitive prerequisites, what it contributes, and — inside a project — what is installed and what could be upgraded. With `preview: ["billing"]`: the exact spec ops the install would apply, the prerequisites it would pull in that you did not ask for, and any reason it would be refused. Nothing is written; installing is `maxstack add <slug>` (or the same ops through apply_spec_change).
+Browse the installable feature-bundle catalog, and preview what installing one would do. With no arguments: every module with its title, one-line description, transitive prerequisites, what it contributes, and — inside a project — what is installed and what could be upgraded. With `preview: ["billing"]`: the exact spec ops the install would apply, the prerequisites it would pull in that you did not ask for, and any reason it would be refused. Nothing is written; installing is `maxstack add <slug>` (or the previewed ops as one `init {ops, apply: true}` batch — an install is always several ops, so a loop over apply_spec_change is the slow way to the same place).
 
 **Requires** `context.catalog` — a host that wired the bundle catalog, since `@maxstack/mcp` deliberately does not import `@maxstack/features`.
 
@@ -118,7 +118,7 @@ Browse the installable feature-bundle catalog, and preview what installing one w
 
 ### `propose_spec_change`
 
-Validate + diff a typed spec-op WITHOUT applying it (the "suggest" half of suggest→accept). Returns {valid, errors, diff, effect, warnings, next}. `diff` is spec-shaped — what the document would say; `effect` is app-shaped — which tables, columns, routes, forms, REST payloads and public fields would appear, change or STOP EXISTING if you applied it, and it can say the op would change nothing anyone can see. Always propose before apply.
+Validate + diff a typed spec-op WITHOUT applying it (the "suggest" half of suggest→accept). Returns {valid, errors, diff, effect, warnings, next}. `diff` is spec-shaped — what the document would say; `effect` is app-shaped — which tables, columns, routes, forms, REST payloads and public fields would appear, change or STOP EXISTING if you applied it, and it can say the op would change nothing anyone can see. ONE op: a multi-op change belongs in `init {ops}`, which validates the whole chain against the running projection and reports one merged effect — this tool is for the single op you are refining. Always propose before apply, on EITHER path: `init`'s `apply: false` default IS the propose half, so this is not an instruction to spend two calls per op.
 
 **Input**
 
@@ -127,7 +127,7 @@ Validate + diff a typed spec-op WITHOUT applying it (the "suggest" half of sugge
 
 ### `apply_spec_change`
 
-Apply a typed spec-op to the spec (the "accept" half — applied rows land accepted with AI provenance and go live in the running app immediately). Re-validates server-side and rejects any op that would break referential integrity; logs it to the op-log with provenance. Returns {applied, diff, effect, warnings, next}. READ `effect` and `warnings` before you report what you changed — `diff` is spec-shaped and cannot tell you that what you applied changes nothing a user can see (a shadowed block, an unbuilt app, a row nothing has accepted yet). `effect.changesBuiltApp === false` means the document moved and the application did not; `null` means this layer is outside what the surface inventory models, which is not the same as "no effect".
+Apply a typed spec-op to the spec (the "accept" half — applied rows land accepted with AI provenance and go live in the running app immediately). Re-validates server-side and rejects any op that would break referential integrity; logs it to the op-log with provenance. Returns {applied, diff, effect, warnings, next}. READ `effect` and `warnings` before you report what you changed — `diff` is spec-shaped and cannot tell you that what you applied changes nothing a user can see (a shadowed block, an unbuilt app, a row nothing has accepted yet). `effect.changesBuiltApp === false` means the document moved and the application did not; `null` means this layer is outside what the surface inventory models, which is not the same as "no effect". ONE op: a multi-op change belongs in `init {ops, apply: true}` — one all-or-nothing call, one merged effect, each op validated against the spec the previous ones would produce — rather than a loop over this tool; this is for the single op you are refining.
 
 **Input**
 
