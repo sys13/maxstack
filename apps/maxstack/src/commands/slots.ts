@@ -55,6 +55,22 @@ export interface SlotsOptions {
 	json?: boolean
 }
 
+/** Soft-wrap a prose line so it reads as a paragraph beside the id table. */
+function wrap(text: string, width = 78): string {
+	const lines: string[] = []
+	let line = ''
+	for (const word of text.split(' ')) {
+		if (line === '') line = word
+		else if (line.length + 1 + word.length <= width) line += ` ${word}`
+		else {
+			lines.push(line)
+			line = word
+		}
+	}
+	if (line !== '') lines.push(line)
+	return lines.join('\n')
+}
+
 export async function slotsCommand(
 	dir: string | undefined,
 	opts: SlotsOptions = {},
@@ -69,8 +85,12 @@ export async function slotsCommand(
 	}
 
 	console.log(
-		`Slots — bespoke UI without ejecting (block roles v${inventory.rolesVersion})\n`,
+		`Slots — bespoke UI without ejecting (block roles v${inventory.rolesVersion})`,
 	)
+	// `idEscaping` is a top-level field, so `--json` carries it for free — but a
+	// table of ids would not, and the ids are exactly what reads as mangled
+	// (#378). Backticks are markdown for the other two surfaces; strip them here.
+	console.log(`${wrap(inventory.idEscaping.replaceAll('`', ''))}\n`)
 	let filledCount = 0
 	let total = 0
 	for (const page of inventory.pages) {

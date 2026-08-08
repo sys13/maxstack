@@ -16,6 +16,7 @@
  */
 
 import {
+	BLOCK_SLOT_ID_ESCAPING,
 	BLOCK_SLOT_ROLES,
 	BLOCK_SLOT_ROLES_VERSION,
 	type BlockSlotDescriptor,
@@ -69,6 +70,11 @@ export interface PageSlots {
 export interface SlotInventory {
 	/** The version of the slot-bearing role list this inventory was built from. */
 	rolesVersion: number
+	/**
+	 * Why the ids are spelled the way they are. A sibling of `rolesVersion`
+	 * because an id is handed over here and nowhere else explains it.
+	 */
+	idEscaping: string
 	roles: typeof BLOCK_SLOT_ROLES
 	pages: PageSlots[]
 }
@@ -149,6 +155,7 @@ export function slotInventory(
 	}
 	return {
 		rolesVersion: BLOCK_SLOT_ROLES_VERSION,
+		idEscaping: BLOCK_SLOT_ID_ESCAPING,
 		roles: BLOCK_SLOT_ROLES,
 		pages,
 	}

@@ -48,6 +48,10 @@ cannot be told different things:
 ```
 $ maxstack slots
 Slots — bespoke UI without ejecting (block roles v1)
+Ids are escaped to legal JS identifiers: - → _d, _ → _u, any other illegal
+character → _z (so reading-item gives reading_ditem__header). The escape is
+reversible rather than a fold, so two differently-spelled resources can never
+collide on one id — this is correct, do not rename a resource to avoid it.
 
 Exercises  /app/exercises
   ○ exerciseActions
@@ -66,6 +70,15 @@ Exercises  /app/exercises
   `false`.
 - **Workbench** — the Slots pane, whose fill state comes from the running app's
   own owned-code manifest, so it cannot disagree with what actually renders.
+
+All three carry the same note about how an id is spelled, because a slot id is
+an *exported function name*: `-` → `_d`, `_` → `_u`, any other illegal
+character → `_z`, so the resource `reading-item` gives `reading_ditem__header`.
+That is an escape, not a fold, and the reversibility is the point — folding `-`
+to `_` would let `read-item` and `read_item` derive the same id, and two
+resources sharing one slot export is a public API that silently means different
+things in different projects. An escaped id is correct; do not rename a
+resource to get a prettier one.
 
 ## Filling one
 

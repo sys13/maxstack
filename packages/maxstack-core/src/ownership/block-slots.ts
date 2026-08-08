@@ -120,6 +120,17 @@ const ROLE_BY_NAME = new Map(BLOCK_SLOT_ROLES.map((r) => [r.role, r]))
 const SEP = '__'
 
 /**
+ * The one-line explanation of {@link segment}, carried on every surface that
+ * hands an id to someone (`maxstack slots`, `query_spec {section:"slots"}`, the
+ * workbench pane). Without it `reading-item` producing `reading_ditem__header`
+ * reads as a mangling bug — it was filed as one (#378) — and the likelier
+ * reaction, renaming the entity to dodge an "ugly" id, is the worse outcome.
+ * The *reason* is the load-bearing half, so it ships with the map.
+ */
+export const BLOCK_SLOT_ID_ESCAPING =
+	'Ids are escaped to legal JS identifiers: `-` → `_d`, `_` → `_u`, any other illegal character → `_z` (so `reading-item` gives `reading_ditem__header`). The escape is reversible rather than a fold, so two differently-spelled resources can never collide on one id — this is correct, do not rename a resource to avoid it.'
+
+/**
  * Make one id segment a safe JS identifier fragment. Slot ids are *exported
  * function names* in the user's slot file, so `reading-item` has to become a
  * legal identifier.

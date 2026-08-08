@@ -41,6 +41,13 @@ export function SlotsPane({ inventory }: SlotsPaneProps) {
 				everything around it keeps regenerating.
 			</p>
 
+			{/* The ids below are escaped, not mangled (#378). A top-level field on
+			    the inventory is invisible to someone reading a list of ids, so the
+			    pane says it where the ids are. */}
+			<p className="mt-1 text-[0.8rem] text-foreground/60">
+				{inventory.idEscaping.replaceAll('`', '')}
+			</p>
+
 			{inventory.pages.map((page) =>
 				page.slots.length === 0 ? null : (
 					<div key={page.pageId} className="mt-3">

@@ -86,6 +86,22 @@ describe('slotInventory', () => {
 		expect(inventory.rolesVersion).toBe(1)
 	})
 
+	/**
+	 * #378: `reading-item` derives `reading_ditem__header`, which was filed as a
+	 * mangling bug by a session that had only ever seen the id. The inventory is
+	 * the single fold behind all three discovery surfaces, so the explanation
+	 * rides here — and it has to carry the *reason*, not just the map, or the
+	 * reader renames the entity to dodge an ugly id instead.
+	 */
+	it('explains the id escaping, with the reason, beside the ids it applies to', () => {
+		const { idEscaping } = slotInventory(specWith(['name']))
+		expect(idEscaping).toContain('`-` → `_d`')
+		expect(idEscaping).toContain('`_` → `_u`')
+		expect(idEscaping).toContain('`_z`')
+		expect(idEscaping).toMatch(/reversible/)
+		expect(idEscaping).toMatch(/collide/)
+	})
+
 	/** A field slot is only offered for a field that is actually on screen. */
 	it('follows the spec field selection when the block declares one', () => {
 		const inventory = slotInventory(specWith(['name', 'formCue'], ['formCue']))
