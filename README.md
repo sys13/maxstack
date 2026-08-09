@@ -1,9 +1,11 @@
 # maxstack
 
-A TypeScript app framework for building with a coding agent. Your database,
-admin UI, forms, validation, REST API, auth and MCP tools all derive from one
-typed spec — so the agent describes the product instead of hand-writing the
-plumbing.
+**Fast on day one. Still fast on day fifty.**
+
+A TypeScript framework where the database, admin UI, forms, validation, REST API
+and auth all derive from one typed spec — so the agent describes the product
+instead of hand-writing the plumbing, and change number fifty costs what change
+number one did.
 
 ```sh
 npx maxstack start "a bug tracker for small teams"
