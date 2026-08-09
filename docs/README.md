@@ -16,6 +16,8 @@ adds a verb, flag or op without regenerating them.
   changed yourself.
 - [**user-guide.md**](user-guide.md) — the full tour: specs, ops, ownership,
   agents, deployment.
+- [**comparison-and-faq.md**](comparison-and-faq.md) — how this differs from the
+  AI app builders and from a starter kit, and what ejecting actually costs.
 - [**../ARCHITECTURE.md**](../ARCHITECTURE.md) — the layer map, and how a change
   flows through it.
 
