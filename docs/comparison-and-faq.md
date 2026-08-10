@@ -59,11 +59,18 @@ is a narrower claim than "use this for everything."
 This is the sharper version of the question and it deserves a straight answer.
 
 A starter kit gives you a fixed set of features wired on day one, and from day
-two they are yours to maintain with no upgrade path — you delete what you don't
-want and hand-write what wasn't included. The comparable thing here is that the
-[feature bundles](bundle-reference.md) install into a *live* app rather than at
-scaffold time, know about each other, and move forward under an app that already
-exists. Every combination of them is proved by a gate rather than assumed; see
+two they are yours — you delete what you don't want and hand-write what wasn't
+included. Kits do move forward: MakerKit's CLI merges its upstream and hands the
+conflicts to an AI assistant, Wasp recompiles on a new framework version and
+ships a prose guide for the code it didn't write. So the claim here is about the
+*shape* of the upgrade, not its absence. The [feature
+bundles](bundle-reference.md) install into a *live* app rather than at scaffold
+time, know about each other, and move forward under an app that already exists
+as a versioned install record plus a typed codemod, through the same validated
+spec-op path as `maxstack add` — deterministic, and `checkBundleContract` fails
+the build on a gap rather than leaving one for you to find. Every
+prerequisite-closed combination of them is proved by a gate rather than assumed:
+all 4047 nightly, an adversarially-ranked 256 of them on every PR; see
 [`combination-safety.md`](combination-safety.md).
 
 A CMS-shaped framework that derives an admin from a schema is the closest
