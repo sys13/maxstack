@@ -128,6 +128,34 @@ describe('the API contract', () => {
 		})
 	})
 
+	describe('an update that would change nothing (#388)', () => {
+		// The point of this whole module: `PATCH` with `{}` — or with only unknown
+		// keys, which the schema STRIPS — is refused with 400, and the contract an
+		// agent reads to learn what PATCH accepts has to say so. #388 was split out
+		// of #376 precisely because a contract change the derived contract does not
+		// describe is the failure this file exists to catch.
+		const update = () =>
+			book()?.update as { minProperties?: number; description?: string }
+
+		it('states machine-readably that the body needs at least one field', () => {
+			// A client validating locally against the published schema now catches
+			// the empty body without spending a round trip on it.
+			expect(update()?.minProperties).toBe(1)
+		})
+
+		it('says an empty or all-unknown body is a 400, not a silent no-op', () => {
+			const description = update()?.description ?? ''
+			expect(description).toMatch(/at least one/)
+			expect(description).toMatch(/stripped rather than rejected/)
+			expect(description).toMatch(/refused with 400/)
+		})
+
+		it('does not claim it of `create`, which has its own required fields', () => {
+			const create = book()?.create as { minProperties?: number }
+			expect(create.minProperties).toBeUndefined()
+		})
+	})
+
 	it('spells enum members as a client would send them', () => {
 		expect(book()?.fields.status?.create).toMatch(/"reading" \| "finished"/)
 	})

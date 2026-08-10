@@ -110,6 +110,7 @@ import type { ErrorContext } from './error-id.ts'
 import { nextErrorId, reportInternalError } from './error-id.ts'
 import type { ImportPlan } from './imports.ts'
 import {
+	EmptyUpdateError,
 	LimitExceededError,
 	NotFoundError,
 	type OpContext,
@@ -861,6 +862,12 @@ export function mcpFail(
 	context: ErrorContext,
 	exposure: McpExposure = 'network',
 ): McpToolResult {
+	// An update body with nothing writable in it (#388). Named **above**
+	// `ValidationError`, whose subclass it is, for the same reason `fail()` gives
+	// it a 400 rather than a 422: it rejects no field, so its `fieldErrors` is
+	// `{}` — the line below would answer an agent that mistyped a field name with
+	// the string "{}". The whole repair instruction is in the message.
+	if (e instanceof EmptyUpdateError) return err(e.message)
 	// Repair instructions, machine-readably — the same contract the 422 body
 	// carries, so an agent and a browser client act on one shape.
 	if (e instanceof ValidationError) return err(JSON.stringify(e.fieldErrors))

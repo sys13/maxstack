@@ -8,6 +8,7 @@ import { ConflictError, ConstraintViolationError } from './constraints.ts'
 import type { ErrorContext } from './error-id.ts'
 import { nextErrorId, reportInternalError } from './error-id.ts'
 import {
+	EmptyUpdateError,
 	LimitExceededError,
 	NotFoundError,
 	type OpContext,
@@ -52,6 +53,25 @@ export interface ApiResponse<T = unknown> {
  * the safe direction to fail.
  */
 function fail(e: unknown, context: ErrorContext): ApiResponse {
+	// An update body with nothing writable in it (#388). **400, not the 422 every
+	// other validation refusal gets, and above `ValidationError` because it is a
+	// subclass** — reordering these two would turn it back into a 422. 422 says
+	// the shape was understood and a value was wrong; here no value arrived at
+	// all, `fieldErrors` is necessarily empty, and a client that reads a 422 by
+	// walking `fieldErrors` would be told nothing. The named key lists are the
+	// repair instruction: they say which of the keys the caller sent were
+	// dropped, and why.
+	if (e instanceof EmptyUpdateError) {
+		return {
+			status: 400,
+			body: {
+				error: e.message,
+				fieldErrors: e.fieldErrors,
+				unknownFields: e.unknownFields,
+				immutableFields: e.immutableFields,
+			},
+		}
+	}
 	if (e instanceof ValidationError) {
 		// Every 422 is repair instructions: `error` names the
 		// resource, the operation and every rejected field; `fieldErrors` states

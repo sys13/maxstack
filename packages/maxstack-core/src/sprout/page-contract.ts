@@ -127,7 +127,10 @@ export function pageContract(page: PageContractInput): PageContract {
 			{
 				request: `POST ${record}`,
 				purpose: `update the ${resource}`,
-				body: `a JSON object of field values (${json}) — the \`update\` schema for \`${resource}\` under query_spec {section:"api"}`,
+				// "at least one" is not padding: unknown keys are stripped, so a body
+				// of only unknown keys used to validate into `{}` and 500 (#388). The
+				// contract now says what `opUpdate` enforces.
+				body: `a JSON object of at least one field value (${json}) — the \`update\` schema for \`${resource}\` under query_spec {section:"api"}`,
 			},
 			{
 				request: `POST ${record}`,

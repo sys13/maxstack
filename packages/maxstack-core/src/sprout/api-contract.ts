@@ -47,7 +47,8 @@ export interface ApiResourceContract {
 	create: unknown
 	/**
 	 * JSON Schema for a `PATCH` body. Every field optional; a nullable field
-	 * still accepts `null`, which is how it is cleared.
+	 * still accepts `null`, which is how it is cleared. At least one of them must
+	 * be present — see {@link stateMinimumOneField}.
 	 */
 	update: unknown
 	/** Per-field prose: what it accepts, in each mode. */
@@ -83,6 +84,44 @@ function stateWallClockDates(node: unknown): void {
 	for (const child of Object.values(schema)) stateWallClockDates(child)
 }
 
+/**
+ * Say that a `PATCH` must actually change something (#388).
+ *
+ * The second thing this module cannot derive, and for {@link stateWallClockDates}'s
+ * reason exactly: the rule lives *outside* the validator zod renders. Update mode
+ * makes every field optional and the object strips unknown keys, so `{}` and
+ * `{"bogus": 1}` both **pass** — and then `opUpdate` refuses them, because an
+ * update that would change nothing was reaching drizzle's `.set({})` and coming
+ * back as a 500 for what is unambiguously a caller error. No rendering of that
+ * schema can state a rule the schema does not contain, so it is stated here.
+ *
+ * Left underived, the contract would have published the opposite of the served
+ * API — an update schema with no required properties, which says an empty body
+ * is fine — and #388 was split out of #376 precisely because a contract change
+ * the derived contract does not describe is the failure this module exists to
+ * prevent.
+ *
+ * Both halves are deliberate: `minProperties: 1` is the machine-readable form, so
+ * a client validating locally catches the empty body before spending a round
+ * trip, and the `description` says what happens and what to send instead, because
+ * "minProperties" alone does not explain that an unknown key is *stripped* and
+ * therefore does not count toward it.
+ */
+function stateMinimumOneField(schema: unknown): void {
+	if (schema === null || typeof schema !== 'object') return
+	Object.assign(schema as Record<string, unknown>, {
+		minProperties: 1,
+		description:
+			'Every field is optional, but the body must contain at least one of ' +
+			'them. Unknown keys are stripped rather than rejected, so a body that ' +
+			'is empty — or whose every key is unknown, or names the tenant or ' +
+			'soft-delete column, which an update may never write — changes nothing ' +
+			'and is refused with 400, naming the keys that were dropped. It is not ' +
+			'a no-op 200: the request that produces it is a mistyped field name, ' +
+			'and a success for a write that did not happen is worse than a refusal.',
+	})
+}
+
 /** A JSON Schema for one validation mode, tolerant of the preprocessed types. */
 function schemaFor(
 	entity: SpecEntityShape,
@@ -104,6 +143,7 @@ function schemaFor(
 			reused: 'ref',
 		})
 		stateWallClockDates(rendered)
+		if (mode === 'update') stateMinimumOneField(rendered)
 		return rendered
 	} catch {
 		return null

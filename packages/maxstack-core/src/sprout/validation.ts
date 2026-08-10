@@ -390,6 +390,22 @@ export interface ValidationResult<T = Record<string, unknown>> {
 	summary?: string
 }
 
+/**
+ * The keys an input schema for `mode` accepts — what a caller may send.
+ *
+ * Read off the generated schema rather than re-filtering the columns, so a
+ * refusal that lists "unknown" keys can never name a set the validator would
+ * actually have kept. Its one caller is the empty-update refusal in `opUpdate`
+ * (#388), which has to tell a caller *which* of the keys it sent were dropped;
+ * a list derived from a second rule would eventually name the wrong ones.
+ */
+export function writableFields(
+	resource: SproutResource,
+	mode: ValidationMode = 'create',
+): string[] {
+	return Object.keys(generateValidationSchema(resource, mode).shape)
+}
+
 export function validateData(
 	resource: SproutResource,
 	data: unknown,

@@ -41,7 +41,7 @@ import type {
 	Row,
 	SproutStore,
 } from './store.ts'
-import { validateData } from './validation.ts'
+import { validateData, writableFields } from './validation.ts'
 
 // No constructor parameter properties in this package: the CLI runs these
 // files directly under Node's strip-only type stripping, which rejects them.
@@ -176,6 +176,74 @@ export class ValidationError extends Error {
 		this.name = 'ValidationError'
 		this.fieldErrors = fieldErrors
 		this.fields = detail?.fields
+	}
+}
+
+/**
+ * An update whose body carried nothing this resource can write (#388).
+ *
+ * `opUpdate` validates with a `z.object`, which **strips** unknown keys. A body
+ * of `{}`, or one whose every key is unknown or immutable, therefore validates
+ * *successfully* into `{}` — and `store.update(resource, id, {})` reaches
+ * drizzle's `.set({})`, which throws "No values to set". A caller error came
+ * back as a 500, which is the exact failure #376 was about: a 5xx reads as "I
+ * found a bug in the platform" and an agent stops rather than correcting itself.
+ *
+ * **A refusal, not a no-op 200.** What actually produces an empty validated body
+ * is a caller that mistyped a field name, and a 400 naming the keys that were
+ * dropped is what unblocks it in one round trip; a 200 for a request that
+ * changed nothing is its own trap, because the caller believes the write landed.
+ * The decision is stated as a contract in `api-contract.ts` — a contract change
+ * the derived contract does not describe is the failure that module exists to
+ * prevent — and encoded there machine-readably as `minProperties: 1`.
+ *
+ * A `ValidationError` subclass, because it *is* a refusal of the body, so any
+ * surface that already treats validation refusals as the caller's fault keeps
+ * working. It is nonetheless mapped explicitly in `fail()` and `mcpFail()`,
+ * above the base class: `fieldErrors` is necessarily empty here (no field was
+ * rejected — none arrived), so a client that reads a 422 by walking
+ * `fieldErrors` would learn nothing, and the message carries the whole answer.
+ */
+export class EmptyUpdateError extends ValidationError {
+	readonly resource: string
+	readonly id: string
+	/** Keys sent that this resource has no such field for. */
+	readonly unknownFields: string[]
+	/** Keys sent that name a real column an update may never write. */
+	readonly immutableFields: string[]
+
+	constructor(
+		resource: string,
+		id: string,
+		unknownFields: readonly string[],
+		immutableFields: readonly string[],
+	) {
+		const sent = unknownFields.length + immutableFields.length
+		const detail = [
+			unknownFields.length > 0
+				? `No such field on ${resource}: ${unknownFields.join(', ')}.`
+				: '',
+			immutableFields.length > 0
+				? `Not writable through update: ${immutableFields.join(', ')}.`
+				: '',
+		].filter(Boolean)
+		super(
+			{},
+			{
+				summary: [
+					`${resource} update: ${
+						sent === 0 ? 'the body was empty' : 'no writable field was sent'
+					}, so nothing would change and nothing was written.`,
+					...detail,
+					`Send at least one field from the \`update\` schema for \`${resource}\` — query_spec {section:"api"}.`,
+				].join(' '),
+			},
+		)
+		this.name = 'EmptyUpdateError'
+		this.resource = resource
+		this.id = id
+		this.unknownFields = [...unknownFields]
+		this.immutableFields = [...immutableFields]
 	}
 }
 
@@ -1628,6 +1696,28 @@ export async function opUpdate(
 			fields: validated.fields,
 			summary: validated.summary,
 		})
+	// Nothing survived. See {@link EmptyUpdateError}: validation *succeeded* and
+	// produced `{}`, which `store.update` turns into drizzle's `.set({})` and a
+	// 500 for what is unambiguously a caller error. Refused here rather than at
+	// each surface, so the page action, REST, MCP and an owned caller all get the
+	// same sentence — and refused rather than answered as a no-op, because the
+	// body that lands here is a mistyped field name, not an intentional nothing.
+	// The keys are named so the "no" is a fix instruction: `stripped` holds the
+	// columns an update may never write (the tenant and soft-delete columns),
+	// everything else the schema did not keep is simply not a field.
+	if (Object.keys(validated.data as Row).length === 0) {
+		const sent = Object.keys(data)
+		const columns = new Set(entry.resource.columns.map((c) => c.name))
+		const writable = new Set(writableFields(entry.resource, 'update'))
+		throw new EmptyUpdateError(
+			resource,
+			id,
+			sent.filter((key) => !columns.has(key)),
+			sent.filter(
+				(key) => columns.has(key) && (stripped.has(key) || !writable.has(key)),
+			),
+		)
+	}
 	entry.config.customValidation?.(validated.data as Row, 'update')
 	// Declared per-value caps — checked against `existing` so an edit
 	// that does not change the capped column is never refused by a full column.

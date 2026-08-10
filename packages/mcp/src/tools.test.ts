@@ -258,6 +258,28 @@ describe('query_spec', () => {
 		expect(data.requirements).toBeGreaterThan(0)
 	})
 
+	it('publishes, under `api`, the update rule PATCH actually enforces', async () => {
+		// #388 in the place it has to land: the statement must reach the payload an
+		// agent READS, not merely the module that composes it. An empty or
+		// all-unknown-keys PATCH body is refused with 400, and this section is
+		// where a caller learns what PATCH accepts.
+		await executePlatformTool(ctx, 'apply_spec_change', {
+			op: 'data.addEntity',
+			args: { entity },
+		})
+		const sections = data(
+			await executePlatformTool(ctx, 'query_spec', { section: 'api' }),
+		) as {
+			resource: string
+			update: { minProperties?: number; description?: string }
+		}[]
+		expect(sections.length).toBeGreaterThan(0)
+		for (const contract of sections) {
+			expect(contract.update.minProperties).toBe(1)
+			expect(contract.update.description).toMatch(/refused with 400/)
+		}
+	})
+
 	it('lists the spec-op vocabulary (self-description for agents)', async () => {
 		const res = data(
 			await executePlatformTool(ctx, 'query_spec', { section: 'ops' }),
