@@ -314,20 +314,42 @@ Operationally, per benchmark:
 ## Normalizing change difficulty across kinds
 
 Different change kinds are not equally cheap, so the raw count can't be compared
-across benchmarks. Each change is weighted by **how much of it the platform
-absorbed** — the moat, in cost terms (`CHANGE_WEIGHTS` /`changeWeight`):
+across benchmarks. Each change is weighted by **how much ownership it left
+behind** — what stops regenerating, and what the system stops understanding
+about your app (`CHANGE_WEIGHTS` / `changeWeight`):
 
-| Change kind            | Weight | What the maintainer did                                   |
-| ---------------------- | :----: | --------------------------------------------------------- |
-| spec op (`apply-op`)   |   1    | Expressed the change as a typed op; platform generated it |
-| spec op (`regen-diff`) |   2    | Reviewed an agent-produced diff (bet B)                   |
-| slot fill              |   3    | Wrote code into a cross-file extension slot               |
-| eject                  |   5    | Took whole-file ownership; pays the eject tax             |
-| off-surface            |   8    | Built it outside the spec; the platform absorbed none     |
+| Change kind            | Weight | What it left behind                                        |
+| ---------------------- | :----: | ---------------------------------------------------------- |
+| spec op (`apply-op`)   |   1    | Nothing — a typed edit to the spec                         |
+| spec op (`regen-diff`) |   1    | Nothing — a spec edit landed as a reviewed diff (bet B)    |
+| slot fill              |   3    | Code the system can't read, in a file that still regenerates |
+| eject                  |   5    | A whole file that stops regenerating, yours from now on    |
+| off-surface            |   8    | No seam to land in at all; the platform absorbed none      |
 
-The ordering (`op < regen-diff < slot-fill < eject < off-surface`) is the invariant: cheaper =
-more absorbed. The weights are deliberately coarse and will be recalibrated once
-live-`AiClient` runs give real per-kind effort data.
+The ordering (`spec op < slot-fill < eject < off-surface`) is the invariant:
+cheaper = less left outside the system's comprehension.
+
+### Why ownership, and why `regen-diff` moved from 2 to 1
+
+The table used to ask *"how much did the maintainer still do by hand?"* That
+stopped being one question once agents wrote most of the code, because it could
+mean **authoring** (who typed it — now near-free), **review** (real, but paid
+once), or **ownership** (paid every time anyone touches the app afterwards).
+
+It measures ownership, because ownership is what the central claim rests on:
+*still fast on day fifty* is a statement about accumulated ownership, not about
+how long the first edit took.
+
+Read that way the old table was a blend. `apply-op` and `regen-diff` both edit
+the spec — nothing leaves the system either way, so their ownership cost is
+identically zero — yet they were weighted apart. That gap was authoring effort,
+left over from when authoring and ownership rose together. Corrected on
+2026-08-10; `WEIGHT_SCALE.version` is 2, and the frozen corpus baseline stores
+v1 weights, which `changeWeightV1` exists to verify against.
+
+Rungs 3 and up already tracked ownership correctly and are unchanged. So is
+`residualDifficulty` (ejects and off-surface asks only), which means the
+moat-gap bar is unaffected by the recalibration.
 
 ## The iteration-cost headline number: `weightPerSafeChange`
 
@@ -342,8 +364,8 @@ marketing page quotes and an unreproducible figure is worse than none. The
 `regen-diff`), 3 slot fills and 1 eject; its 2 off-surface asks do not land:
 
 ```
-op(1×6) + regen-diff(2) + slot(3×3) + eject(5)   22
-──────────────────────────────────────────────  = ── = 2.00
+op(1×6) + regen-diff(1) + slot(3×3) + eject(5)   21
+──────────────────────────────────────────────  = ── = 1.91
                 11 safe changes                   11
 ```
 
