@@ -332,6 +332,54 @@ implied. Both #162 and #163 were corrected on 2026-07-26 to say 0.59.
 > 0.75 ceiling**, i.e. 0.74 of the available headroom. See
 > [The ceiling, and why 0.80 was withdrawn](#the-ceiling-and-why-080-was-withdrawn).
 
+## Why a change was hard — the cause breakdown
+
+`expressibility.offSurface` says how much of the backlog the ladder failed to
+absorb. It does not say **why**, and for years nothing did — which meant a
+proposal to build a new op family could be argued from a share nobody had
+computed.
+
+Since issue #412 every non-spec-op corpus change carries a **cause**: what the
+author was reaching for when a typed op would not do it. The vocabulary is
+deliberately small — `interaction` (a user-operated list control),
+`presentation` (how one field or row renders), `bespoke-ui`, `domain-rule`,
+`integration`, `platform` — because it exists to answer *"is this layer a large
+share of forced ownership?"* and a finer taxonomy answers that with a scatter of
+ones. Each entry also records `confidence`: `stated` when the corpus text names
+the capability, `inferred` when it was read out of an ambiguous phrase.
+
+`internal/benchmarks/src/causes.ts` is the table and `causes.test.ts` is the
+gate: a change with no cause fails the build, so a new hard ask cannot enter the
+corpus without saying what made it hard. Four `cause.*` figures publish beside
+`expressibility.offSurface`.
+
+**It is a measurement, not a ratchet, and deliberately so.** Nine of the eleven
+corpus ejects were authored one per benchmark to exercise the rung, with generic
+reasons ("eject the Projects page for a bespoke layout"); they record that an
+eject happened, not what forced it. A bar over that bucket would be measuring
+authoring convention. The coverage test is the enforcement instead.
+
+### The trap this breakdown exposes, for anyone absorbing a slot fill
+
+[The ceiling](#the-ceiling-and-why-080-was-withdrawn) converts **off-surface
+asks only**, on the principle stated there: every eject and every slot fill was
+*authored as such*, and reclassifying one is not a platform gain. But
+`expressibility@baseline` scores the frozen set by today's kinds and does not
+know about that principle.
+
+So a program that absorbs a block of frozen **slot fills** raises the published
+headline while leaving the ceiling where it is — and can drive
+`expressibility@baseline` above `expressibility.ceiling`, and `headroomCaptured`
+past 1.00. That is not a hypothetical: the first cause breakdown found a
+candidate program whose full delivery would take the headline to 0.81 against a
+0.75 ceiling.
+
+If you are absorbing slot fills rather than off-surface asks, **resolve this
+before the first one lands.** Either widen the ceiling's convertible set to name
+what your program intends to absorb, or state that your program is deliberately
+not scored by expressibility. Shipping a headline above its own published
+ceiling is the exact class of defect this file exists to prevent.
+
 ## For an L2 primitive author
 
 Landing a child of #163 looks like this:
