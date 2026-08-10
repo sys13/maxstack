@@ -414,8 +414,21 @@ export default function ProjectListPage({
 	// replaces the generic list — the ejected TSX executes in the deployed app.
 	// The *render* is deferred to the bottom of this function, after the list
 	// props are built, because an owned route is handed exactly them (#349).
-	const OwnedRoute = page.resource ? OWNED_ROUTES[page.resource] : undefined
+	//
+	// Keyed by the page's **module** key, which is what `OWNED_ROUTES` is keyed
+	// by (the manifest entry id the generator wrote the module under). It used to
+	// be keyed by `page.resource`, so a project with two pages over one entity
+	// mounted whichever one was ejected on *both* of them: eject the board at `/`
+	// and the calendar at `/due` rendered the board (#392).
+	//
+	// Every page has a module key, entity-less ones included, so an ejected
+	// module now also mounts on a page with no entity behind it — it is the
+	// user's file, and the resource gate was only ever standing in for the key.
+	const OwnedRoute = OWNED_ROUTES[page.moduleKey]
 
+	// Slots stay keyed by the *resource*: block slots are derived from the entity
+	// and live in one `<resource>.slots.tsx` that every page over it composes
+	// from (see `generateResourcePage` — "two keys, deliberately").
 	const ownedSlots = page.resource ? OWNED_SLOTS[page.resource] : undefined
 
 	/**

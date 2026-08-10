@@ -18,7 +18,12 @@
  * page only goes live once it is accepted (or while nothing is decided yet).
  */
 
-import { isSlotBlockType, slotBlockName } from '@maxstack/core/ownership'
+import {
+	isSlotBlockType,
+	pageModuleKeys,
+	pageModuleResource,
+	slotBlockName,
+} from '@maxstack/core/ownership'
 import {
 	type AggregateSpec,
 	type BlockOrder,
@@ -44,6 +49,21 @@ export interface ProjectRoute {
 	name: string
 	/** The Sprout resource this page's CRUD is backed by, e.g. `subscription`. */
 	resource: string | null
+	/**
+	 * The route *module* this page owns — the manifest entry id `maxstack gen`
+	 * wrote it under, and therefore the key an ejected module is mounted by
+	 * (`OWNED_ROUTES`). Usually the resource; a second page over the same entity
+	 * takes a name of its own (`pageModuleKeys`, #337).
+	 *
+	 * Not the same question as `resource`, and keying the mount on `resource` was
+	 * issue #392: a project with a board at `/` and a calendar at `/due`, both
+	 * over `task`, ejecting the board made `/due` render the *board* module. Two
+	 * pages share a resource; they never share a module.
+	 *
+	 * Always present, including for an entity-less page: the generator emits a
+	 * module for that page too, named from its page id.
+	 */
+	moduleKey: string
 	/**
 	 * The human name for one row of that resource — the *entity's* declared name,
 	 * e.g. `Reading item`. `null` for a page backed by no entity.
@@ -249,6 +269,13 @@ export function getRoutes(
 	spec: SpecSystem,
 	flags: Record<string, boolean> = {},
 ): ProjectRoute[] {
+	// Module keys are folded over the WHOLE page list, before any grounding or
+	// flag narrowing — the generator wrote the modules from that list, and a key
+	// derived from a narrower one would name a file that is not there (#392).
+	const keys = pageModuleKeys(spec.pages.pages)
+	const moduleKeys = new Map(
+		spec.pages.pages.map((page, i) => [page.id, keys[i] ?? '']),
+	)
 	return getAcceptedOrAll(spec.pages.pages)
 		.filter((page) => flagAllows(page, flags))
 		.map((page) => {
@@ -261,6 +288,7 @@ export function getRoutes(
 				route: page.route,
 				name: page.name,
 				resource: page.entityId ? resourceName(page.entityId) : null,
+				moduleKey: moduleKeys.get(page.id) ?? pageModuleResource(page),
 				resourceLabel: entity?.name ?? null,
 				slots: blocks
 					.filter((b) => isSlotBlockType(b.type))

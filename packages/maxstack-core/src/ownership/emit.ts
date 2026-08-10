@@ -224,6 +224,75 @@ export function pageModuleKey(descriptor: PageDescriptor): string {
 	return descriptor.module ?? descriptor.resource
 }
 
+/**
+ * The little of a spec page the module-key fold actually reads.
+ *
+ * Structural rather than `PageSpec` on purpose: this package cannot depend on
+ * `@maxstack/spec`, and both callers — the generator (`@maxstack/mcp`'s
+ * `pageDescriptors`) and the live runtime (`apps/web`'s `getRoutes`) — hand it
+ * real pages.
+ */
+export interface PageModuleIdentity {
+	/** The page's own id, e.g. `pg-due-dates`. */
+	id: string
+	/** The entity behind the page, e.g. `e-task`; absent for an entity-less page. */
+	entityId?: string | null
+}
+
+/** `e-task` → `task`, `pg-inbox` → `inbox` — the resource a page folds to. */
+export function pageModuleResource(page: PageModuleIdentity): string {
+	return (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
+}
+
+/** `pg-my-shelf` → `my-shelf`; anything else → a file-safe stem. */
+function moduleStem(pageId: string): string {
+	return (
+		pageId
+			.replace(/^pg-/, '')
+			.replace(/[^a-zA-Z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.toLowerCase() || 'page'
+	)
+}
+
+/**
+ * The module key of **every** page in a spec, in declaration order — the fold
+ * that disambiguates several pages over one entity (#337).
+ *
+ * The first page over a resource keeps the bare resource, so the common
+ * one-page-per-entity project sees no rename and no orphaned file; each later
+ * one takes a name derived from its own page id (not from a counter, so it is
+ * stable against an unrelated page being added or removed), falling back to
+ * `<resource>-<stem>` and then a numeric suffix when that name is already
+ * claimed. Every returned key is distinct.
+ *
+ * The whole page list is the input because module identity is a fact about a
+ * page's *siblings*: one page in isolation cannot know whether another claims
+ * its resource. It is also why the runtime must fold over the same unfiltered
+ * list the generator wrote from — a key derived from only the accepted pages
+ * would name a different module than the one on disk (#392).
+ */
+export function pageModuleKeys(pages: readonly PageModuleIdentity[]): string[] {
+	// Every bare resource is claimed up front: a later page's id-derived stem
+	// must not steal a name a page further down the list is going to want.
+	const taken = new Set(pages.map(pageModuleResource))
+	const claimed = new Set<string>()
+	return pages.map((page) => {
+		const resource = pageModuleResource(page)
+		if (!claimed.has(resource)) {
+			claimed.add(resource)
+			return resource
+		}
+		const stem = moduleStem(page.id)
+		let candidate = taken.has(stem) ? `${resource}-${stem}` : stem
+		for (let n = 2; taken.has(candidate); n++) {
+			candidate = `${resource}-${stem}-${n}`
+		}
+		taken.add(candidate)
+		return candidate
+	})
+}
+
 /** `task` → `TaskListPage`. */
 function pageComponentName(resource: string): string {
 	const pascal = resource

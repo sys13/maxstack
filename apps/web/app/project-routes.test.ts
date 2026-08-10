@@ -1,5 +1,9 @@
-import { emitResourcePage, isMaterializedPage } from '@maxstack/core/ownership'
-import { pageDescriptor } from '@maxstack/mcp'
+import {
+	emitResourcePage,
+	isMaterializedPage,
+	pageModuleKey,
+} from '@maxstack/core/ownership'
+import { pageDescriptor, pageDescriptors } from '@maxstack/mcp'
 import {
 	accept,
 	type EntitySpec,
@@ -49,6 +53,7 @@ describe('getRoutes', () => {
 				route: '/subscriptions',
 				name: 'Subscriptions',
 				resource: 'subscription',
+				moduleKey: 'subscription',
 				resourceLabel: null,
 				slots: ['renewals'],
 				replacesList: null,
@@ -63,6 +68,7 @@ describe('getRoutes', () => {
 				route: '/reading',
 				name: 'Reading List',
 				resource: 'reading-item',
+				moduleKey: 'reading-item',
 				resourceLabel: null,
 				slots: [],
 				replacesList: null,
@@ -1130,5 +1136,84 @@ describe('materialization agrees with the runtime (#349)', () => {
 				!isMaterializedPage(emitResourcePage(pageDescriptor(page, entities))),
 		)
 		expect(unmaterialized.map((p) => p.id)).toEqual(['pg-stats', 'pg-about'])
+	})
+})
+
+/**
+ * Issue #392, the other half of the same agreement: not *what* an ejected
+ * module renders, but *which page* it renders on.
+ *
+ * `OWNED_ROUTES` is keyed by the manifest entry id `maxstack gen` wrote each
+ * route module under — `pageModuleKey(pageDescriptors(...))`. The runtime
+ * mounts by `ProjectRoute.moduleKey`. If those two folds ever disagree, an
+ * ejected page either stops mounting or mounts on somebody else's page, which
+ * is the bug: the mount used to key on `resource`, so a project with two pages
+ * over one entity rendered one ejected module on both.
+ *
+ * Pinned by equality over the same page list rather than by re-deriving the
+ * rule, because the rule is the thing that could drift.
+ */
+describe('the runtime mounts by the key the generator wrote (#392)', () => {
+	/** The repro from the issue: a board at `/` and a calendar at `/due`, both over one entity. */
+	const board: PageSpec = {
+		id: 'pg-board',
+		name: 'Board',
+		route: '/',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-board',
+				type: 'board',
+				board: { groupField: 'status', move: true },
+				provenance: suggested(),
+			},
+		],
+	}
+	const due: PageSpec = {
+		id: 'pg-due',
+		name: 'Due',
+		route: '/due',
+		entityId: 'e-reading-item',
+		provenance: suggested(),
+		blocks: [
+			{
+				id: 'blk-calendar',
+				type: 'calendar',
+				calendar: { dateField: 'dueOn', display: 'month', timezone: 'UTC' },
+				provenance: suggested(),
+			},
+		],
+	}
+
+	it('agrees with `pageDescriptors` about every page module key', () => {
+		const pages = [board, due, subscriptions, reading]
+		const spec = specWith(pages)
+		expect(getRoutes(spec).map((r) => r.moduleKey)).toEqual(
+			pageDescriptors(pages, spec.data.entities).map(pageModuleKey),
+		)
+	})
+
+	it('gives two pages over one entity two different modules', () => {
+		// The fact the mount depends on. Both pages share `resource`; keying the
+		// mount on that is what made an eject leak onto the sibling page.
+		const routes = getRoutes(specWith([board, due]))
+		expect(routes.map((r) => r.resource)).toEqual([
+			'reading-item',
+			'reading-item',
+		])
+		expect(routes.map((r) => r.moduleKey)).toEqual(['reading-item', 'due'])
+	})
+
+	it('folds the key over every page, not only the ones the runtime composes', () => {
+		// Grounding and flag gating narrow what is *navigable*; they must not
+		// change what a page's module is called, because `maxstack gen` wrote the
+		// modules from the whole list. Accepting the second page alone would
+		// otherwise promote it to the bare `reading-item` module — the first
+		// page's file.
+		const spec = specWith([board, { ...due, provenance: accept(manual()) }])
+		const routes = getRoutes(spec)
+		expect(routes.map((r) => r.name)).toEqual(['Due'])
+		expect(routes[0]?.moduleKey).toBe('due')
 	})
 })

@@ -90,6 +90,20 @@ vi.mock('~/owned.generated', () => ({
 			if (!view) return null
 			return <BoardView {...view} groupField="status" rankField="rank" />
 		},
+		/**
+		 * The ejected board of #392's repro: a project with a board at `/` and a
+		 * calendar at `/due`, **both over `task`**. This is the board's module,
+		 * and its key is the module key `maxstack gen` wrote it under — `task`,
+		 * the first page over the resource. The calendar's module key is `due`,
+		 * and it is not ejected, so nothing here answers to it.
+		 *
+		 * The marker is loud on purpose: the whole assertion is that this module
+		 * never renders on the calendar's page.
+		 */
+		task: (props: OwnedRouteProps) => {
+			captured = props
+			return <p>EJECTED BOARD MODULE</p>
+		},
 	},
 	OWNED_SCHEDULE_HANDLERS: {},
 	OWNED_SOURCE_REFINERS: {},
@@ -125,6 +139,9 @@ const page: ProjectRoute = {
 	route: '/books',
 	name: 'Books',
 	resource: 'book',
+	// The route module this page owns, and the key its ejected module is mounted
+	// by. One page over `book`, so it is the bare resource (#392).
+	moduleKey: 'book',
 	resourceLabel: 'Book',
 	slots: [],
 	replacesList: null,
@@ -230,6 +247,7 @@ const notePage: ProjectRoute = {
 	route: '/notes',
 	name: 'Notes',
 	resource: 'note',
+	moduleKey: 'note',
 	resourceLabel: 'Note',
 }
 
@@ -334,7 +352,12 @@ describe('an ejected route is handed the page it owns (#349)', () => {
 		// `add view` module already on disk takes no props, so the props it is
 		// now handed are ignored and it renders exactly as it always did. A shape
 		// change in the emitter must never reach into code the user owns.
-		const relicPage = { ...page, resource: 'relic', slug: 'relics' }
+		const relicPage = {
+			...page,
+			resource: 'relic',
+			moduleKey: 'relic',
+			slug: 'relics',
+		}
 		const html = render({
 			...loaderData,
 			page: relicPage,
@@ -434,6 +457,7 @@ describe('an ejected board is handed the board it owns (#349 stage 2)', () => {
 		route: '/cards',
 		name: 'Cards',
 		resource: 'card',
+		moduleKey: 'card',
 		resourceLabel: 'Card',
 		editable: [],
 		view: boardView,
@@ -569,6 +593,7 @@ describe('the generated list page has the capabilities the admin has (#342)', ()
 		route: '/shelf',
 		name: 'Shelf',
 		resource: 'shelf',
+		moduleKey: 'shelf',
 		resourceLabel: 'Book',
 	}
 	const shelfData = {
@@ -617,5 +642,114 @@ describe('the generated list page has the capabilities the admin has (#342)', ()
 		})
 		expect(html).toContain('No matches')
 		expect(html).not.toContain('Add the first')
+	})
+})
+
+/**
+ * Two pages over one entity, one of them ejected (issue #392).
+ *
+ * `OWNED_ROUTES` is keyed by the **module** key — the manifest entry id the
+ * generator wrote the module under, which since #337 is the resource only for
+ * the *first* page over it. The mount looked the map up by `page.resource`, so
+ * both pages over `task` resolved to the same entry: eject the board at `/` and
+ * the calendar at `/due` rendered the board's module, under the board's own
+ * heading, instead of its own surface. A user who ejects one page lost a page
+ * they never touched.
+ *
+ * The repro is the real one from a live project, and the assertion is the
+ * user-visible fact rather than the lookup: the calendar page still draws a
+ * calendar.
+ */
+describe('an ejected module mounts on its own page only (#392)', () => {
+	const taskColumns: SproutColumn[] = [
+		...columns,
+		{
+			name: 'dueOn',
+			type: 'date',
+			nullable: true,
+			hasDefault: false,
+			isPrimaryKey: false,
+			meta: { label: 'Due' },
+		},
+	]
+
+	/** The board at `/`, ejected — module key `task` (the first page over it). */
+	const boardPage: ProjectRoute = {
+		...page,
+		slug: '',
+		route: '/',
+		name: 'Board',
+		resource: 'task',
+		moduleKey: 'task',
+		resourceLabel: 'Task',
+		editable: [],
+		view: {
+			kind: 'board',
+			groupField: 'title',
+			move: false,
+			options: [],
+		},
+	}
+
+	/**
+	 * The calendar at `/due`, NOT ejected — same resource, module key `due`. The
+	 * key is what `pageModuleKeys` gives the second page over an entity: a stem
+	 * of its own page id, not the resource.
+	 */
+	const calendarPage: ProjectRoute = {
+		...page,
+		slug: 'due',
+		route: '/due',
+		name: 'Due',
+		resource: 'task',
+		moduleKey: 'due',
+		resourceLabel: 'Task',
+		editable: [],
+		view: {
+			kind: 'calendar',
+			dateField: 'dueOn',
+			display: 'month',
+			timezone: 'UTC',
+			reschedule: false,
+		},
+	}
+
+	const rows = [
+		{
+			id: '11111111-1111-1111-1111-111111111111',
+			title: 'Dune',
+			dueOn: '2026-01-14',
+		},
+	]
+
+	const dataFor = (p: ProjectRoute) => ({
+		...loaderData,
+		page: p,
+		nav: [boardPage, calendarPage],
+		columns: taskColumns,
+		editable: [],
+		rows,
+	})
+
+	beforeEach(() => {
+		captured = undefined
+	})
+
+	it('renders the calendar page as a calendar, not as the ejected board', () => {
+		const html = render(dataFor(calendarPage))
+		// The regression: before the fix this page mounted `OWNED_ROUTES.task`.
+		expect(html).not.toContain('EJECTED BOARD MODULE')
+		expect(captured).toBeUndefined()
+		// …and its own surface is the one that rendered.
+		expect(html).toContain('data-calendar-display="month"')
+		expect(html).toContain('Dune')
+	})
+
+	it('still mounts the ejected module on the page that was ejected', () => {
+		// The other half: keying by the module key must not stop an eject from
+		// taking effect on its own page.
+		const html = render(dataFor(boardPage))
+		expect(html).toContain('EJECTED BOARD MODULE')
+		expect(captured).toBeDefined()
 	})
 })

@@ -30,6 +30,8 @@ import {
 	type PageDescriptor,
 	type PageListSurface,
 	type PageViewSurface,
+	pageModuleKeys,
+	pageModuleResource,
 	slotBlockName,
 } from '@maxstack/core/ownership'
 import {
@@ -296,7 +298,7 @@ export function pageDescriptor(
 	 */
 	entities: readonly EntitySpec[] = [],
 ): PageDescriptor {
-	const resource = (page.entityId ?? page.id).replace(/^(e-|pg-)/, '')
+	const resource = pageModuleResource(page)
 	const view = resolvedViewOf(page, entities)
 	const list = view ? undefined : listSurfaceOf(page)
 	const replacedBy = view
@@ -431,17 +433,6 @@ function listSurfaceOf(page: PageSpec): PageListSurface | undefined {
 	}
 }
 
-/** `pg-my-shelf` → `my-shelf`; anything else → a file-safe stem. */
-function moduleStem(pageId: string): string {
-	return (
-		pageId
-			.replace(/^pg-/, '')
-			.replace(/[^a-zA-Z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.toLowerCase() || 'page'
-	)
-}
-
 /**
  * Descriptors for a whole page list, each carrying the route module it owns —
  * the fold every *writing* or *deriving* caller uses (`maxstack gen`, the `page`
@@ -468,29 +459,27 @@ function moduleStem(pageId: string): string {
  * against a later page being added or removed. Collisions with an unrelated
  * resource (a page `pg-author` over `e-book`, in a spec that also has an
  * `author` page) fall back to `<resource>-<stem>`, then a numeric suffix.
+ *
+ * The fold itself is `pageModuleKeys` in `@maxstack/core/ownership` rather than
+ * a local loop, because the *runtime* has to reach the same answer: the mount
+ * looks an ejected module up by module key, so a router that folded differently
+ * would mount another page's module (#392).
  */
 export function pageDescriptors(
 	pages: readonly PageSpec[],
 	/** The spec's entities — see {@link pageDescriptor}. Every writing caller has them. */
 	entities: readonly EntitySpec[] = [],
 ): PageDescriptor[] {
-	// Every bare resource is claimed up front: a later page's id-derived stem
-	// must not steal a name a page further down the list is going to want.
-	const taken = new Set(pages.map((p) => pageDescriptor(p, entities).resource))
-	const claimed = new Set<string>()
-	return pages.map((page) => {
+	const keys = pageModuleKeys(pages)
+	return pages.map((page, i) => {
 		const descriptor = pageDescriptor(page, entities)
-		if (!claimed.has(descriptor.resource)) {
-			claimed.add(descriptor.resource)
-			return descriptor
-		}
-		const stem = moduleStem(page.id)
-		let candidate = taken.has(stem) ? `${descriptor.resource}-${stem}` : stem
-		for (let n = 2; taken.has(candidate); n++) {
-			candidate = `${descriptor.resource}-${stem}-${n}`
-		}
-		taken.add(candidate)
-		return { ...descriptor, module: candidate }
+		const key = keys[i]
+		// `module` is set only on a collision — the first page over a resource
+		// keeps the bare name, and a descriptor carrying `module: resource` would
+		// read as "disambiguated" to everything downstream.
+		return key === undefined || key === descriptor.resource
+			? descriptor
+			: { ...descriptor, module: key }
 	})
 }
 
