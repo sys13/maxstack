@@ -1,6 +1,6 @@
 {
 	"name": "maxstack",
-	"version": "0.11.14",
+	"version": "0.11.15",
 	"type": "module",
 	"description": "The maxstack CLI: new/list/task today; init/gen/add/eject/op/eval/upgrade across the phases",
 	"license": "MIT",

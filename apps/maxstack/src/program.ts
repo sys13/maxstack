@@ -80,7 +80,7 @@ function collect(value: string, previous: string[] = []): string[] {
 }
 
 /** The CLI version — keep in sync with package.json (build.mjs asserts this). */
-export const CLI_VERSION = '0.11.14'
+export const CLI_VERSION = '0.11.15'
 
 /**
  * Build the full command tree.
