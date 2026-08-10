@@ -32,6 +32,9 @@ adds a verb, flag or op without regenerating them.
 
 - [**ownership.md**](ownership.md) — spec-op, slot, eject: what you own, and
   what regeneration will touch.
+- [**upgrades.md**](upgrades.md) — `maxstack upgrade`: walking installed bundles
+  forward through their codemods without touching the code you own, with the
+  console transcript.
 - [**block-slots.md**](block-slots.md) — bespoke UI inside a generated page.
 - [**workbench.md**](workbench.md) — the review surface.
 - [**bulk-review.md**](bulk-review.md) — clearing the queue safely, and what

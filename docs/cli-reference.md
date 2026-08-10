@@ -99,7 +99,7 @@ maxstack gen [options] [dir]
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `--upgrade` | regenerate against the current framework generators instead of the pinned ones | — |
+| `--upgrade` | migrate installed bundles through their registered codemods, then regenerate against the current framework generators | — |
 
 ### `maxstack dev`
 
@@ -305,7 +305,7 @@ maxstack add [options] [target] [arg2] [dir]
 
 ## Owning generated code
 
-The lower rungs of the [change ladder](user-guide.md#5-making-a-change) — see [`ownership.md`](ownership.md) for what the manifest guarantees. `slots` comes before `eject`: it lists every region you can take over *without* owning a whole file, so bespoke UI costs one component instead of a surface (see [`block-slots.md`](block-slots.md)). `gen --upgrade` regenerates against the current framework generators. `drift` is the other half of the eject bargain: it reports what you own, what it was derived from, and how far it has fallen behind — and never writes anything (see [`upgrade-safety.md`](upgrade-safety.md)).
+The lower rungs of the [change ladder](user-guide.md#5-making-a-change) — see [`ownership.md`](ownership.md) for what the manifest guarantees. `slots` comes before `eject`: it lists every region you can take over *without* owning a whole file, so bespoke UI costs one component instead of a surface (see [`block-slots.md`](block-slots.md)). `upgrade` (identically, `gen --upgrade`) is what makes an installed bundle different from a starter kit: it walks every installed bundle forward through its registered codemods — each an idempotent spec-op transform — and *then* regenerates against the current framework generators, through the same never-clobber writer, so a file you took ownership of is left where it is (see [`upgrades.md`](upgrades.md)). `drift` is the other half of the eject bargain: it reports what you own, what it was derived from, and how far it has fallen behind — and never writes anything (see [`upgrade-safety.md`](upgrade-safety.md)).
 
 ### `maxstack slots`
 
@@ -353,6 +353,18 @@ maxstack eject [options] <route-id> [dir]
 | --- | --- | --- |
 | `--to <file>` | destination file (default: in place) | — |
 | `--dry-run` | preview the file that would be ejected; write nothing | — |
+
+### `maxstack upgrade`
+
+Migrate installed bundles through their codemods, then regenerate against the current framework generators (same as "gen --upgrade")
+
+```sh
+maxstack upgrade [dir]
+```
+
+| Argument | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `dir` | no | `.` | project directory |
 
 ### `maxstack drift`
 

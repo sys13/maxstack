@@ -63,7 +63,7 @@ existing project (`[dir]` defaults to the current directory):
 | `maxstack add view <resource> [dir]` | Scaffold an **owned** list view, rendered from the loader's props. |
 | `maxstack eject <route-id> [dir]` | Take ownership of a generated route. `--to <file>` to relocate. |
 | `maxstack validate [dir]` | The gate: spec valid · manifest intact · regen safe. |
-| `maxstack gen --upgrade [dir]` | Regenerate against the current framework generators. |
+| `maxstack upgrade [dir]` | Migrate installed bundles through their codemods, then regenerate against the current framework generators. Same action as `gen --upgrade`. |
 | `maxstack dev [dir]` | Run the platform web app over the project's data dir. |
 | `maxstack build [dir]` | Vendor a portable runtime + build a Docker image. `--image`, `--vendor-only`. |
 | `maxstack deploy [dir]` | Ship the vendored runtime. `--target docker\|fly`, `--port`, `--execute`. |

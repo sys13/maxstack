@@ -10,7 +10,7 @@ their install record drives composition-root wiring.
 
 ```sh
 maxstack add <slug>   # prerequisites first, each through the same spec-op path
-maxstack gen --upgrade  # walk installed bundles forward through their codemods
+maxstack upgrade      # walk installed bundles forward through their codemods
 ```
 
 ## The contract

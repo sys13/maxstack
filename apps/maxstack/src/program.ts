@@ -13,6 +13,8 @@
  *       start <desc> a sentence in, a running populated app out
  *       init [dir]   scaffold a standalone maxstack project (spec + app + gate)
  *       gen [dir]    regenerate the app tree through the never-clobber writer
+ *       upgrade [dir] migrate installed bundles through their codemods, then
+ *                    regenerate — the same action as `gen --upgrade`
  *       op [dir]     apply a typed spec-op to the spec (validate then land)
  *       add-entity   terminal-native sugar → a data.addEntity op
  *       add-field    terminal-native sugar → a data.addField op
@@ -147,18 +149,35 @@ export function buildProgram(): Command {
 	// `gen` and `upgrade` were two verbs for one action: redraw the app tree
 	// through the never-clobber writer. They differed only in which generators
 	// they ran against — the pinned ones, or the current framework's. That is a
-	// flag, not a second verb.
+	// flag, not a second verb — and mechanically that still holds: `upgrade`
+	// below is registered as an alias that calls the *same* `upgradeCommand`,
+	// not a second code path.
+	//
+	// It exists anyway because discoverability is a different axis from
+	// mechanical identity (#425). The bundle codemod chain is the structural
+	// difference between a bundle and a starter kit, and a capability reachable
+	// only as a flag on another verb has no name a reader searches for and no
+	// line of its own in the reference. "Run `maxstack upgrade`" is a sentence;
+	// "run `maxstack gen --upgrade`" is a footnote.
 	program
 		.command('gen')
 		.argument('[dir]', 'project directory', '.')
 		.option(
 			'--upgrade',
-			'regenerate against the current framework generators instead of the pinned ones',
+			'migrate installed bundles through their registered codemods, then regenerate against the current framework generators',
 		)
 		.description('Regenerate the app tree from the spec (never-clobber)')
 		.action((dir, opts) =>
 			opts.upgrade === true ? upgradeCommand(dir) : genCommand(dir),
 		)
+
+	program
+		.command('upgrade')
+		.argument('[dir]', 'project directory', '.')
+		.description(
+			'Migrate installed bundles through their codemods, then regenerate against the current framework generators (same as "gen --upgrade")',
+		)
+		.action((dir) => upgradeCommand(dir))
 
 	program
 		.command('mcp', { hidden: true })

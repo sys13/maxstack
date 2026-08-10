@@ -112,11 +112,16 @@ const CLI_GROUPS: { title: string; blurb: string; commands: string[] }[] = [
 			'`slots` comes before `eject`: it lists every region you can take over ' +
 			'*without* owning a whole file, so bespoke UI costs one component ' +
 			'instead of a surface (see [`block-slots.md`](block-slots.md)). ' +
-			'`gen --upgrade` regenerates against the current framework generators. ' +
+			'`upgrade` (identically, `gen --upgrade`) is what makes an installed bundle ' +
+			'different from a starter kit: it walks every installed bundle forward ' +
+			'through its registered codemods — each an idempotent spec-op transform — and *then* ' +
+			'regenerates against the current framework generators, through the same ' +
+			'never-clobber writer, so a file you took ownership of is left where it ' +
+			'is (see [`upgrades.md`](upgrades.md)). ' +
 			'`drift` is the other half of the eject bargain: it reports what you own, ' +
 			'what it was derived from, and how far it has fallen behind — and never ' +
 			'writes anything (see [`upgrade-safety.md`](upgrade-safety.md)).',
-		commands: ['slots', 'eject', 'drift'],
+		commands: ['slots', 'eject', 'upgrade', 'drift'],
 	},
 	{
 		title: 'Reviewing and measuring',
@@ -597,7 +602,7 @@ function renderBundleReference(): string {
 		'',
 		'```sh',
 		'maxstack add <slug>   # prerequisites first, each through the same spec-op path',
-		'maxstack gen --upgrade  # walk installed bundles forward through their codemods',
+		'maxstack upgrade      # walk installed bundles forward through their codemods',
 		'```',
 		'',
 		'## The contract',
