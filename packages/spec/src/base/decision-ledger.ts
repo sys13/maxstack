@@ -140,18 +140,28 @@ export function effectiveDecisions(ledger: DecisionLedger): LedgerEntry[] {
  * Entries are compared structurally, not by reference: the guard exists to
  * catch value rewrites, and callers routinely hold clones of the ledger
  * (e.g. `applyOp`'s `structuredClone`), which are never reference-equal.
+ *
+ * The ledger is the reason it exists, but append-only is not a ledger property:
+ * the ownership model rests on the same invariant over the *exports of a user's
+ * slot file* (`maxstack slots fill` may only add, never rewrite what someone
+ * already wrote — #390). Rather than restate the check there as a bespoke
+ * string comparison, the guard is generic over any ordered list and takes a
+ * `label` so its message names whichever thing was violated.
  */
-export function assertAppendOnly(
-	prev: DecisionLedger,
-	next: DecisionLedger,
+export function assertAppendOnly<T>(
+	prev: readonly T[],
+	next: readonly T[],
+	label = 'ledger',
 ): void {
 	if (next.length < prev.length)
 		throw new Error(
-			`ledger append-only violation: length shrank ${prev.length} -> ${next.length}`,
+			`${label} append-only violation: length shrank ${prev.length} -> ${next.length}`,
 		)
 	for (let i = 0; i < prev.length; i++)
 		if (!deepEqual(next[i], prev[i]))
-			throw new Error(`ledger append-only violation: entry ${i} was rewritten`)
+			throw new Error(
+				`${label} append-only violation: entry ${i} was rewritten`,
+			)
 }
 
 /** Structural equality over the JSON-shaped values ledger entries are made of. */

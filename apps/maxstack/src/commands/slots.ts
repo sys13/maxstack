@@ -15,12 +15,14 @@
  */
 
 import {
+	BLOCK_SLOT_ID_ESCAPING,
 	blockSlotsForResource,
 	createNodeFs,
 	exportedSlotNames,
 	fillBlockSlot,
 	MANIFEST_FILENAME,
 	pageFilePaths,
+	parseBlockSlotId,
 	parseManifest,
 	serializeManifest,
 } from '@maxstack/core/ownership'
@@ -115,6 +117,43 @@ export async function slotsCommand(
 	)
 }
 
+/** Prefix every line, so a wrapped paragraph stays inside the error block. */
+function indent(text: string, pad: string): string {
+	return text
+		.split('\n')
+		.map((line) => pad + line)
+		.join('\n')
+}
+
+/**
+ * The slot id someone meant when they typed the *unescaped* spelling —
+ * `reading-item__header` for `reading_ditem__header`.
+ *
+ * This is the one wrong id worth naming a repair for, because it is the id the
+ * command itself teaches: a maintainer reads `reading-item` in their spec,
+ * knows the slot is a header, and writes the two together. Matching is done by
+ * decoding each real id back through `parseBlockSlotId` rather than by
+ * re-escaping the typed string, so it costs nothing and cannot suggest an id
+ * that does not exist.
+ */
+function unescapedSpelling(
+	inventory: ReturnType<typeof slotInventory>,
+	typed: string,
+): string | undefined {
+	for (const page of inventory.pages) {
+		for (const slot of page.slots) {
+			if (slot.kind !== 'block') continue
+			const ref = parseBlockSlotId(slot.id)
+			if (!ref) continue
+			const spelled = [ref.resource, ref.role, ref.field]
+				.filter((p): p is string => !!p)
+				.join('__')
+			if (spelled === typed) return slot.id
+		}
+	}
+	return undefined
+}
+
 /** Find a slot id across every page, so the user types one id and nothing else. */
 function findSlot(
 	inventory: ReturnType<typeof slotInventory>,
@@ -138,6 +177,15 @@ export async function slotsFillCommand(
 
 	if (!found) {
 		console.error(`✖ no slot "${id}" in this project.`)
+		// The caller who mistyped an id is exactly the caller who needs the escape
+		// rule (#378, #390). A bare "not found" reads as *the id* being wrong, and
+		// the likely next move — renaming the entity so its id stops looking
+		// mangled — is the worse outcome. So: the repair first, then the rule.
+		const suggestion = unescapedSpelling(inventory, id)
+		if (suggestion) console.error(`  Did you mean "${suggestion}"?`)
+		console.error(
+			indent(wrap(BLOCK_SLOT_ID_ESCAPING.replaceAll('`', ''), 76), '  '),
+		)
 		console.error('  Run `maxstack slots` to see what is available.')
 		process.exitCode = 1
 		return
