@@ -23,11 +23,13 @@ import {
 	addDays,
 	addTheFirst,
 	BoardView,
+	BulkActionBar,
 	CalendarView,
 	CardGrid,
 	type ColumnOverrides,
 	dayKeyOf,
 	daysInMonth,
+	describeActionRun,
 	EMPTY_FILTERS,
 	type EmptySlotProps,
 	EmptyState,
@@ -40,6 +42,7 @@ import {
 	heatmapGrid,
 	isDayKey,
 	isRelationFilterColumn,
+	type ListActionDescriptor,
 	ListControls,
 	type ListSlotProps,
 	monthGrid,
@@ -47,6 +50,7 @@ import {
 	narrowFilters,
 	type OwnedViewProps,
 	ResourceList,
+	RowActionButtons,
 	type RowSlotProps,
 	Slot,
 	type SortState,
@@ -57,7 +61,7 @@ import {
 	TimelineView,
 	weekGrid,
 } from '@maxstack/ui'
-import type { ComponentType } from 'react'
+import { type ComponentType, useState } from 'react'
 import { Form, Link, useFetcher, useSearchParams } from 'react-router'
 import { boardMoveValues } from '~/board-move'
 import { inlineEditValues } from '~/inline-edit'
@@ -376,6 +380,11 @@ export default function ProjectListPage({
 		liveKey,
 		liveSlot,
 		can,
+		// Defaulted, so a page rendered from a payload that predates this key —
+		// an ejected module's own fixture, a cached loader result mid-deploy —
+		// renders a list with no actions rather than throwing. Absent means none,
+		// which is the same thing absence means everywhere else in this layer.
+		actions = [],
 		editable,
 		filters,
 		sort,
@@ -409,6 +418,47 @@ export default function ProjectListPage({
 	// action `<DynamicForm>` submits to — so a cell edit has no write path of
 	// its own to secure.
 	const cellEdit = useFetcher()
+	/**
+	 * The list-action fetcher.
+	 *
+	 * Its own fetcher because a run is the one write on this page that is not a
+	 * row edit: it posts to `/api/:resource/actions/:key`, which is the *same*
+	 * endpoint the REST client and the MCP tool use, so the toolbar has no write
+	 * path of its own to secure. Sharing the cell-edit fetcher would also make a
+	 * run's reply overwrite a refused edit's banner, and those are different
+	 * problems a person needs to see separately.
+	 */
+	const runAction = useFetcher()
+	const [selectedIds, setSelectedIds] = useState<string[]>([])
+
+	/**
+	 * Aim one declared action at a set of rows.
+	 *
+	 * The body carries the ids and, when the action declares one, the choice —
+	 * and nothing else. **The browser never says what to write.** That is what
+	 * makes this a declared operation rather than a bulk update with a button:
+	 * a tampered client can pick different rows, which it could already do one
+	 * row at a time, but it cannot pick a different column, a different value or
+	 * a larger batch.
+	 */
+	const onRunAction = (
+		action: ListActionDescriptor,
+		ids: string[],
+		choice?: string,
+	) => {
+		runAction.submit(
+			{ ids, ...(choice !== undefined ? { choice } : {}) },
+			{
+				method: 'post',
+				action: `/api/${page.resource}/actions/${action.key}`,
+				encType: 'application/json',
+			},
+		)
+		// Cleared optimistically: the rows are about to change under the
+		// selection, and a stale set of ticks over rewritten rows is an invitation
+		// to run the next action on rows somebody has stopped looking at.
+		setSelectedIds([])
+	}
 
 	// Bar 2: if the project ejected this page's route, its owned module fully
 	// replaces the generic list — the ejected TSX executes in the deployed app.
@@ -592,6 +642,35 @@ export default function ProjectListPage({
 		// the right rows instead. `sort` is what the loader actually honoured, so
 		// the arrow on the header can never point at an ordering the rows are not
 		// in.
+		// Declared list actions, at both arities (#417). The selection column
+		// appears only when something could act on a selection — `<ResourceList>`
+		// already drops it when neither update nor delete is permitted, and an
+		// entity with no declared actions has nothing a tick could lead to.
+		...(actions.length > 0
+			? {
+					selectable: actions.some(
+						(a) => a.arity === 'selection' || a.arity === 'both',
+					),
+					selectedIds,
+					onSelectedChange: setSelectedIds,
+					bulkActions: () => (
+						<BulkActionBar
+							actions={actions}
+							selectedIds={selectedIds}
+							onRun={onRunAction}
+							busy={runAction.state !== 'idle'}
+						/>
+					),
+					rowActions: (row: Record<string, unknown>) => (
+						<RowActionButtons
+							actions={actions}
+							rowId={String(row[primaryKey])}
+							onRun={onRunAction}
+							busy={runAction.state !== 'idle'}
+						/>
+					),
+				}
+			: {}),
 		sort,
 		onSort: (next: SortState) =>
 			setSearchParams(
@@ -727,6 +806,7 @@ export default function ProjectListPage({
 				/>
 				<WriteRefusal data={cellEdit.data} />
 				<WriteRefusal data={move.data} />
+				<ActionResult data={runAction.data} />
 			</ProjectFrame>
 		)
 	}
@@ -758,6 +838,11 @@ export default function ProjectListPage({
 				    follows, because every one of them lists the same loader rows,
 				    which are the ones these controls narrowed. */}
 				{toolbar}
+				{/* A run's result, above the rows it changed. Rendered here rather
+				    than inside the bulk bar because the bar disappears with the
+				    selection the run cleared, and a report nobody can read is the same
+				    as no report. */}
+				<ActionResult data={runAction.data} />
 
 				{/* The admin's inferred table — enum chips, resolved FK titles, and
 				    formatted dates come from the shared field library.
@@ -883,6 +968,53 @@ export default function ProjectListPage({
  * different words depending on which gesture caused it, that would be the tell
  * that the gestures had stopped sharing a path.
  */
+/**
+ * What a finished run says.
+ *
+ * A **partial run has to be visible**, which is why this is not folded into
+ * `<WriteRefusal>`: a run that changed 412 of 500 rows is neither a success nor
+ * a refusal, and the two components that already exist would each tell half the
+ * truth — one would say nothing, the other would say "failed". `describeActionRun`
+ * names the refused ids, because "88 rows failed" with no way to learn which is
+ * a result that makes somebody re-read the whole list.
+ *
+ * A pre-flight refusal — an oversized selection, an undeclared choice — arrives
+ * as `{ error }` with no `applied`, and is rendered as the refusal it is.
+ */
+function ActionResult({ data }: { data: unknown }) {
+	const body = data as
+		| {
+				error?: string
+				action?: string
+				requested?: number
+				applied?: { id: string }[]
+				failed?: { id: string; error?: string }[]
+		  }
+		| undefined
+	if (!body) return null
+	if (!body.applied)
+		return body.error ? (
+			<Alert variant="destructive" role="alert" className="mt-2">
+				{body.error}
+			</Alert>
+		) : null
+	const failed = body.failed ?? []
+	return (
+		<Alert
+			variant={failed.length > 0 ? 'destructive' : 'success'}
+			role="status"
+			className="mt-2"
+		>
+			{describeActionRun({
+				action: body.action ?? 'action',
+				requested: body.requested ?? body.applied.length,
+				applied: body.applied,
+				failed,
+			})}
+		</Alert>
+	)
+}
+
 function WriteRefusal({ data }: { data: unknown }) {
 	const body = data as
 		| { error?: string; fieldErrors?: Record<string, string[]> }

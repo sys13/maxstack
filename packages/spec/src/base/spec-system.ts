@@ -46,6 +46,7 @@ import type { SearchSpec } from './search.ts'
 import type { SiteSpec } from './site.ts'
 import type { SourcesSpec } from './sources.ts'
 import type { AppliedOp } from './spec-ops.ts'
+import type { ViewSpec } from './view.ts'
 
 // ===========================================================================
 // Data layer
@@ -1249,6 +1250,24 @@ export interface SpecSystem extends AutoAcceptPolicy {
 	 * `live.ts`, and note that fan-out is in-process by stated design.
 	 */
 	live?: LiveSpec
+	/**
+	 * Declared list actions — what a user may do to rows *from a list*, at one
+	 * row or over a selection. Optional on the same absence-means-nothing rule as
+	 * the layers above: a project that has never declared one grows no
+	 * `view.json`, so pre-#417 spec dirs round-trip byte-identical *and* read as
+	 * having no way to change a row except through its form, one at a time.
+	 *
+	 * That absence carries `portals`' weight rather than `theme`'s. An action is
+	 * the only declaration in the vocabulary that lets one click write to many
+	 * rows, so "this project has none" is a security fact about it, and it must
+	 * be the state a spec is in before anybody says otherwise.
+	 *
+	 * An action adds no column and no table. It is a declared, role-gated,
+	 * capped *write* over rows that already have a shape, executed row by row
+	 * through the ordinary update path — see `view.ts`, and note that nothing
+	 * about the enforcement lives in a route.
+	 */
+	view?: ViewSpec
 	/**
 	 * The app's public identity — the origin, name and head-tag defaults every
 	 * derived `<head>`, canonical URL and sitemap entry is built against.

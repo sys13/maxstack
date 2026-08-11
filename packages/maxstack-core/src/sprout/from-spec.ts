@@ -36,6 +36,7 @@ import {
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { createDrizzleStore } from '../demo/store.ts'
+import type { ActionPlan } from './actions.ts'
 import type { StoreBackend } from './backend.ts'
 import type { ComputedShape, RollupShape } from './derived.ts'
 import type { DocumentPlan } from './documents.ts'
@@ -234,6 +235,15 @@ export interface SpecEntityShape {
 	 * plan without ever deciding anything with it.
 	 */
 	live?: LivePlan[]
+	/**
+	 * Declared list actions, with the spec's field ids already resolved
+	 * to column names by the caller. These get no DDL and no column: an action is
+	 * a declared, capped, role-gated *write* over rows that already have a shape.
+	 * They travel on the shape so the registry — and therefore `opRunAction`, and
+	 * therefore every one of the three surfaces that can run one — finds the same
+	 * cap and the same write set.
+	 */
+	actions?: ActionPlan[]
 }
 
 // A reference field lands as a `uuid` FK carrying `meta.reference`; an enum with
@@ -679,6 +689,11 @@ export function registerSpecEntities(
 			// per message through `opList`, so a route that never found the plan
 			// serves nothing rather than serving something ungated.
 			live: entity.live,
+			// And for list actions, where the argument is the sharpest of
+			// the six: an action is a write one click aims at many rows, so its cap,
+			// its role and its write set must be reachable from the layer that
+			// authorizes and audits, not from the toolbar that renders the button.
+			actions: entity.actions,
 			// The declared portals reconcile with the deployment's write posture
 			// rather than silently overriding it. See `accessWithPortals`.
 			access: accessWithPortals(config.access, entity.portals),

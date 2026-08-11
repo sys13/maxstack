@@ -31,6 +31,7 @@ import {
 	getContext,
 	getSprout,
 	hasDemoData,
+	listActionDescriptors,
 	referenceFieldOptions,
 	resolveCapabilities,
 	resolveRowFiles,
@@ -177,6 +178,9 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 	// aggregated in SQL — already rode out of `listHandler` on the op context.
 	const rows = res.body as Record<string, unknown>[]
 	const chrome = await projectChrome()
+	// Resolved once: it gates both the inline editor and whether any action is
+	// offered, and two calls could not disagree but would ask twice.
+	const can = await resolveCapabilities(ctx, resolved.resource)
 	return {
 		page: resolved.page,
 		nav: resolved.nav,
@@ -208,7 +212,23 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 		// that offers an inline editor to a viewer whose every save will 403 is a
 		// UI that lies. List-level, so an `owner` rule reads as denied here and is
 		// re-checked per row on the write.
-		can: await resolveCapabilities(ctx, resolved.resource),
+		can,
+		// The declared list actions this page may offer, straight off the
+		// registry — the plan the runtime enforces, minus nothing. Gated on
+		// `update` for `describeExtras`' reason: running an action IS an update of
+		// the rows, so offering one where the rows are unwritable advertises a door
+		// that is locked.
+		//
+		// The declared `role` is deliberately NOT filtered on here. It is a batch
+		// gate enforced in `opRunAction`, and a caller who holds `update` but not
+		// the role should meet the refusal when they run the action, not find a
+		// toolbar that quietly differs per person — a button that vanishes teaches
+		// nobody why.
+		//
+		// A view page gets none: a calendar's and a board's rows are a window the
+		// loader chose, and `<ResourceList>`'s selection is a table's affordance.
+		actions:
+			view || !can.update ? [] : listActionDescriptors(ctx, resolved.resource),
 		// The cells this list edits in place: declared by the block,
 		// then narrowed to the columns that can actually be edited. Narrowed on the
 		// server so the client never receives a name it is not allowed to write —

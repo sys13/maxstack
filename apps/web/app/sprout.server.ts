@@ -137,7 +137,11 @@ import {
 	suggested,
 } from '@maxstack/spec'
 import { tasklyPRD } from '@maxstack/spec/fixtures'
-import { type FileResolution, isUrlValue } from '@maxstack/ui'
+import {
+	type FileResolution,
+	isUrlValue,
+	type ListActionDescriptor,
+} from '@maxstack/ui'
 import { eq } from 'drizzle-orm'
 import {
 	OWNED_SCHEDULE_HANDLERS,
@@ -1739,6 +1743,39 @@ export async function resolveCapabilities(
 		entry.config.access,
 		createAccessContext(ctx.user),
 	)
+}
+
+/**
+ * The declared list actions for a resource, in the shape a control renders from.
+ *
+ * A projection of the registry plan rather than a re-derivation of it: the key,
+ * the label, the arity, the cap and the option list are handed through
+ * unchanged, and everything the server alone needs — the write set, the role —
+ * stays behind. That split is the point. The browser is told what to *offer*,
+ * never what an action writes, so there is nothing in the payload a tampered
+ * client could turn into a different write. `opRunAction` reads the plan itself.
+ *
+ * The cap travels, though, and it is the one number that looks like enforcement
+ * and is not: the bar disables itself past it as a courtesy, because the server
+ * refuses an oversized run *whole* rather than truncating, and finding that out
+ * after ticking four hundred rows is worse than being told first.
+ */
+export function listActionDescriptors(
+	ctx: McpContext,
+	resource: string,
+): ListActionDescriptor[] {
+	const entry = ctx.registry.get(resource)
+	return (entry?.config.actions ?? []).map((plan) => ({
+		key: plan.key,
+		label: plan.label,
+		description: plan.description,
+		arity: plan.arity,
+		...(plan.choose
+			? { choose: { column: plan.choose.column, options: plan.choose.options } }
+			: {}),
+		maxSelection: plan.maxSelection,
+		undoable: plan.undoable,
+	}))
 }
 
 /**

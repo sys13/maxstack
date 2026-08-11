@@ -9,6 +9,7 @@ import type { ErrorContext } from './error-id.ts'
 import { nextErrorId, reportInternalError } from './error-id.ts'
 import {
 	EmptyUpdateError,
+	InvalidActionChoiceError,
 	LimitExceededError,
 	NotFoundError,
 	type OpContext,
@@ -19,10 +20,13 @@ import {
 	opGetMany,
 	opList,
 	opRestore,
+	opRunAction,
 	opSearch,
 	opSearchCount,
 	opUpdate,
 	RateLimitedError,
+	SelectionTooLargeError,
+	UnknownActionError,
 	UnknownResourceError,
 	UnsupportedOperationError,
 	ValidationError,
@@ -161,6 +165,34 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// into an unactionable 500 the caller retries immediately.
 	if (e instanceof RateLimitedError) {
 		return { status: 429, body: { error: e.message } }
+	}
+	// A run aimed at more rows than the declaration allows, or at none. 400
+	// rather than 422: no value was wrong, the *size* of the request was, so
+	// `fieldErrors` would be empty and a client walking it would be told nothing —
+	// `EmptyUpdateError`'s reasoning, applied to the selection instead of the body.
+	if (e instanceof SelectionTooLargeError) {
+		return {
+			status: 400,
+			body: {
+				error: e.message,
+				requested: e.requested,
+				maxSelection: e.maxSelection,
+			},
+		}
+	}
+	// A chosen value outside the declared options. 400 with the options, so the
+	// refusal is a repair instruction rather than a "no".
+	if (e instanceof InvalidActionChoiceError) {
+		return {
+			status: 400,
+			body: { error: e.message, column: e.column, options: e.options },
+		}
+	}
+	// An action this resource does not declare. 404 rather than 403 — an action
+	// key is a declaration, not a secret, and "there is no such operation" is the
+	// honest answer.
+	if (e instanceof UnknownActionError) {
+		return { status: 404, body: { error: e.message } }
 	}
 	const errorId = nextErrorId()
 	reportInternalError(e, errorId, context)
@@ -302,5 +334,48 @@ export async function restoreHandler(
 		return { status: 200, body: await opRestore(ctx, resource, id) }
 	} catch (e) {
 		return fail(e, { resource, operation: 'restore' })
+	}
+}
+
+/**
+ * Run a declared list action — `POST /api/:resource/actions/:key`.
+ *
+ * A **POST to a named operation**, not a `PATCH` over a collection, and the
+ * distinction is the whole design: the server decides what is written, from the
+ * declaration. A collection `PATCH` would take the write from the body, which is
+ * the client-side bulk update this layer exists not to be — there would be
+ * nothing in the spec for a reviewer to read, and nothing bounding what one call
+ * could set.
+ *
+ * The body is `{ ids, choice? }` and nothing else. `ids` is an explicit list;
+ * there is deliberately no `filter` spelling, because "everything matching the
+ * current filter" resolves the set server-side *after* the operator read a
+ * count — `planBulkReview` refused exactly that shape for review batching, and a
+ * row selection has the same defect.
+ *
+ * `batchId` is supplied by the caller rather than minted here, so the id that
+ * correlates the batch audit entry with its per-row ones is the same id the
+ * request carried — which is what lets a caller find its own run in the log.
+ *
+ * Status 200 even when some rows failed, with the per-row report in the body.
+ * A partial run is a real outcome rather than an error: the successes committed,
+ * and a 4xx over them would tell a caller to retry writes that already landed.
+ * The two 4xx cases above — a selection too large and an undeclared choice —
+ * happen *before* any row is written, which is what makes them refusals of the
+ * whole request rather than reports about part of it.
+ */
+export async function runActionHandler(
+	ctx: OpContext,
+	resource: string,
+	actionKey: string,
+	input: { ids: readonly string[]; choice?: string; batchId: string },
+): Promise<ApiResponse> {
+	try {
+		return {
+			status: 200,
+			body: await opRunAction(ctx, resource, actionKey, input),
+		}
+	} catch (e) {
+		return fail(e, { resource, operation: `action:${actionKey}` })
 	}
 }

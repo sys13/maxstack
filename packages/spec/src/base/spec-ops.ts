@@ -70,6 +70,7 @@ import {
 	MAX_ROLLOUT_PERCENT,
 } from './flags.ts'
 import type {
+	ActionId,
 	BlockId,
 	DocumentTemplateId,
 	EntityId,
@@ -191,6 +192,7 @@ import {
 	type SourceSpec,
 } from './sources.ts'
 import {
+	actionErrors,
 	collectSpecSystemErrors,
 	documentTemplateErrors,
 	importerErrors,
@@ -246,6 +248,15 @@ import {
 	TIME_BUCKETS,
 	type TimelineSpec,
 } from './spec-system.ts'
+import {
+	ACTION_ARITIES,
+	ACTION_KEY_RE,
+	type ActionEffect,
+	type ActionSpec,
+	describeAction,
+	MAX_ACTION_SELECTION,
+	MAX_ACTION_SET_FIELDS,
+} from './view.ts'
 import { virtualEntity } from './virtual-entities.ts'
 
 // ===========================================================================
@@ -380,6 +391,21 @@ export type LiveSubscriptionSpecInput = WithOptionalProvenance<
 	Omit<LiveSubscriptionSpec, 'declaredAt'>
 > & { declaredAt?: ISODate }
 
+/**
+ * What `view.addAction` takes: an {@link ActionSpec} whose provenance and
+ * `declaredAt` the applier fills in, exactly as {@link LiveSubscriptionSpecInput}
+ * does.
+ *
+ * Nothing else is made optional, and the two that matter most are
+ * `maxSelection` and `undoable`. The first bounds how many rows one click may
+ * rewrite; the second decides whether the run is reversible at all. A helper
+ * that filled either in would let a spec describe a button whose blast radius
+ * nobody chose.
+ */
+export type ActionSpecInput = WithOptionalProvenance<
+	Omit<ActionSpec, 'declaredAt'>
+> & { declaredAt?: ISODate }
+
 /** What a `flags.gate` op points at — a page, or a block within a page. */
 export interface FlagGateTarget {
 	kind: 'page' | 'block'
@@ -454,6 +480,7 @@ export type ReviewTargetKind =
 	| 'source'
 	| 'searchIndex'
 	| 'portal'
+	| 'action'
 
 export const REVIEW_TARGET_KINDS = [
 	'entity',
@@ -466,6 +493,11 @@ export const REVIEW_TARGET_KINDS = [
 	'source',
 	'searchIndex',
 	'portal',
+	// Reviewable for `portal`'s reason rather than `live`'s: `activeActions` is
+	// accepted-only, so without a review target an author could declare an action
+	// and never be able to turn it on. It stays out of bulk-review's
+	// `UNDERSTOOD_KINDS`, so it arrives `high` and unbatchable.
+	'action',
 ] as const satisfies readonly ReviewTargetKind[]
 
 /**
@@ -500,6 +532,8 @@ export function reviewTargetLayer(kind: ReviewTargetKind): SpecLayer {
 			return 'search'
 		case 'portal':
 			return 'portals'
+		case 'action':
+			return 'view'
 	}
 }
 
@@ -537,6 +571,8 @@ export function locateReviewTarget(
 			return system.search?.indexes.find((i) => i.id === target.id)
 		case 'portal':
 			return system.portals?.portals.find((p) => p.id === target.id)
+		case 'action':
+			return system.view?.actions.find((a) => a.id === target.id)
 	}
 }
 
@@ -1347,6 +1383,60 @@ export type SpecOp =
 			args: { subscriptionId: LiveId }
 	  }
 	| {
+			/**
+			 * Declare a list action — **the one op in the vocabulary that lets one
+			 * click write to many rows.**
+			 *
+			 * Declared on the *entity* rather than on a page, for the reason
+			 * `FieldSpec.limits` lives on the field rather than on the board: a rule
+			 * the screen enforces is a rule an agent driving REST or MCP walks
+			 * straight past. The endpoint, the MCP tool and the list toolbar are
+			 * three doors onto one server operation, and a page merely offers a
+			 * button for one.
+			 *
+			 * `arity` is a declared field rather than two op families because "suspend
+			 * this card" and "archive the fourteen I ticked" differ in how many ids
+			 * arrive, not in what happens to them — which is what lets this one op
+			 * answer both of the corpus's interaction clusters. `maxSelection` and
+			 * `undoable` are required rather than defaulted on `live.declare`'s
+			 * argument: how many rows one click may rewrite, and whether the run
+			 * records what it overwrote, are decisions about somebody's data.
+			 */
+			op: 'view.addAction'
+			args: { action: ActionSpecInput }
+	  }
+	| {
+			/**
+			 * Replace an action's write wholesale, last-wins — **the payload edit.**
+			 *
+			 * Its own op so that "what does this button actually do to a row?" is
+			 * answerable from the op *name*, exactly as `portals.setFields` makes
+			 * "what does this portal show?" answerable from its name. Wholesale for
+			 * `search.setFields`' reason: a write set is only correct as a whole, and
+			 * a patch language would let one be half-migrated between two reviews —
+			 * which for a write means a button that sets the new status and leaves the
+			 * old assignee.
+			 */
+			op: 'view.setActionEffect'
+			args: { actionId: ActionId; effect: ActionEffect }
+	  }
+	| {
+			/**
+			 * Remove an action declaration.
+			 *
+			 * Non-additive like `portals.remove` and `live.remove`, but deliberately
+			 * **without their pause step**, and the asymmetry is the point: a portal
+			 * and a live channel are surfaces somebody may be mid-way through using,
+			 * so removal must not be the fastest way to silence one. An action is a
+			 * button. Removing it takes a capability away, which fails closed — the
+			 * next click 404s instead of a page going dark — so the two-step ritual
+			 * would buy nothing and would leave the dangerous declaration in place
+			 * for the length of it.
+			 */
+			op: 'view.removeAction'
+			args: { actionId: ActionId }
+	  }
+	| {
 			op: 'provenance.review'
 			args: {
 				target: ReviewTarget
@@ -1427,6 +1517,9 @@ export const SPEC_OP_NAMES = [
 	'live.setLimits',
 	'live.pause',
 	'live.remove',
+	'view.addAction',
+	'view.setActionEffect',
+	'view.removeAction',
 	'provenance.review',
 ] as const satisfies readonly SpecOpName[]
 
@@ -2061,6 +2154,29 @@ const LIVE_MAX_SUBSCRIBERS_PROP: OpArgProperty = {
 const LIVE_MAX_RATE_PROP: OpArgProperty = {
 	type: 'number',
 	description: `integer 1–${MAX_LIVE_MESSAGE_RATE}, per subscriber. REQUIRED, never defaulted. A subscriber over it is SHED — disconnected with a reason — rather than buffered: an unbounded buffer is how one slow client takes the process down, and a bounded buffer that silently drops leaves a subscriber whose view is wrong with nothing telling it so. It reconnects and re-reads, which is a correct view rather than a stale one.`,
+}
+
+const ACTION_EFFECT_PROP: OpArgProperty = {
+	type: 'object',
+	description: `what the action WRITES, stated in full — never a payload the caller composes, because an action that let its caller pick the fields would be a PATCH with a button and its declaration would say nothing a reviewer could act on. "set" maps fieldId → a LITERAL (string, number, boolean, or null meaning "clear this column"); at most ${MAX_ACTION_SET_FIELDS} fields, and past that an action stops being a list control and becomes a migration wearing a button. "choose" names at most ONE enum field whose value the operator picks when they run it, from that field's own declared options — which is what makes "move this deal's stage" one declaration instead of one per stage, while keeping the set of producible values finite and stated in the spec. At least one of the two must contribute. There is deliberately no expression, no now(), and no reference to the row's other columns: the moment a value is computed, the declaration stops being reviewable by reading it. A rank key, a file field and a json field may not be written; the tenant and soft-delete columns need no rule here because the update path strips them from every payload it is given.`,
+	properties: {
+		set: {
+			type: 'object',
+			description:
+				'fieldId → literal value. May be empty only when "choose" is present.',
+		},
+		choose: {
+			type: 'string',
+			description:
+				'field id, prefix "fld-", of an enum field WITH declared options. Its options are the entire bound on what values a run can produce, so an enum without them is free text wearing a dropdown and is refused.',
+		},
+	},
+	required: ['set'],
+}
+
+const ACTION_MAX_SELECTION_PROP: OpArgProperty = {
+	type: 'number',
+	description: `integer 1–${MAX_ACTION_SELECTION}. REQUIRED, never defaulted: how many rows one click may rewrite is a decision about somebody's data, and a default is that decision made by whoever wrote the generator. A run over the cap is REFUSED WHOLE rather than truncated to the first N — truncation would silently do part of what somebody asked for and report success. 1 is meaningful and is the right value for a row-arity action: it says the operation is per-row by construction, so a caller posting twelve ids to the endpoint is refused by the declaration rather than by the UI not having offered a checkbox. When somebody needs five thousand, the answer is a schedule, not a bigger number here.`,
 }
 
 const DOCUMENT_SECTIONS_PROP: OpArgProperty = {
@@ -4143,6 +4259,101 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['subscriptionId'],
+		},
+	},
+	'view.addAction': {
+		name: 'view.addAction',
+		layer: 'view',
+		summary:
+			'Declare a LIST ACTION over one entity: a named, capped, role-gated write a user runs from a list — on one row, on a ticked selection, or both. THE ONE OP IN THE VOCABULARY THAT LETS ONE CLICK WRITE TO MANY ROWS. It is declared on the entity rather than on a page for the reason a WIP limit lives on the field rather than on the board: a rule the screen enforces is one an agent driving REST or MCP walks straight past, so the endpoint, the MCP tool and the toolbar are three doors onto one server operation. The selection is the ids the caller sent — there is deliberately no "everything matching the current filter" spelling. Every row is written through the ordinary update path, so tenant scope, per-value limits, validation, the row audit entry and the live publish all apply unchanged and cannot drift. No delete, no create, no side effect: those are different primitives and an action whose declaration does not say what it does is worse than no action.',
+		args: {
+			type: 'object',
+			properties: {
+				action: {
+					type: 'object',
+					properties: {
+						id: { type: 'string', description: 'branded id, prefix "act-".' },
+						key: {
+							type: 'string',
+							pattern: ACTION_KEY_RE.source,
+							description:
+								'the action name in the /api/<resource>/actions/<key> URL, the audit row and the MCP tool name — the string a person types and an incident report quotes. Separate from label because a reworded button must not move an endpoint.',
+						},
+						label: {
+							type: 'string',
+							description: 'the text on the button.',
+						},
+						description: {
+							type: 'string',
+							description:
+								'what this action is for, in one line. It is printed beside the write in the action report, and a button that changes hundreds of rows and that nobody can explain is one nobody can decide to remove.',
+						},
+						entityId: {
+							type: 'string',
+							description:
+								'entity id, prefix "e-". SEVERAL actions per entity is expected — triage, archive and assign are three buttons over one table.',
+						},
+						arity: {
+							type: 'string',
+							enum: [...ACTION_ARITIES],
+							description:
+								'"row" = a control on each row, one id at a time. "selection" = a toolbar over ticked rows. "both" = offered in both places. A declaration rather than an inference from maxSelection: "this may be run on many rows" and "this should have a button on every row" are different product decisions.',
+						},
+						effect: ACTION_EFFECT_PROP,
+						role: {
+							type: 'string',
+							description:
+								'an EXTRA role the caller must hold, beyond being allowed to update the entity at all. Omit it to mean "whoever may update this entity" — which is not a hole, because an action can never do something its caller could not do row by row. What a role adds is the BATCH being privileged even when the individual writes are not.',
+						},
+						maxSelection: ACTION_MAX_SELECTION_PROP,
+						undoable: {
+							type: 'boolean',
+							description:
+								'whether the run records what it overwrote. true stores the prior value of exactly the fields written, per row, which is what makes the run reversible — the undo replays those values back through the ordinary update path rather than through a privileged rollback. Required, never defaulted: the record is proportional to the selection, so it is a storage decision as much as a product one, and false is the honest spelling of "this cannot be taken back".',
+						},
+						provenance: PROVENANCE_PROP,
+					},
+					required: [
+						'id',
+						'key',
+						'label',
+						'description',
+						'entityId',
+						'arity',
+						'effect',
+						'maxSelection',
+						'undoable',
+					],
+				},
+			},
+			required: ['action'],
+		},
+	},
+	'view.setActionEffect': {
+		name: 'view.setActionEffect',
+		layer: 'view',
+		summary:
+			'Replace a list action’s write wholesale, last-wins — THE PAYLOAD EDIT. Its own op so that "what does this button actually do to a row?" is answerable from the op name, before reading a single argument. Wholesale rather than patched: a write set is only correct as a whole, and a patch language would let one be half-migrated between two reviews — which for a write means a button that sets the new status and leaves the old assignee.',
+		args: {
+			type: 'object',
+			properties: {
+				actionId: { type: 'string', description: 'action id, prefix "act-".' },
+				effect: ACTION_EFFECT_PROP,
+			},
+			required: ['actionId', 'effect'],
+		},
+	},
+	'view.removeAction': {
+		name: 'view.removeAction',
+		layer: 'view',
+		summary:
+			'Remove a list action. Unlike portals.remove and live.remove there is no pause step first, and the asymmetry is deliberate: a portal and a live channel are surfaces somebody may be mid-way through using, so removal must not be the fastest way to silence one. An action is a button — removing it takes a capability away, which fails closed, so a two-step ritual would buy nothing and would leave the dangerous declaration in place for the length of it.',
+		args: {
+			type: 'object',
+			properties: {
+				actionId: { type: 'string', description: 'action id, prefix "act-".' },
+			},
+			required: ['actionId'],
 		},
 	},
 	'provenance.review': {
@@ -6888,6 +7099,66 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				)
 			break
 		}
+		case 'view.addAction': {
+			const { action } = op.args
+			const declared = system.view?.actions ?? []
+			dup(
+				declared.some((a) => a.id === action.id),
+				action.id,
+				'action',
+			)
+			if (declared.some((a) => a.key === action.key))
+				errors.push(`${op.op}: action key "${action.key}" already exists`)
+			// One shared validator with the layer check, for `imports.declare`'s
+			// reason: a spec can arrive by decoding a directory somebody hand-edited,
+			// and an uncapped button that reached the runtime that way rewrites five
+			// hundred rows nobody reviewed.
+			errors.push(
+				...actionErrors(
+					`${op.op}: action "${action.id}"`,
+					{
+						...action,
+						declaredAt: action.declaredAt ?? '1970-01-01',
+					} as ActionSpec,
+					system,
+					declared,
+				),
+			)
+			errors.push(
+				...provenanceShapeErrors(op.op, [
+					{
+						what: `action "${action.id}"`,
+						provenance: action.provenance,
+					},
+				]),
+			)
+			break
+		}
+		case 'view.setActionEffect': {
+			const { actionId, effect } = op.args
+			const action = (system.view?.actions ?? []).find((a) => a.id === actionId)
+			if (!action) {
+				errors.push(`${op.op}: unknown action "${actionId}"`)
+				break
+			}
+			// The whole declaration again, with the new write spliced in. Whether a
+			// write set is legal depends on the ENTITY it is aimed at and on the
+			// arity's cap, so validating the field map in isolation would accept a
+			// payload that is only legal for an action this is not.
+			errors.push(
+				...actionErrors(
+					`${op.op}: "${actionId}"`,
+					{ ...action, effect },
+					system,
+				),
+			)
+			break
+		}
+		case 'view.removeAction': {
+			if (!(system.view?.actions ?? []).some((a) => a.id === op.args.actionId))
+				errors.push(`${op.op}: unknown action "${op.args.actionId}"`)
+			break
+		}
 		case 'provenance.review': {
 			const { target, action } = op.args
 			if (!REVIEW_TARGET_KINDS.includes(target?.kind))
@@ -7490,6 +7761,37 @@ export function diffOp(op: SpecOp): SpecDiff {
 				change: 'remove',
 				targetId: op.args.subscriptionId,
 				summary: `Remove live channel "${op.args.subscriptionId}"`,
+			}
+		case 'view.addAction':
+			// The summary names the WRITE and the CAP, because a diff of this op is
+			// read by whoever will be asked what happened to four hundred rows, and
+			// those are the two facts nobody reconstructs from an id.
+			return add(
+				op.args.action.id,
+				`Declare ${op.args.action.arity} action "${op.args.action.key}" on ${op.args.action.entityId} (${describeAction(op.args.action as ActionSpec)})`,
+			)
+		case 'view.setActionEffect': {
+			const writes = Object.entries(op.args.effect.set).map(
+				([field, value]) =>
+					`${field}=${value === null ? 'null' : String(value)}`,
+			)
+			if (op.args.effect.choose)
+				writes.push(`${op.args.effect.choose}=<chosen>`)
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.actionId,
+				summary: `Action "${op.args.actionId}" now writes ${writes.join(', ')}`,
+			}
+		}
+		case 'view.removeAction':
+			return {
+				op: op.op,
+				layer,
+				change: 'remove',
+				targetId: op.args.actionId,
+				summary: `Remove action "${op.args.actionId}"`,
 			}
 		case 'provenance.review': {
 			const { target, action, cascade } = op.args
@@ -8176,6 +8478,28 @@ export function applyOp(
 			next.live = {
 				subscriptions: (next.live?.subscriptions ?? []).filter(
 					(l) => l.id !== op.args.subscriptionId,
+				),
+			}
+			break
+		}
+		case 'view.addAction': {
+			const action: ActionSpec = {
+				...op.args.action,
+				declaredAt: op.args.action.declaredAt ?? meta.appliedAt,
+				provenance: op.args.action.provenance ?? defaultProvenance(meta),
+			}
+			next.view = { actions: [...(next.view?.actions ?? []), action] }
+			break
+		}
+		case 'view.setActionEffect': {
+			const action = next.view?.actions.find((a) => a.id === op.args.actionId)
+			if (action) action.effect = op.args.effect
+			break
+		}
+		case 'view.removeAction': {
+			next.view = {
+				actions: (next.view?.actions ?? []).filter(
+					(a) => a.id !== op.args.actionId,
 				),
 			}
 			break

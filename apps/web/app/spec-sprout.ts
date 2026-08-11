@@ -11,6 +11,7 @@
  */
 
 import {
+	type ActionPlan,
 	type ComputedNode,
 	type ComputedShape,
 	type DocumentFieldPlan,
@@ -30,6 +31,7 @@ import {
 	type SproutColumnReference,
 } from '@maxstack/core'
 import {
+	activeActions,
 	documentTemplatesFor,
 	findSearchIndex,
 	getAcceptedOrAll,
@@ -741,6 +743,77 @@ function resolveFieldPlans(
 	return out
 }
 
+/**
+ * Ground an entity's declared list actions: field *ids* resolved to column
+ * *names*, in declaration order.
+ *
+ * **An action whose write names a field that is not on the accepted entity does
+ * not ground at all** — the same honest failure `groundSearch`,
+ * `groundDocuments`, `groundImporters` and `groundPortals` make, and here the
+ * reason is the sharpest of the five: a partially-grounded action would be a
+ * button that writes *some* of what was declared, over as many rows as the cap
+ * allows. "Close and unassign these" silently becoming "close these" is a
+ * fourteen-row surprise nobody reviewed.
+ *
+ * The chosen field is dropped the same way, and dropping it drops the whole
+ * action rather than demoting it to its fixed half: an action whose declared
+ * `set` is empty would otherwise ground as a button that writes nothing.
+ *
+ * Only *accepted* actions ground (`activeActions`' rule, which is deliberately
+ * accepted-**only** rather than accepted-else-all): an agent's unreviewed
+ * suggestion must not appear in an end user's toolbar with the power to rewrite
+ * five hundred rows.
+ */
+function groundActions(
+	spec: SpecSystem,
+	entity: SpecSystem['data']['entities'][number],
+): ActionPlan[] | undefined {
+	// Every accepted action over this entity, at any arity: grounding produces the
+	// registry plan, and which surface offers a button is the surface's question.
+	const declared = activeActions(spec).filter((a) => a.entityId === entity.id)
+	if (declared.length === 0) return undefined
+	const fields = getAcceptedOrAll(entity.fields)
+	const byId = new Map(fields.map((f) => [f.id as string, f] as const))
+
+	const plans: ActionPlan[] = []
+	for (const action of declared) {
+		const set: ActionPlan['set'] = {}
+		let dropped = false
+		for (const [fieldId, value] of Object.entries(action.effect.set)) {
+			const field = byId.get(fieldId)
+			if (!field) {
+				dropped = true
+				break
+			}
+			set[field.name] = value
+		}
+		if (dropped) continue
+		let choose: ActionPlan['choose']
+		if (action.effect.choose) {
+			const field = byId.get(action.effect.choose)
+			// The options travel with the column, so the check that a run's value is
+			// one of them happens below every surface. A plan carrying the column
+			// alone would push that check back onto whoever built the request.
+			const options = field?.options?.map((o) => o.value) ?? []
+			if (!field || options.length === 0) continue
+			choose = { column: field.name, options }
+		}
+		if (Object.keys(set).length === 0 && !choose) continue
+		plans.push({
+			key: action.key,
+			label: action.label,
+			description: action.description,
+			arity: action.arity,
+			set,
+			...(choose ? { choose } : {}),
+			...(action.role ? { role: action.role } : {}),
+			maxSelection: action.maxSelection,
+			undoable: action.undoable,
+		})
+	}
+	return plans.length > 0 ? plans : undefined
+}
+
 export function groundedEntityShapes(
 	spec: SpecSystem,
 	options: GroundingOptions = {},
@@ -755,6 +828,7 @@ export function groundedEntityShapes(
 		const importers = groundImporters(spec, entity)
 		const portals = groundPortals(spec, entity)
 		const live = groundLive(spec, entity)
+		const actions = groundActions(spec, entity)
 		return {
 			name: resourceName(entity.id),
 			description: entity.description,
@@ -827,6 +901,15 @@ export function groundedEntityShapes(
 			// which is the correct direction for the one declaration in this file
 			// whose failure mode is a slow app rather than an open one.
 			...(live ? { live } : {}),
+			// Declared list actions. Omitted when absent on the same rule, and the
+			// absence carries `portals`' weight rather than `live`'s: an entity with
+			// no actions has no way to change many rows at once, and that is a
+			// security fact about the app rather than a missing convenience.
+			// Threading it here is what puts the cap, the role and the write set at
+			// the depth `authorize()` runs at — drop it and the toolbar would have
+			// nothing to look up, which is the failure mode that ends with somebody
+			// writing a loop around the gate.
+			...(actions ? { actions } : {}),
 		}
 	})
 }

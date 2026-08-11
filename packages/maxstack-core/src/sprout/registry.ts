@@ -7,6 +7,7 @@
  */
 
 import type { PgTable } from 'drizzle-orm/pg-core'
+import type { ActionPlan } from './actions.ts'
 import type { DocumentPlan } from './documents.ts'
 import type { ImportPlanShape } from './imports.ts'
 import { introspectTable } from './introspection.ts'
@@ -66,6 +67,22 @@ export interface ResourceConfig {
 	 * statement are three documents about one row.
 	 */
 	documents?: DocumentPlan[]
+	/**
+	 * Declared list actions for this resource, grounded to column names.
+	 *
+	 * Here for the reason `importers` is, and the argument is at its sharpest:
+	 * an action is a write that one click aims at many rows, so its cap, its
+	 * role and its write set have to be reachable from the layer that authorizes,
+	 * stamps tenancy, enforces per-value caps and attributes the audit entry. A
+	 * toolbar that assembled its own would be enforced on exactly one of the
+	 * three surfaces that can run it — issue #186's finding, in the write
+	 * direction. `opRunAction` reuses `opGet` and `opUpdate` outright rather than
+	 * re-implementing either.
+	 *
+	 * Several per resource: triage, archive and assign are three buttons over one
+	 * table.
+	 */
+	actions?: ActionPlan[]
 	/**
 	 * Declared importers for this resource, grounded to column names.
 	 *

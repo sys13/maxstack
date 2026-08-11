@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 64 typed operations that can change a project spec — the whole
+The 67 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -99,6 +99,9 @@ keys or nothing.
 | [`live.setLimits`](#livesetlimits) | `live` | Replace a live channel’s two ceilings — THE LOAD LEVER, the op an operator reaches for when a channel is the reason the app is slow. Separate from live.setFields because "we are sending too much" and "we are sending the wrong thing" are different problems found by different people. Both values are restated together rather than patched individually: they multiply into the load the process actually carries, and adjusting one without the other is how the product of the two stops being something anybody reviewed. |
 | [`live.pause`](#livepause) | `live` | Take a live channel offline, or put it back. The 3am lever: it removes nothing, so the declaration, the projection and both ceilings survive and bringing the channel back is one op rather than a re-review. Safe to pull because subscribers fall back to polling the ordinary list endpoint — a paused channel makes the app slower, not broken. Also the retire step live.remove insists on first. |
 | [`live.remove`](#liveremove) | `live` | Remove a live declaration. Refused while it is not paused — pause it first, confirm the polling fallback carried the surface, then remove, so removal is never the fastest way to silence something somebody is mid-way through using. |
+| [`view.addAction`](#viewaddaction) | `view` | Declare a LIST ACTION over one entity: a named, capped, role-gated write a user runs from a list — on one row, on a ticked selection, or both. THE ONE OP IN THE VOCABULARY THAT LETS ONE CLICK WRITE TO MANY ROWS. It is declared on the entity rather than on a page for the reason a WIP limit lives on the field rather than on the board: a rule the screen enforces is one an agent driving REST or MCP walks straight past, so the endpoint, the MCP tool and the toolbar are three doors onto one server operation. The selection is the ids the caller sent — there is deliberately no "everything matching the current filter" spelling. Every row is written through the ordinary update path, so tenant scope, per-value limits, validation, the row audit entry and the live publish all apply unchanged and cannot drift. No delete, no create, no side effect: those are different primitives and an action whose declaration does not say what it does is worse than no action. |
+| [`view.setActionEffect`](#viewsetactioneffect) | `view` | Replace a list action’s write wholesale, last-wins — THE PAYLOAD EDIT. Its own op so that "what does this button actually do to a row?" is answerable from the op name, before reading a single argument. Wholesale rather than patched: a write set is only correct as a whole, and a patch language would let one be half-migrated between two reviews — which for a write means a button that sets the new status and leaves the old assignee. |
+| [`view.removeAction`](#viewremoveaction) | `view` | Remove a list action. Unlike portals.remove and live.remove there is no pause step first, and the asymmetry is deliberate: a portal and a live channel are surfaces somebody may be mid-way through using, so removal must not be the fastest way to silence one. An action is a button — removing it takes a capability away, which fails closed, so a two-step ritual would buy nothing and would leave the dangerous declaration in place for the length of it. |
 | [`provenance.review`](#provenancereview) | `system` | Accept or reject a suggestion, or reset a settled row back to undecided (a provenance transition, logged for audit — reject is a soft-reject, never a delete, and reset is the undo for an accepted batch). With cascade:true the decision also covers the target’s still-undecided nested rows (fields/blocks); a cascading reset instead covers its settled ones, since those are what an undo has to take back. Never touches a manual row. |
 
 ## Layer: product
@@ -1207,6 +1210,53 @@ Remove a live declaration. Refused while it is not paused — pause it first, co
 
 - `subscriptionId` — `string` · **required** · live subscription id, prefix "lv-".
 
+## Layer: view
+
+### `view.addAction`
+
+Declare a LIST ACTION over one entity: a named, capped, role-gated write a user runs from a list — on one row, on a ticked selection, or both. THE ONE OP IN THE VOCABULARY THAT LETS ONE CLICK WRITE TO MANY ROWS. It is declared on the entity rather than on a page for the reason a WIP limit lives on the field rather than on the board: a rule the screen enforces is one an agent driving REST or MCP walks straight past, so the endpoint, the MCP tool and the toolbar are three doors onto one server operation. The selection is the ids the caller sent — there is deliberately no "everything matching the current filter" spelling. Every row is written through the ordinary update path, so tenant scope, per-value limits, validation, the row audit entry and the live publish all apply unchanged and cannot drift. No delete, no create, no side effect: those are different primitives and an action whose declaration does not say what it does is worse than no action.
+
+**Arguments**
+
+- `action` — `object` · **required**
+  - `id` — `string` · **required** · branded id, prefix "act-".
+  - `key` — `string` · **required** · the action name in the /api/<resource>/actions/<key> URL, the audit row and the MCP tool name — the string a person types and an incident report quotes. Separate from label because a reworded button must not move an endpoint.
+  - `label` — `string` · **required** · the text on the button.
+  - `description` — `string` · **required** · what this action is for, in one line. It is printed beside the write in the action report, and a button that changes hundreds of rows and that nobody can explain is one nobody can decide to remove.
+  - `entityId` — `string` · **required** · entity id, prefix "e-". SEVERAL actions per entity is expected — triage, archive and assign are three buttons over one table.
+  - `arity` — `string` · **required** · one of `row`, `selection`, `both` · "row" = a control on each row, one id at a time. "selection" = a toolbar over ticked rows. "both" = offered in both places. A declaration rather than an inference from maxSelection: "this may be run on many rows" and "this should have a button on every row" are different product decisions.
+  - `effect` — `object` · **required** · what the action WRITES, stated in full — never a payload the caller composes, because an action that let its caller pick the fields would be a PATCH with a button and its declaration would say nothing a reviewer could act on. "set" maps fieldId → a LITERAL (string, number, boolean, or null meaning "clear this column"); at most 8 fields, and past that an action stops being a list control and becomes a migration wearing a button. "choose" names at most ONE enum field whose value the operator picks when they run it, from that field's own declared options — which is what makes "move this deal's stage" one declaration instead of one per stage, while keeping the set of producible values finite and stated in the spec. At least one of the two must contribute. There is deliberately no expression, no now(), and no reference to the row's other columns: the moment a value is computed, the declaration stops being reviewable by reading it. A rank key, a file field and a json field may not be written; the tenant and soft-delete columns need no rule here because the update path strips them from every payload it is given.
+    - `set` — `object` · **required** · fieldId → literal value. May be empty only when "choose" is present.
+    - `choose` — `string` · field id, prefix "fld-", of an enum field WITH declared options. Its options are the entire bound on what values a run can produce, so an enum without them is free text wearing a dropdown and is refused.
+  - `role` — `string` · an EXTRA role the caller must hold, beyond being allowed to update the entity at all. Omit it to mean "whoever may update this entity" — which is not a hole, because an action can never do something its caller could not do row by row. What a role adds is the BATCH being privileged even when the individual writes are not.
+  - `maxSelection` — `number` · **required** · integer 1–500. REQUIRED, never defaulted: how many rows one click may rewrite is a decision about somebody's data, and a default is that decision made by whoever wrote the generator. A run over the cap is REFUSED WHOLE rather than truncated to the first N — truncation would silently do part of what somebody asked for and report success. 1 is meaningful and is the right value for a row-arity action: it says the operation is per-row by construction, so a caller posting twelve ids to the endpoint is refused by the declaration rather than by the UI not having offered a checkbox. When somebody needs five thousand, the answer is a schedule, not a bigger number here.
+  - `undoable` — `boolean` · **required** · whether the run records what it overwrote. true stores the prior value of exactly the fields written, per row, which is what makes the run reversible — the undo replays those values back through the ordinary update path rather than through a privileged rollback. Required, never defaulted: the record is proportional to the selection, so it is a storage decision as much as a product one, and false is the honest spelling of "this cannot be taken back".
+  - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
+    - `isSuggested` — `boolean` · **required**
+    - `isAccepted` — `boolean | null` · **required** · null = undecided.
+    - `isAddedManually` — `boolean | null` · **required**
+    - `suggestedDescription` — `string | null` · **required**
+    - `priority` — `string` · **required** · one of `medium`, `high`
+
+### `view.setActionEffect`
+
+Replace a list action’s write wholesale, last-wins — THE PAYLOAD EDIT. Its own op so that "what does this button actually do to a row?" is answerable from the op name, before reading a single argument. Wholesale rather than patched: a write set is only correct as a whole, and a patch language would let one be half-migrated between two reviews — which for a write means a button that sets the new status and leaves the old assignee.
+
+**Arguments**
+
+- `actionId` — `string` · **required** · action id, prefix "act-".
+- `effect` — `object` · **required** · what the action WRITES, stated in full — never a payload the caller composes, because an action that let its caller pick the fields would be a PATCH with a button and its declaration would say nothing a reviewer could act on. "set" maps fieldId → a LITERAL (string, number, boolean, or null meaning "clear this column"); at most 8 fields, and past that an action stops being a list control and becomes a migration wearing a button. "choose" names at most ONE enum field whose value the operator picks when they run it, from that field's own declared options — which is what makes "move this deal's stage" one declaration instead of one per stage, while keeping the set of producible values finite and stated in the spec. At least one of the two must contribute. There is deliberately no expression, no now(), and no reference to the row's other columns: the moment a value is computed, the declaration stops being reviewable by reading it. A rank key, a file field and a json field may not be written; the tenant and soft-delete columns need no rule here because the update path strips them from every payload it is given.
+  - `set` — `object` · **required** · fieldId → literal value. May be empty only when "choose" is present.
+  - `choose` — `string` · field id, prefix "fld-", of an enum field WITH declared options. Its options are the entire bound on what values a run can produce, so an enum without them is free text wearing a dropdown and is refused.
+
+### `view.removeAction`
+
+Remove a list action. Unlike portals.remove and live.remove there is no pause step first, and the asymmetry is deliberate: a portal and a live channel are surfaces somebody may be mid-way through using, so removal must not be the fastest way to silence one. An action is a button — removing it takes a capability away, which fails closed, so a two-step ritual would buy nothing and would leave the dangerous declaration in place for the length of it.
+
+**Arguments**
+
+- `actionId` — `string` · **required** · action id, prefix "act-".
+
 ## Layer: system
 
 ### `provenance.review`
@@ -1216,7 +1266,7 @@ Accept or reject a suggestion, or reset a settled row back to undecided (a prove
 **Arguments**
 
 - `target` — `object` · **required**
-  - `kind` — `string` · **required** · one of `entity`, `field`, `page`, `block`, `tier`, `flag`, `schedule`, `source`, `searchIndex`, `portal`
+  - `kind` — `string` · **required** · one of `entity`, `field`, `page`, `block`, `tier`, `flag`, `schedule`, `source`, `searchIndex`, `portal`, `action`
   - `id` — `string` · **required** · the reviewed row’s id.
   - `parentId` — `string` · required for nested kinds — the entity id of a field, the page id of a block.
 - `action` — `string` · **required** · one of `accept`, `reject`, `reset`

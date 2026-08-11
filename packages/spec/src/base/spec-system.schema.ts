@@ -28,6 +28,7 @@ import {
 	printableFieldTypes,
 } from './documents.ts'
 import { FLAG_KEY_RE, MAX_ROLLOUT_PERCENT } from './flags.ts'
+import type { FieldId } from './ids.ts'
 import {
 	IMPORT_FORMATS,
 	IMPORT_KEY_RE,
@@ -110,6 +111,7 @@ import {
 	ACCENT_RE,
 	BLOCK_VARIANTS,
 	FIELD_TYPES,
+	type FieldSpec,
 	type SpecSystem,
 	THEME_DENSITIES,
 	THEME_FONTS,
@@ -117,6 +119,15 @@ import {
 	THEME_RADII,
 	THEME_TYPE_SCALES,
 } from './spec-system.ts'
+import {
+	ACTION_ARITIES,
+	ACTION_KEY_RE,
+	type ActionSpec,
+	type ActionValue,
+	MAX_ACTION_KEY_LENGTH,
+	MAX_ACTION_SELECTION,
+	MAX_ACTION_SET_FIELDS,
+} from './view.ts'
 import { USER_ENTITY_ID } from './virtual-entities.ts'
 
 /**
@@ -1031,6 +1042,217 @@ export function liveSubscriptionErrors(
 }
 
 /**
+ * Everything wrong with one declared list action.
+ *
+ * Shared by `validateOp` and by {@link collectSpecSystemErrors} on
+ * {@link portalErrors}' argument, and here it carries the same weight: a spec
+ * can arrive by decoding a directory somebody hand-edited, and an action that
+ * reached the runtime that way is a button nobody reviewed with the power to
+ * rewrite five hundred rows.
+ *
+ * **Every refusal here is a specific way a run could do more than its
+ * declaration says**, and each is checked rather than documented:
+ *
+ *  - A field id from another entity **resolves**, and would write somebody
+ *    else's column, so the write set is checked against its owner entity rather
+ *    than merely for existence — `portalErrors`' first rule, in the write
+ *    direction.
+ *  - A `null` on a required field is refused by name here rather than by the
+ *    database at run time, so the refusal arrives while somebody is reviewing
+ *    the declaration instead of on the fourteenth row of a batch.
+ *  - A `rank` key, a `file` field and a `json` field are unwritable: the first
+ *    is a drag-ordering key nobody types (a fixed value would stack the whole
+ *    selection at one position), the second holds a storage path (a fixed key
+ *    would point five hundred rows at one object), and the third is a document
+ *    nobody reviewing a string literal can read.
+ *
+ *    The **tenant** and **soft-delete** columns are deliberately not checked
+ *    here, and their absence is not a hole: which column is the tenant is a
+ *    registry fact only owned code sets, so no spec-layer check can see it.
+ *    `opUpdate` strips both from every payload it is given, and an action's
+ *    write reaches the database through exactly that path — so the protection
+ *    is structural rather than declared, and it covers a hand-edited
+ *    `view.json` as well as a validated op.
+ *  - `choose` must name an `enum` field of this entity **with declared
+ *    options**, because the options are the entire bound on what a run can
+ *    produce. An enum with no option list is free text wearing a dropdown.
+ *  - The declared cap is required, at least 1, and no larger than
+ *    {@link MAX_ACTION_SELECTION}.
+ *  - A `row`-arity action may still declare a cap above 1 — that is not an
+ *    error, it is an author saying "one button now, a toolbar later" — but the
+ *    endpoint enforces the declared number, not the arity.
+ *
+ * `siblings` is every *other* declared action, so key uniqueness is enforced
+ * here rather than only in the op: two actions sharing a key share an endpoint
+ * and an MCP tool name.
+ */
+export function actionErrors(
+	ctx: string,
+	action: ActionSpec,
+	system: Pick<SpecSystem, 'data'>,
+	siblings: readonly ActionSpec[] = [],
+): string[] {
+	const errors: string[] = []
+
+	if (typeof action.key !== 'string' || !ACTION_KEY_RE.test(action.key))
+		errors.push(
+			`${ctx}: key "${String(action.key)}" must match ${ACTION_KEY_RE.source}`,
+		)
+	else if (action.key.length > MAX_ACTION_KEY_LENGTH)
+		errors.push(
+			`${ctx}: key "${action.key}" is ${action.key.length} characters — the maximum is ${MAX_ACTION_KEY_LENGTH}; it is a URL segment, an audit label and an MCP tool name`,
+		)
+	if (siblings.some((a) => a.id !== action.id && a.key === action.key))
+		errors.push(
+			`${ctx}: action key "${String(action.key)}" is already declared — a key is an endpoint and an MCP tool name, and two actions cannot share one`,
+		)
+	if (!action.label?.trim())
+		errors.push(`${ctx}: needs a label — it is the text on the button`)
+	if (!action.description?.trim())
+		errors.push(
+			`${ctx}: needs a description — it is what the action report prints beside the write, and a button that changes ${action.maxSelection ?? 'many'} rows at once and that nobody can explain is one nobody can decide to remove`,
+		)
+	if (!(ACTION_ARITIES as readonly string[]).includes(action.arity))
+		errors.push(
+			`${ctx}: arity "${String(action.arity)}" is not one of ${ACTION_ARITIES.join(', ')}`,
+		)
+	if (typeof action.undoable !== 'boolean')
+		errors.push(
+			`${ctx}: undoable must be true or false. Never defaulted — true makes every run store the prior value of every field it overwrites, which is a storage cost proportional to the selection, and false is the honest spelling of "this cannot be taken back"`,
+		)
+	if (
+		typeof action.maxSelection !== 'number' ||
+		!Number.isInteger(action.maxSelection) ||
+		action.maxSelection < 1 ||
+		action.maxSelection > MAX_ACTION_SELECTION
+	)
+		errors.push(
+			`${ctx}: maxSelection must be an integer 1–${MAX_ACTION_SELECTION}. Required and never defaulted — how many rows one click may rewrite is a decision about somebody's data, and a default is that decision made by whoever wrote the generator. Past the cap a run is refused whole rather than truncated to the first N`,
+		)
+	if (action.role !== undefined && !action.role.trim())
+		errors.push(
+			`${ctx}: role must be a non-empty string when present — omit it entirely to mean "whoever may update this entity", which is a different and legitimate statement from "the empty role"`,
+		)
+
+	const entity = system.data.entities.find((e) => e.id === action.entityId)
+	if (!entity) {
+		errors.push(`${ctx}: unknown entity "${String(action.entityId)}"`)
+		return errors
+	}
+
+	// Checked against its OWNER entity, not merely against existence: a field id
+	// from another entity resolves, and would write somebody else's column.
+	const fieldsById = new Map(entity.fields.map((f) => [f.id, f]))
+	const set = action.effect?.set
+	if (!set || typeof set !== 'object' || Array.isArray(set)) {
+		errors.push(
+			`${ctx}: effect.set must be an object of fieldId → literal value (it may be empty only when effect.choose is present)`,
+		)
+		return errors
+	}
+	const setKeys = Object.keys(set)
+	if (setKeys.length === 0 && !action.effect.choose)
+		errors.push(
+			`${ctx}: an action must write something — give effect.set at least one field, or name an enum field in effect.choose. An action that writes nothing is a button that reports success and changes no row, which is worse than no button`,
+		)
+	if (setKeys.length > MAX_ACTION_SET_FIELDS)
+		errors.push(
+			`${ctx}: ${setKeys.length} written fields exceeds the maximum of ${MAX_ACTION_SET_FIELDS} — past that an action stops being a list control and becomes a migration wearing a button`,
+		)
+
+	for (const fieldId of setKeys) {
+		const field = fieldsById.get(fieldId as FieldId)
+		if (!field) {
+			errors.push(
+				`${ctx}: effect.set names "${fieldId}", which is not a field of entity "${action.entityId}"`,
+			)
+			continue
+		}
+		// `noUncheckedIndexedAccess`: a key from `Object.keys` is present, but an
+		// explicit `undefined` VALUE is a caller writing `{fld-x: undefined}`,
+		// which is not a literal and must not be read as "clear it".
+		const value = set[fieldId]
+		if (value === undefined) {
+			errors.push(
+				`${ctx}: effect.set gives "${field.name}" no value — write null to clear the column, which is the explicit spelling; an absent value is a caller that lost one`,
+			)
+			continue
+		}
+		if (value === null && field.required)
+			errors.push(
+				`${ctx}: effect.set clears required field "${field.name}" — null means "unset this column", and a required column has no unset state. Refused here rather than by the database, so the "no" arrives while somebody is reading the declaration instead of part-way through a batch`,
+			)
+		if (field.rank === true)
+			errors.push(
+				`${ctx}: field "${field.name}" is a rank key — an opaque ordering value a person sets by dragging, never by typing. Writing one from an action would place every row in the selection at the same position`,
+			)
+		if (field.type === 'file')
+			errors.push(
+				`${ctx}: field "${field.name}" is a file field, which holds a STORAGE KEY rather than a value. A fixed key would point every row in the selection at one object, and there is no upload in an action's declaration to produce a different one`,
+			)
+		if (field.type === 'json' && value !== null)
+			errors.push(
+				`${ctx}: field "${field.name}" is a json field, and effect values are literals. A JSON document written as a string literal is a value nobody reviewing this declaration can read`,
+			)
+		if (
+			field.type === 'enum' &&
+			typeof value === 'string' &&
+			(field.options?.length ?? 0) > 0 &&
+			!field.options?.some((o) => o.value === value)
+		)
+			errors.push(
+				`${ctx}: effect.set gives "${field.name}" the value "${value}", which is not one of its declared options (${field.options?.map((o) => o.value).join(', ')})`,
+			)
+		if (value !== null && !isAssignableTo(field.type, value))
+			errors.push(
+				`${ctx}: effect.set gives "${field.name}" a ${typeof value}, but the field is a ${field.type}`,
+			)
+	}
+
+	const choose = action.effect.choose
+	if (choose !== undefined) {
+		const field = fieldsById.get(choose)
+		if (!field)
+			errors.push(
+				`${ctx}: effect.choose names "${String(choose)}", which is not a field of entity "${action.entityId}"`,
+			)
+		else if (field.type !== 'enum')
+			errors.push(
+				`${ctx}: effect.choose names "${field.name}", a ${field.type}. Only an enum field may be chosen at run time — its declared options are the entire bound on what values a run can produce, and a field without one is free text arriving through a control that looks constrained`,
+			)
+		else if ((field.options?.length ?? 0) === 0)
+			errors.push(
+				`${ctx}: effect.choose names enum field "${field.name}", which declares no options. The options ARE the bound; without them this is free text wearing a dropdown`,
+			)
+		else if (setKeys.includes(choose))
+			errors.push(
+				`${ctx}: field "${field.name}" is both written by effect.set and chosen by effect.choose — one of the two would silently win, and which one is not something a reader of this declaration should have to know`,
+			)
+	}
+
+	return errors
+}
+
+/** Whether a literal from an action's write set fits the field's type. `date`
+ *  is accepted as a string (an ISO instant) rather than parsed here: what a
+ *  date column accepts is the update path's question, and duplicating the
+ *  answer is how the two come to disagree. */
+function isAssignableTo(type: FieldSpec['type'], value: ActionValue): boolean {
+	switch (type) {
+		case 'number':
+			return typeof value === 'number'
+		case 'boolean':
+			return typeof value === 'boolean'
+		case 'string':
+		case 'enum':
+		case 'date':
+			return typeof value === 'string'
+		default:
+			return true
+	}
+}
+
+/**
  * Everything wrong with one declared portal.
  *
  * Shared by `validateOp` and by {@link collectSpecSystemErrors} for the reason
@@ -1880,6 +2102,24 @@ export function collectSpecSystemErrors(system: SpecSystem): string[] {
 		liveKeys.add(sub.key)
 		errors.push(...liveSubscriptionErrors(ctx, sub, system, subscriptions))
 		checkProvenance(sub.provenance, ctx)
+	}
+
+	// ---- view layer ----------------------------------------------------------
+	// After the data layer, because an action resolves its write set and its
+	// chosen field against an entity's fields.
+	const actionIds = new Set<string>()
+	const actionKeys = new Set<string>()
+	const actions = system.view?.actions ?? []
+	for (const action of actions) {
+		const ctx = `action ${action.id}`
+		if (actionIds.has(action.id))
+			errors.push(`view: duplicate action id "${action.id}"`)
+		actionIds.add(action.id)
+		if (actionKeys.has(action.key))
+			errors.push(`view: duplicate action key "${action.key}"`)
+		actionKeys.add(action.key)
+		errors.push(...actionErrors(ctx, action, system, actions))
+		checkProvenance(action.provenance, ctx)
 	}
 
 	// ---- page layer ----------------------------------------------------------
