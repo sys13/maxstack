@@ -112,6 +112,26 @@ const steps = [
 	},
 	{ name: 'typecheck', cmd: 'pnpm', args: ['run', 'typecheck'] },
 	{ name: 'test', cmd: 'pnpm', args: ['run', 'test'] },
+	// The SEO gate: build the app for production, serve it, and parse the
+	// emitted `<head>` (#432). Everything in the SEO epic is derivation, and
+	// derivation rots quietly — a gate that read the declaration and reported
+	// green would be the failure mode rather than the fix.
+	//
+	// Last, because it is the only step that needs a production build, and it
+	// runs against that build rather than `pnpm dev` on purpose: dev cannot
+	// hydrate project routes (#171), so a dev-server gate would be checking a
+	// different app than the one that ships.
+	//
+	// **Measured before landing, per the issue.** 4.9s end to end including the
+	// `react-router build`, 3.0s when the build is already warm, over three runs
+	// each. Validate's test phase is ~620–710s on the 2 vCPU CI runner, so this
+	// is under 1% and the nightly/fast-subset fallback the issue describes is
+	// not needed. If that ratio ever changes, split it there.
+	{
+		name: 'seo',
+		cmd: 'pnpm',
+		args: ['--filter', '@maxstack/web', 'run', 'check:seo'],
+	},
 ]
 
 const skipArg = process.argv.find((a) => a.startsWith('--skip='))

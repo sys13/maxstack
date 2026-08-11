@@ -25,11 +25,16 @@
 
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { META_TITLE_MAX, type SiteSpec } from '@maxstack/spec'
+import {
+	META_DESCRIPTION_MAX,
+	META_TITLE_MAX,
+	type SiteSpec,
+} from '@maxstack/spec'
 import { renderToString } from 'react-dom/server'
 import { createRoutesStub, Meta } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import {
+	clampDescription,
 	composeTitle,
 	humanizeKey,
 	NOINDEX,
@@ -216,6 +221,37 @@ describe('composeTitle', () => {
 	it('never repeats the site name on the home page', () => {
 		expect(composeTitle(site.name, site)).toBe('Taskly')
 		expect(composeTitle(undefined, site)).toBe('Taskly')
+	})
+})
+
+describe('clampDescription', () => {
+	it('truncates at a word boundary rather than mid-word', () => {
+		const long = `${'word '.repeat(50)}end`
+		const clamped = clampDescription(long)
+		expect(clamped.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX)
+		expect(clamped.endsWith('…')).toBe(true)
+		expect(clamped).not.toMatch(/wor…$/)
+	})
+
+	it('leaves a description inside the bound completely alone', () => {
+		const ok = 'A description comfortably inside the upper bound of the range.'
+		expect(clampDescription(ok)).toBe(ok)
+	})
+
+	it('never pads a short one — the gate names the route instead', () => {
+		// No code can write a better sentence, so a too-short description stays
+		// too short and is reported rather than inflated past a length check.
+		expect(clampDescription('Short.')).toBe('Short.')
+	})
+
+	it('clamps what pageMeta emits, so no page can exceed the bound', () => {
+		const markup = head(() =>
+			publicPage({ description: `${'word '.repeat(60)}end` }),
+		)
+		const emitted = markup.match(
+			/name="description" content="([^"]*)"/,
+		)?.[1] as string
+		expect(emitted.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX)
 	})
 })
 

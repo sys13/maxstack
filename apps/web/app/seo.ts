@@ -39,7 +39,12 @@
  * say here.
  */
 
-import { META_TITLE_MAX, type SiteSpec, siteUrl } from '@maxstack/spec'
+import {
+	META_DESCRIPTION_MAX,
+	META_TITLE_MAX,
+	type SiteSpec,
+	siteUrl,
+} from '@maxstack/spec'
 
 /** What React Router accepts back from a `meta` export. Narrowed to the three
  * shapes this helper actually emits, so a typo is a type error. */
@@ -111,6 +116,27 @@ export function composeTitle(
 }
 
 /**
+ * Clamp a description to {@link META_DESCRIPTION_MAX}, at a word boundary.
+ *
+ * Truncating here is the opposite call from {@link composeTitle}, and the
+ * asymmetry is deliberate. A title's specific half sits at the *front* and is
+ * ruined by a cut; a description is prose whose tail is the least load-bearing
+ * part, and every search engine truncates it anyway — so doing it here means the
+ * emitted tag says what the renderer intended rather than whatever the crawler's
+ * own cut left behind.
+ *
+ * The lower bound is deliberately *not* enforced by padding. A short description
+ * stays short and the gate reports the route by name, because the fix is to
+ * write a better sentence and no code can do that.
+ */
+export function clampDescription(text: string): string {
+	if (text.length <= META_DESCRIPTION_MAX) return text
+	const cut = text.slice(0, META_DESCRIPTION_MAX - 1)
+	const boundary = cut.lastIndexOf(' ')
+	return `${(boundary > 40 ? cut.slice(0, boundary) : cut).trimEnd()}…`
+}
+
+/**
  * Every head tag for one page.
  *
  * The ordering is fixed (title, description, robots, canonical, OG, Twitter) so
@@ -139,7 +165,8 @@ export function pageMeta(
 	// Never invented. A page with nothing to say about itself emits no
 	// description and the gate reports that, rather than a generated sentence
 	// passing a length check while meaning nothing.
-	const description = input.description ?? site.description
+	const raw = input.description ?? site.description
+	const description = raw ? clampDescription(raw) : undefined
 	if (description) tags.push({ name: 'description', content: description })
 
 	if (input.noindex) {

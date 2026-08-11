@@ -53,7 +53,13 @@ export function meta({ loaderData }: Route.MetaArgs) {
 	return pageMeta(
 		{
 			title: loaderData.rowTitle ?? humanizeKey(loaderData.key),
-			description: loaderData.title,
+			// The row's own title leads the description, because the portal's
+			// description alone is the SAME sentence on every row page under it —
+			// which is a page-for-page duplicate description across the whole
+			// portal, and is exactly what the #432 gate caught on its first run.
+			description: loaderData.rowTitle
+				? `${loaderData.rowTitle} — ${loaderData.title}`
+				: loaderData.title,
 			path: loaderData.path,
 			noindex: !loaderData.indexable,
 		},
