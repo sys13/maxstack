@@ -106,6 +106,18 @@ export const SPEC_DIR_FILES = {
 	 * fan-out table they never asked for.
 	 */
 	live: 'live.json',
+	/**
+	 * Written only once a `site.set` has landed; absent = no public identity.
+	 *
+	 * The absence is load-bearing on `portals.json`'s terms rather than
+	 * `theme.json`'s: a spec dir with no `site.json` has no canonical, no OG card
+	 * and no sitemap, and every route it derives emits `noindex`. So every
+	 * project that predates this layer reads as claiming no public identity
+	 * without anybody having to write that down — which is the correct default,
+	 * because the alternative is a guessed domain appearing in a canonical tag on
+	 * every page.
+	 */
+	site: 'site.json',
 } as const
 
 /**
@@ -133,6 +145,7 @@ export const OPTIONAL_SPEC_DIR_FILES: readonly string[] = [
 	SPEC_DIR_FILES.imports,
 	SPEC_DIR_FILES.portals,
 	SPEC_DIR_FILES.live,
+	SPEC_DIR_FILES.site,
 ]
 
 /** A spec directory as a filename→contents map (the codec's IO-free unit). */
@@ -715,6 +728,9 @@ export function encodeSpecSystem(spec: SpecSystem): SpecDir {
 		dir[SPEC_DIR_FILES.portals] = jsonFile(encodePortals(spec.portals))
 	if (spec.live !== undefined)
 		dir[SPEC_DIR_FILES.live] = jsonFile(encodeLive(spec.live))
+	// Same absence rule again, and no encoder: a site is whole-document
+	// last-wins state with no provenance to compact, exactly like theme.json.
+	if (spec.site !== undefined) dir[SPEC_DIR_FILES.site] = jsonFile(spec.site)
 	return dir
 }
 
@@ -786,6 +802,9 @@ export function decodeSpecSystem(dir: SpecDir): SpecSystem {
 	const liveRaw = dir[SPEC_DIR_FILES.live]
 	if (liveRaw !== undefined && liveRaw.trim().length > 0)
 		state.live = decodeLive(JSON.parse(liveRaw) as Record<string, unknown>)
+	const siteRaw = dir[SPEC_DIR_FILES.site]
+	if (siteRaw !== undefined && siteRaw.trim().length > 0)
+		state.site = JSON.parse(siteRaw) as SpecSystem['site']
 	const oplogRaw = dir[SPEC_DIR_FILES.oplog] ?? ''
 	state.opLog = oplogRaw
 		.split('\n')

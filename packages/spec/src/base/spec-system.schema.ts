@@ -88,6 +88,7 @@ import {
 	type SearchIndexSpec,
 	searchableFieldTypes,
 } from './search.ts'
+import { siteErrors } from './site.ts'
 import {
 	ENRICH_TRIGGER_KINDS,
 	MAX_SOURCE_MAPPINGS,
@@ -1705,6 +1706,14 @@ export function collectSpecSystemErrors(system: SpecSystem): string[] {
 			checkProvenance(field.provenance, `field ${field.id}`)
 		}
 	}
+
+	// ---- site layer ----------------------------------------------------------
+	// Checked at the layer and not only at the op, on the schedule layer's
+	// reasoning: a spec can also arrive by decoding a directory somebody
+	// hand-edited, and a `site.json` holding `http://localhost:3000` is the one
+	// shape that must never be loadable — it would put a canonical naming an
+	// unreachable host on every page of the app.
+	if (system.site !== undefined) errors.push(...siteErrors('site', system.site))
 
 	// ---- flag layer ----------------------------------------------------------
 	// Validated before the page layer so a page's gate can be resolved against

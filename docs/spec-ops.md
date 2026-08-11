@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 63 typed operations that can change a project spec — the whole
+The 64 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -62,6 +62,7 @@ keys or nothing.
 | [`page.addAggregate`](#pageaddaggregate) | `page` | Add an aggregate block: a GROUP BY over the page’s rows — count by enum, sum/avg of a number by a dimension, count per month — drawn as bars or a table. This is what a dashboard tile is; data.addRollup is the per-row number instead. |
 | [`pricing.addTier`](#pricingaddtier) | `pricing` | Add a pricing tier. |
 | [`theme.set`](#themeset) | `theme` | Set the app’s visual theme: a curated preset (zinc \| ocean \| forest \| sunset \| mono \| rose \| amber) plus optional accent (#hex), radius (sm\|md\|lg\|full), density (comfortable\|compact), font (sans\|serif\|mono\|rounded\|humanist), typeScale (compact\|default\|relaxed). Last-wins — replaces the whole theme. |
+| [`site.set`](#siteset) | `site` | Set the app’s public identity: domain (origin only — scheme + host, no path, no trailing slash, never localhost), name, plus optional tagline, description, social handles and defaultOgImage. Every canonical, OG card and sitemap entry is built against domain. Last-wins — replaces the whole declaration, so an omitted optional key is cleared. |
 | [`flags.declare`](#flagsdeclare) | `flags` | Declare a feature flag: a key, a default, and optional targeting (roles \| organizations \| rolloutPercent). Evaluated server-side per viewer; generation never reads a flag’s value. |
 | [`flags.setTargeting`](#flagssettargeting) | `flags` | Replace a flag’s targeting wholesale (last-wins). Omit `targeting` to clear it and return the flag to its bare default — this is how a rollout is ramped, paused, or completed. |
 | [`flags.gate`](#flagsgate) | `flags` | Gate a page or block on a declared flag, or ungate it with flag:null. A gated surface is composed only for viewers the flag is on for; the generated code is identical either way. |
@@ -608,6 +609,26 @@ Set the app’s visual theme: a curated preset (zinc | ocean | forest | sunset |
   - `density` — `string` · one of `comfortable`, `compact`
   - `font` — `string` · one of `sans`, `serif`, `mono`, `rounded`, `humanist`
   - `typeScale` — `string` · one of `compact`, `default`, `relaxed`
+
+## Layer: site
+
+### `site.set`
+
+Set the app’s public identity: domain (origin only — scheme + host, no path, no trailing slash, never localhost), name, plus optional tagline, description, social handles and defaultOgImage. Every canonical, OG card and sitemap entry is built against domain. Last-wins — replaces the whole declaration, so an omitted optional key is cleared.
+
+**Arguments**
+
+- `site` — `object` · **required**
+  - `domain` — `string` · **required** · The origin, as in "https://example.com". Scheme + host (+ port if non-default) ONLY: no path, no trailing slash, no query, no fragment, no credentials. A local host (localhost, 127.0.0.1, *.local, *.test) is refused — a canonical pointing at a laptop tells a crawler the real page lives on a host it cannot reach. For local development declare no site at all.
+  - `name` — `string` · **required** · What the app calls itself — the OG site name and the suffix of every derived page title. At most 40 characters, because it is appended to every title and a title is bounded at 60.
+  - `tagline` — `string` · A short phrase, at most 80 characters. Not a paragraph.
+  - `description` — `string` · The fallback meta description for a public route that declares none. 50–160 characters, because it is emitted verbatim on the pages that use it.
+  - `defaultOgImage` — `string` · Fallback card image: an absolute https URL, or a rooted path like "/og.png" resolved against domain. A relative path is refused — a crawler resolves it against whichever page it found the tag on.
+  - `social` — `object`
+    - `twitter` — `string` · Handle like "@example", not a profile URL.
+    - `github` — `string`
+    - `mastodon` — `string`
+    - `linkedin` — `string`
 
 ## Layer: flags
 

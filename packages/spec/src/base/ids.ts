@@ -153,6 +153,7 @@ export type SpecLayer =
 	| 'imports'
 	| 'portals'
 	| 'live'
+	| 'site'
 	| 'system'
 
 /**

@@ -165,6 +165,17 @@ import {
 	searchableFieldTypes,
 } from './search.ts'
 import {
+	describeSite,
+	MAX_SITE_NAME_LENGTH,
+	MAX_SITE_TAGLINE_LENGTH,
+	META_DESCRIPTION_MAX,
+	META_DESCRIPTION_MIN,
+	META_TITLE_MAX,
+	type SiteSpec,
+	siteErrors,
+	TWITTER_HANDLE_RE,
+} from './site.ts'
+import {
 	describeSource,
 	MAX_SOURCE_MAPPINGS,
 	MAX_SYNC_RECORDS,
@@ -856,6 +867,21 @@ export type SpecOp =
 	| { op: 'theme.set'; args: { theme: ThemeSpec } }
 	| {
 			/**
+			 * Set the app's public identity — the origin every canonical, OG image
+			 * and sitemap entry is built against. Whole-document last-wins, like
+			 * `theme.set`: omitting an optional key clears it, so removing a stale
+			 * tagline is spellable.
+			 *
+			 * The domain is validated here rather than downstream because a bad
+			 * domain produces a bad canonical on *every page in the app*, and this
+			 * is the only place where refusing it costs one error message instead
+			 * of a re-crawl.
+			 */
+			op: 'site.set'
+			args: { site: SiteSpec }
+	  }
+	| {
+			/**
 			 * Declare a feature flag. `declaredAt` is stamped from the
 			 * op's `appliedAt` — flag age is half of stale-flag reporting, and a
 			 * hand-authored date is a date that lies.
@@ -1364,6 +1390,7 @@ export const SPEC_OP_NAMES = [
 	'page.addAggregate',
 	'pricing.addTier',
 	'theme.set',
+	'site.set',
 	'flags.declare',
 	'flags.setTargeting',
 	'flags.gate',
@@ -3078,6 +3105,59 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['theme'],
+		},
+	},
+	'site.set': {
+		name: 'site.set',
+		layer: 'site',
+		summary:
+			'Set the app’s public identity: domain (origin only — scheme + host, no path, no trailing slash, never localhost), name, plus optional tagline, description, social handles and defaultOgImage. Every canonical, OG card and sitemap entry is built against domain. Last-wins — replaces the whole declaration, so an omitted optional key is cleared.',
+		args: {
+			type: 'object',
+			properties: {
+				site: {
+					type: 'object',
+					properties: {
+						domain: {
+							type: 'string',
+							description:
+								'The origin, as in "https://example.com". Scheme + host (+ port if non-default) ONLY: no path, no trailing slash, no query, no fragment, no credentials. A local host (localhost, 127.0.0.1, *.local, *.test) is refused — a canonical pointing at a laptop tells a crawler the real page lives on a host it cannot reach. For local development declare no site at all.',
+						},
+						name: {
+							type: 'string',
+							description: `What the app calls itself — the OG site name and the suffix of every derived page title. At most ${MAX_SITE_NAME_LENGTH} characters, because it is appended to every title and a title is bounded at ${META_TITLE_MAX}.`,
+						},
+						tagline: {
+							type: 'string',
+							description: `A short phrase, at most ${MAX_SITE_TAGLINE_LENGTH} characters. Not a paragraph.`,
+						},
+						description: {
+							type: 'string',
+							description: `The fallback meta description for a public route that declares none. ${META_DESCRIPTION_MIN}–${META_DESCRIPTION_MAX} characters, because it is emitted verbatim on the pages that use it.`,
+						},
+						defaultOgImage: {
+							type: 'string',
+							description:
+								'Fallback card image: an absolute https URL, or a rooted path like "/og.png" resolved against domain. A relative path is refused — a crawler resolves it against whichever page it found the tag on.',
+						},
+						social: {
+							type: 'object',
+							properties: {
+								twitter: {
+									type: 'string',
+									pattern: TWITTER_HANDLE_RE.source,
+									description: 'Handle like "@example", not a profile URL.',
+								},
+								github: { type: 'string' },
+								mastodon: { type: 'string' },
+								linkedin: { type: 'string' },
+							},
+						},
+					},
+					required: ['domain', 'name'],
+				},
+			},
+			required: ['site'],
 		},
 	},
 	'flags.declare': {
@@ -5994,6 +6074,30 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 					)
 			break
 		}
+		case 'site.set': {
+			errors.push(...siteErrors(op.op, op.args.site))
+			// Unknown keys are refused on `theme.set`'s reasoning, sharpened: this
+			// declaration is last-wins, so a misspelled key is silently dropped on
+			// write AND clears whatever the correct key held. An author who typed
+			// `ogImage` would otherwise see their card image disappear and get no
+			// indication that the instruction did anything at all.
+			if (op.args.site !== null && typeof op.args.site === 'object') {
+				const known = new Set([
+					'domain',
+					'name',
+					'tagline',
+					'description',
+					'social',
+					'defaultOgImage',
+				])
+				for (const key of Object.keys(op.args.site))
+					if (!known.has(key))
+						errors.push(
+							`${op.op}: unknown site key "${key}" (expected: ${[...known].join(', ')})`,
+						)
+			}
+			break
+		}
 		case 'flags.declare': {
 			const { flag } = op.args
 			const declared = system.flags?.flags ?? []
@@ -7084,6 +7188,17 @@ export function diffOp(op: SpecOp): SpecDiff {
 				summary: `Set theme to "${preset}"${extras ? ` (${extras})` : ''}`,
 			}
 		}
+		case 'site.set': {
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: 'site',
+				// The domain leads, because it is the fact every derived URL on every
+				// page depends on and the one a reviewer is actually checking.
+				summary: `Set site identity to ${describeSite(op.args.site)}`,
+			}
+		}
 		case 'flags.declare':
 			return add(
 				op.args.flag.id,
@@ -7707,6 +7822,16 @@ export function applyOp(
 			next.theme = Object.fromEntries(
 				Object.entries(op.args.theme).filter(([, v]) => v !== undefined),
 			) as ThemeSpec
+			break
+		}
+		case 'site.set': {
+			// Full-replace, last-wins, exactly as `theme.set`: strip undefined keys
+			// so the stored site (and the encoded site.json) carries only what was
+			// actually set, and an omitted optional key is cleared rather than
+			// merged forward.
+			next.site = Object.fromEntries(
+				Object.entries(op.args.site).filter(([, v]) => v !== undefined),
+			) as SiteSpec
 			break
 		}
 		case 'pricing.addTier': {

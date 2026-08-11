@@ -232,23 +232,17 @@ describe('spec-codec directory round-trip', () => {
 		// sources.declare, search.json on a search.declare,
 		// documents.json on a documents.declare, imports.json on an
 		// imports.declare, portals.json on a portals.declare,
-		// live.json on a live.declare.
-		expect(Object.keys(dir).sort()).toEqual(
-			Object.values(SPEC_DIR_FILES)
-				.filter(
-					(f) =>
-						f !== SPEC_DIR_FILES.theme &&
-						f !== SPEC_DIR_FILES.flags &&
-						f !== SPEC_DIR_FILES.schedules &&
-						f !== SPEC_DIR_FILES.sources &&
-						f !== SPEC_DIR_FILES.search &&
-						f !== SPEC_DIR_FILES.documents &&
-						f !== SPEC_DIR_FILES.imports &&
-						f !== SPEC_DIR_FILES.portals &&
-						f !== SPEC_DIR_FILES.live,
-				)
-				.sort(),
+		// live.json on a live.declare, site.json on a site.set.
+		//
+		// Derived from OPTIONAL_SPEC_DIR_FILES rather than listed by hand: a
+		// hand-maintained copy of that list is a tenth place to forget a new
+		// layer, which is the same both-directions drift the constant exists to
+		// make impossible. `oplog.jsonl` is the one optional file that is always
+		// written — an empty log is `''` rather than an absent file.
+		const alwaysWritten = Object.values(SPEC_DIR_FILES).filter(
+			(f) => !OPTIONAL_SPEC_DIR_FILES.includes(f) || f === SPEC_DIR_FILES.oplog,
 		)
+		expect(Object.keys(dir).sort()).toEqual(alwaysWritten.sort())
 		expect(isSpecDir(dir)).toBe(true)
 		expect(JSON.parse(dir[SPEC_DIR_FILES.meta] ?? '')).toEqual({
 			formatVersion: SPEC_FORMAT_VERSION,
@@ -623,6 +617,84 @@ describe('external data sources', () => {
 		// A pre-#179 directory has no live.json and decodes to no layer at all.
 		delete dir[SPEC_DIR_FILES.live]
 		expect(decodeSpecSystem(dir).live).toBeUndefined()
+	})
+
+	it('writes site.json only once a site is set, and round-trips it byte-identically', () => {
+		// The both-directions trap once more, and here the absence is the strongest
+		// it gets: a spec dir with no `site.json` claims no public identity, so
+		// every route it derives emits `noindex` and no canonical. A codec that
+		// materialized an empty file on write would hand every pre-#429 project a
+		// declaration it never made.
+		const before = sampleSystem()
+		const beforeDir = encodeSpecSystem(before)
+		expect(beforeDir[SPEC_DIR_FILES.site]).toBeUndefined()
+		expect(decodeSpecSystem(beforeDir).site).toBeUndefined()
+		expect(OPTIONAL_SPEC_DIR_FILES).toContain(SPEC_DIR_FILES.site)
+
+		const site = {
+			domain: 'https://taskly.example.com',
+			name: 'Taskly',
+			tagline: 'Ship the list',
+			description:
+				'Taskly keeps a small team’s work in one list that everybody can actually see.',
+			social: { twitter: '@taskly' },
+			defaultOgImage: '/og.png',
+		}
+		const s = applyOp(before, { op: 'site.set', args: { site } }, meta(30))
+		const dir = encodeSpecSystem(s)
+		expect(dir[SPEC_DIR_FILES.site]).toBeDefined()
+		const decoded = decodeSpecSystem(dir)
+		expect(decoded.site).toEqual(site)
+		// Byte-identical, not merely deep-equal: re-encoding the decoded system
+		// must reproduce the same file, or a read/write cycle drifts the tree.
+		expect(encodeSpecSystem(decoded)[SPEC_DIR_FILES.site]).toBe(
+			dir[SPEC_DIR_FILES.site],
+		)
+		expect(logEssence(decoded)).toEqual(logEssence(s))
+		expect(() => validateSpecSystem(decoded)).not.toThrow()
+
+		// A pre-#429 directory has no site.json and decodes to no layer at all —
+		// and the rest of the spec is untouched by its absence.
+		delete dir[SPEC_DIR_FILES.site]
+		expect(decodeSpecSystem(dir).site).toBeUndefined()
+		expect(() => validateSpecSystem(decodeSpecSystem(dir))).not.toThrow()
+	})
+
+	it('clears an omitted optional key on a second site.set (last-wins, not merge)', () => {
+		// Whole-document last-wins is what makes removing a stale tagline
+		// spellable. A merge would leave the old one on disk forever with no op
+		// that could take it off.
+		const withTagline = applyOp(
+			sampleSystem(),
+			{
+				op: 'site.set',
+				args: {
+					site: {
+						domain: 'https://taskly.example.com',
+						name: 'Taskly',
+						tagline: 'Ship the list',
+					},
+				},
+			},
+			meta(31),
+		)
+		const replaced = applyOp(
+			withTagline,
+			{
+				op: 'site.set',
+				args: {
+					site: { domain: 'https://taskly.example.com', name: 'Taskly' },
+				},
+			},
+			meta(32),
+		)
+		expect(replaced.site).toEqual({
+			domain: 'https://taskly.example.com',
+			name: 'Taskly',
+		})
+		expect(decodeSpecSystem(encodeSpecSystem(replaced)).site).toEqual(
+			replaced.site,
+		)
 	})
 
 	it('carries the credential NAME through the codec and never a value', () => {

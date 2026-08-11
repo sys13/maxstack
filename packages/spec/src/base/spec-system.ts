@@ -43,6 +43,7 @@ import {
 } from './provenance.ts'
 import type { SchedulesSpec } from './schedules.ts'
 import type { SearchSpec } from './search.ts'
+import type { SiteSpec } from './site.ts'
 import type { SourcesSpec } from './sources.ts'
 import type { AppliedOp } from './spec-ops.ts'
 
@@ -1248,6 +1249,25 @@ export interface SpecSystem extends AutoAcceptPolicy {
 	 * `live.ts`, and note that fan-out is in-process by stated design.
 	 */
 	live?: LiveSpec
+	/**
+	 * The app's public identity — the origin, name and head-tag defaults every
+	 * derived `<head>`, canonical URL and sitemap entry is built against.
+	 * Optional on the same absence-means-nothing rule as the layers above: a
+	 * project that has never declared one grows no `site.json`, so pre-#429 spec
+	 * dirs round-trip byte-identical *and* read as having no public identity.
+	 *
+	 * Here the absence carries `portals`' meaning rather than `theme`'s: with no
+	 * site declared there is no canonical, no OG card and no sitemap, and every
+	 * route emits `noindex`. That is the correct default rather than a convenient
+	 * one — a defaulted domain would put a canonical naming somebody else's
+	 * origin on every page of every project that never asked for one.
+	 *
+	 * A site adds no column, no table and no route. It declares no audience
+	 * either: this layer **cannot widen `portals`**, and the sitemap derived from
+	 * it is a view of the portal declarations, so it can only list what the
+	 * access rule already admits. See `site.ts`.
+	 */
+	site?: SiteSpec
 	/** Append-only decision ledger (§3-L1). */
 	ledger: DecisionLedger
 	/** The applied-op audit trail — every mutation is logged and diffable. */
