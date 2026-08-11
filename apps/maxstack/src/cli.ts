@@ -12,6 +12,7 @@
  * command without any of them knowing about it.
  */
 
+import { closePrompters } from './lib/prompt.ts'
 import { finishUpdateCheck, startUpdateCheck } from './lib/update-check.ts'
 import { buildProgram } from './program.ts'
 
@@ -29,6 +30,12 @@ async function main() {
 		// exiting here also abandons the probe — which is fine, the cache write is
 		// best-effort by design.
 		process.exit(1)
+	} finally {
+		// Whatever happened, give the terminal back (#421). An open readline
+		// interface holds a listener on stdin, and that listener alone is enough to
+		// keep the event loop alive — so a command that asked a question and then
+		// succeeded would print its result and never exit.
+		await closePrompters()
 	}
 	await finishUpdateCheck(pending)
 }

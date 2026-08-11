@@ -14,7 +14,9 @@ import {
 	type RouteManifest,
 	serializeManifest,
 } from '@maxstack/core/ownership'
+import { routeChoices } from '../lib/choices.ts'
 import { loadProject } from '../lib/project.ts'
+import { type Interaction, nonInteractive, resolveArg } from '../lib/prompt.ts'
 
 /**
  * What eject actually hands over, said at the moment of handover (#349).
@@ -70,8 +72,9 @@ interface EjectOptions {
 
 export async function ejectCommand(
 	dir: string | undefined,
-	routeId: string,
+	routeId: string | undefined,
 	opts: EjectOptions,
+	io: Interaction = nonInteractive,
 ): Promise<void> {
 	const project = await loadProject(dir ?? '.')
 	const fs = createNodeFs(project.appPath)
@@ -84,10 +87,20 @@ export async function ejectCommand(
 	const manifest: RouteManifest = parseManifest(
 		await fs.read(MANIFEST_FILENAME),
 	)
-	const entry = manifest.entries.find((e) => e.id === routeId)
+
+	// The manifest is the list the "unknown route id" error below already prints
+	// after a wrong guess (#421). Offering it first is the same list, one round
+	// trip earlier.
+	const chosen = await resolveArg(routeId, 'route-id', io, (prompter) =>
+		prompter.select(
+			'Which route do you want to own?',
+			routeChoices(manifest.entries),
+		),
+	)
+	const entry = manifest.entries.find((e) => e.id === chosen)
 	if (!entry) {
 		const ids = manifest.entries.map((e) => e.id).join(', ')
-		throw new Error(`unknown route id "${routeId}". known: ${ids || '(none)'}`)
+		throw new Error(`unknown route id "${chosen}". known: ${ids || '(none)'}`)
 	}
 
 	const destFile = opts.to ?? entry.file
@@ -98,12 +111,12 @@ export async function ejectCommand(
 	if (opts.dryRun) {
 		if (entry.ownership === 'ejected') {
 			console.log(
-				`· "${routeId}" is already ejected (${entry.file}) — nothing to do.`,
+				`· "${chosen}" is already ejected (${entry.file}) — nothing to do.`,
 			)
 			return
 		}
 		const source = await fs.read(entry.file)
-		console.log(`eject --dry-run: "${routeId}"`)
+		console.log(`eject --dry-run: "${chosen}"`)
 		console.log(`  ${entry.file} (${entry.ownership}) → ${destFile} (ejected)`)
 		console.log(
 			`  after eject, "maxstack gen" stops overwriting it and it's yours to edit.`,
@@ -118,12 +131,7 @@ export async function ejectCommand(
 	// Read before the eject: `eject` rewrites the file's banner in place, and
 	// what matters is the module being handed over, not the banner on it.
 	const source = await fs.read(entry.file)
-	const { manifest: next, result } = await eject(
-		fs,
-		manifest,
-		routeId,
-		destFile,
-	)
+	const { manifest: next, result } = await eject(fs, manifest, chosen, destFile)
 	await fs.write(MANIFEST_FILENAME, serializeManifest(next))
 
 	console.log(`✔ ${result.action}: ${result.file} (now ${result.ownership})`)

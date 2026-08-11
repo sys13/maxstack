@@ -75,6 +75,7 @@ import { upgradeCommand } from './commands/upgrade.ts'
 import { validateCommand } from './commands/validate.ts'
 import { addViewCommand } from './commands/view.ts'
 import { workbenchCommand } from './commands/workbench.ts'
+import { interactionFor } from './lib/prompt.ts'
 
 /** Collect a repeatable option (`--field a --field b`) into an array. */
 function collect(value: string, previous: string[] = []): string[] {
@@ -220,7 +221,10 @@ export function buildProgram(): Command {
 
 	program
 		.command('add-entity')
-		.argument('<slug>', 'entity id slug (lowercase, e.g. task -> e-task)')
+		.argument(
+			'[slug]',
+			'entity id slug (lowercase, e.g. task -> e-task); omit at a terminal to be asked',
+		)
 		.argument('[dir]', 'project directory', '.')
 		.option(
 			'--field <spec>',
@@ -252,14 +256,19 @@ export function buildProgram(): Command {
 		.description(
 			'Add a data entity — sugar that compiles to a data.addEntity op',
 		)
-		.action((slug, dir, opts) => addEntityCommand(dir, slug, opts))
+		.action((slug, dir, opts, cmd) =>
+			addEntityCommand(dir, slug, opts, interactionFor(cmd)),
+		)
 
 	program
 		.command('add-field')
-		.argument('<entity>', 'target entity id or slug (e-task or task)')
 		.argument(
-			'<spec>',
-			"the field as name:type[!] — dueOn:date!, 'status:enum(todo,done)', owner:ref:e-user (quote any spec with ( or ->)",
+			'[entity]',
+			'target entity id or slug (e-task or task); omit at a terminal to be asked',
+		)
+		.argument(
+			'[spec]',
+			"the field as name:type[!] — dueOn:date!, 'status:enum(todo,done)', owner:ref:e-user (quote any spec with ( or ->). Omit at a terminal to be asked field-by-field, which needs no quoting",
 		)
 		.argument('[dir]', 'project directory', '.')
 		.option('--accept', 'auto-accept the change (clear the review queue)')
@@ -273,13 +282,16 @@ export function buildProgram(): Command {
 			'which agent authored it, for the audit trail (default: detected, see MAXSTACK_AGENT)',
 		)
 		.description('Add a field to an entity — sugar for a data.addField op')
-		.action((entity, spec, dir, opts) =>
-			addFieldCommand(dir, entity, spec, opts),
+		.action((entity, spec, dir, opts, cmd) =>
+			addFieldCommand(dir, entity, spec, opts, interactionFor(cmd)),
 		)
 
 	program
 		.command('add-page')
-		.argument('<entity>', 'target entity id or slug (e-task or task)')
+		.argument(
+			'[entity]',
+			'target entity id or slug (e-task or task); omit at a terminal to be asked',
+		)
 		.argument('[dir]', 'project directory', '.')
 		.option('--name <name>', 'page display name (default: title-cased slug)')
 		.option('--route <route>', 'route path (default: /<slug>)')
@@ -297,13 +309,15 @@ export function buildProgram(): Command {
 		.description(
 			'Add a default list page for an entity — sugar that compiles to a page.addPage op',
 		)
-		.action((entity, dir, opts) => addPageCommand(dir, entity, opts))
+		.action((entity, dir, opts, cmd) =>
+			addPageCommand(dir, entity, opts, interactionFor(cmd)),
+		)
 
 	program
 		.command('theme')
 		.argument(
-			'<preset>',
-			'theme preset: zinc | ocean | forest | sunset | mono | rose | amber',
+			'[preset]',
+			'theme preset: zinc | ocean | forest | sunset | mono | rose | amber; omit at a terminal to be asked',
 		)
 		.argument('[dir]', 'project directory', '.')
 		.option(
@@ -328,7 +342,9 @@ export function buildProgram(): Command {
 		.description(
 			"Set the app's visual theme — sugar that compiles to a theme.set op (live immediately)",
 		)
-		.action((preset, dir, opts) => themeCommand(dir, preset, opts))
+		.action((preset, dir, opts, cmd) =>
+			themeCommand(dir, preset, opts, interactionFor(cmd)),
+		)
 
 	program
 		.command('add')
@@ -352,10 +368,10 @@ export function buildProgram(): Command {
 		.description(
 			'Browse the catalog (no argument), install a feature bundle, or "add view <page>" to scaffold an owned list view',
 		)
-		.action((target, arg2, dir, opts) => {
+		.action((target, arg2, dir, opts, cmd) => {
 			// No argument is the discovery surface: a catalog nobody
 			// can browse markets as breadth and delivers as trivia.
-			if (!target) return catalogCommand(arg2 ?? '.')
+			if (!target) return catalogCommand(arg2 ?? '.', interactionFor(cmd))
 			if (target === 'view') {
 				if (!arg2)
 					throw new Error(
@@ -370,7 +386,10 @@ export function buildProgram(): Command {
 
 	program
 		.command('eject')
-		.argument('<route-id>', 'route id to take ownership of')
+		.argument(
+			'[route-id]',
+			'route id to take ownership of; omit at a terminal to be asked',
+		)
 		.argument('[dir]', 'project directory', '.')
 		.option('--to <file>', 'destination file (default: in place)')
 		.option(
@@ -378,7 +397,9 @@ export function buildProgram(): Command {
 			'preview the file that would be ejected; write nothing',
 		)
 		.description('Take ownership of a generated route (never re-clobbered)')
-		.action((routeId, dir, opts) => ejectCommand(dir, routeId, opts))
+		.action((routeId, dir, opts, cmd) =>
+			ejectCommand(dir, routeId, opts, interactionFor(cmd)),
+		)
 
 	program
 		.command('drift')
@@ -481,10 +502,15 @@ export function buildProgram(): Command {
 
 	slots
 		.command('fill')
-		.argument('<id>', 'slot id, as printed by `maxstack slots`')
+		.argument(
+			'[id]',
+			'slot id, as printed by `maxstack slots`; omit at a terminal to be asked',
+		)
 		.argument('[dir]', 'project directory', '.')
 		.description('Scaffold a typed, user-owned stub for one block slot')
-		.action((id, dir) => slotsFillCommand(id, dir))
+		.action((id, dir, _opts, cmd) =>
+			slotsFillCommand(id, dir, interactionFor(cmd)),
+		)
 
 	program
 		.command('validate')
