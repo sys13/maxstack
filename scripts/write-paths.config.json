@@ -268,6 +268,17 @@
 			"canAccept": false,
 			"coveredBy": "packages/mcp/src/attention.test.ts",
 			"why": "`specIfAllAccepted` — the 'if you accept everything pending' projection behind the blast radius and the public-exposure category of the what-needs-you report (issue #198). Every pending accept is applied to a local system and the result is only ever read: it is what lets a reviewer see the consequences before consenting to them. The single most dangerous thing on this surface would be for that projection to reach `spec.save`, because opening the workbench would then settle every review in the queue while looking exactly like the feature working — so the ops are stamped `actor.path: 'attention-hypothetical'` to be findable by name if one ever leaks, and both hosts assert the spec and the op log are untouched after a load."
+		},
+		{
+			"id": "seo-gate-fixture",
+			"surface": "harness",
+			"site": "apps/web/scripts/check-seo.ts",
+			"kind": "write",
+			"authorKind": "human",
+			"grounds": true,
+			"canAccept": false,
+			"coveredBy": "apps/web/app/seo-gate.write-path.invariant.test.ts",
+			"why": "The fixture project the SEO gate (#432) builds, serves and crawls — a site, a public collection portal whose bound admits some rows and not others, a token portal and a paused one. It is a `write` rather than a `preflight` because it genuinely encodes a spec directory to disk; what makes it safe is *where*, not whether: the directory is an `mkdtemp` under the OS temp dir, handed to the server as MAXSTACK_DATA_DIR and removed in a `finally`. It never resolves a project path and never calls `spec.save`, so it cannot reach a real store even when the gate fails partway. Stamped `harness` on `web-demo-seed`'s reasoning: a spec the gate invented must not read as somebody's real work."
 		}
 	]
 }

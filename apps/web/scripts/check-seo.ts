@@ -126,7 +126,10 @@ const meta = (n: number) => ({
 	id: `op-${n}` as const,
 	origin: 'human' as const,
 	appliedAt: '2026-08-10' as const,
-	actor: { surface: 'harness' as const },
+	// `harness`, and stamped with this path's registry id, on `web-demo-seed`'s
+	// reasoning: a fixture the gate invented must never read as somebody's real
+	// work, and an op that leaks out of here has to be findable by name.
+	actor: { surface: 'harness' as const, path: 'seo-gate-fixture' },
 })
 
 const provenance = {
@@ -137,8 +140,11 @@ const provenance = {
 	priority: 'medium' as const,
 }
 
-/** A spec with one entity and three portals: public, token, paused. */
-function fixtureSpec(): SpecSystem {
+/** A spec with one entity and three portals: public, token, paused.
+ *
+ * Exported for `app/seo-gate.write-path.invariant.test.ts`, which asserts this
+ * path stamps `harness` and never reaches the project store. */
+export function fixtureSpec(): SpecSystem {
 	const ops: SpecOp[] = [
 		{
 			op: 'data.addEntity',
@@ -251,7 +257,7 @@ function fixtureSpec(): SpecSystem {
 	return spec
 }
 
-async function writeFixture(): Promise<string> {
+export async function writeFixture(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'maxstack-seo-gate-'))
 	const specDir = join(dir, 'spec')
 	await mkdir(specDir, { recursive: true })
@@ -708,4 +714,7 @@ function report(timings: Record<string, number>): void {
 	process.exit(ok ? 0 : 1)
 }
 
-await gate()
+// Only when run as the command. The fixture builder above is imported by the
+// write-path invariant suite, and importing a module must not build an app and
+// start a server.
+if (process.argv[1]?.endsWith('check-seo.ts')) await gate()
