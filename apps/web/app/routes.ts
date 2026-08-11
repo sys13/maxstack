@@ -13,6 +13,19 @@ export default [
 	// a load balancer / orchestrator expects.
 	route('health', 'routes/health.ts'),
 
+	// `robots.txt` and `sitemap.xml`, derived from the portal declarations
+	// (#431). Static segments ranked above the project catch-all, for the reason
+	// `documents`, `imports` and `p` are static: a project page named
+	// "sitemap.xml" would otherwise shadow the one file that tells a crawler
+	// which pages exist.
+	//
+	// `/sitemaps/:page` is only linked once the URL count passes the sitemap
+	// protocol's per-file ceiling, at which point `/sitemap.xml` becomes an
+	// index pointing here.
+	route('robots.txt', 'routes/robots.txt.ts'),
+	route('sitemap.xml', 'routes/sitemap.xml.ts'),
+	route('sitemaps/:page', 'routes/sitemaps.$page.ts'),
+
 	// The review-first workbench: suggest→accept queue, spec zoom, decision
 	// ledger, all driven off the spec's provenance flags (§3-L4B, Phase 5).
 	route('workbench', 'routes/workbench.tsx'),
