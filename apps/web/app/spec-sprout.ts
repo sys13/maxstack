@@ -619,6 +619,10 @@ function groundPortals(
 			})
 		}
 		if (dropped) continue
+		const exposed = new Set(readFields)
+		const titleField = pickTitleField(
+			getAcceptedOrAll(entity.fields).filter((f) => exposed.has(f.name)),
+		)
 		plans.push({
 			key: portal.key,
 			description: portal.description,
@@ -628,6 +632,11 @@ function groundPortals(
 			...(portal.token ? { token: portal.token } : {}),
 			scope: portal.scope,
 			readFields,
+			// Picked over the EXPOSED columns only. Picking over the entity's full
+			// field list would let a column the portal deliberately withholds title
+			// a public page — a projection leak through the one surface strangers
+			// scrape and cache.
+			...(titleField ? { titleField } : {}),
 			writes,
 			...(bound ? { filter: bound } : {}),
 			layout: portal.layout,

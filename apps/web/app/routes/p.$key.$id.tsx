@@ -15,6 +15,7 @@
 
 import { NotFoundError, opGet } from '@maxstack/core'
 import { portalRequest } from '~/portals.server'
+import { humanizeKey, NOINDEX_META, pageMeta } from '~/seo'
 import type { Route } from './+types/p.$key.$id'
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -23,7 +24,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	const { ctx, plan } = portal
 	try {
 		const row = await opGet(ctx, plan.resource, params.id)
-		return { title: plan.description, fields: plan.readFields, row }
+		// The row's own title, from the column `pickTitleField` grounded onto the
+		// plan — restricted to the exposed projection, so this can never surface a
+		// column the portal withholds. Falls back to the portal's label.
+		const rowTitle = plan.titleField ? row[plan.titleField] : undefined
+		return {
+			title: plan.description,
+			fields: plan.readFields,
+			row,
+			site: portal.site,
+			indexable: plan.audience === 'public',
+			path: `/p/${plan.key}/${params.id}`,
+			key: plan.key,
+			rowTitle: typeof rowTitle === 'string' ? rowTitle : undefined,
+		}
 	} catch (error) {
 		// A row outside the bound, and a row this token was not minted for, both
 		// arrive here as `NotFoundError` — deliberately indistinguishable from a
@@ -32,6 +46,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 			throw new Response('Not found', { status: 404 })
 		throw new Response('Not found', { status: 404 })
 	}
+}
+
+export function meta({ loaderData }: Route.MetaArgs) {
+	if (!loaderData) return NOINDEX_META
+	return pageMeta(
+		{
+			title: loaderData.rowTitle ?? humanizeKey(loaderData.key),
+			description: loaderData.title,
+			path: loaderData.path,
+			noindex: !loaderData.indexable,
+		},
+		loaderData.site,
+	)
 }
 
 function show(value: unknown): string {

@@ -12,6 +12,7 @@ import { CookieConsentBanner } from './components/cookie-consent-banner'
 import { ErrorPage, presentError } from './error-page'
 import { projectShell } from './project.server'
 import { AppProviders } from './providers'
+import { NOINDEX_META } from './seo'
 import { showCookieBanner } from './sprout.server'
 import './app.css'
 
@@ -40,6 +41,23 @@ export async function loader({ request }: Route.LoaderArgs) {
 	])
 	return { cookieBanner, shell }
 }
+
+/**
+ * **Default deny for indexing.**
+ *
+ * React Router resolves a route with no `meta` export by walking up to the
+ * nearest ancestor that has one, so this single export makes every one of the
+ * app's routes emit `noindex` unless it overrides it — the admin, the
+ * workbench, `/settings`, `/billing`, `/jobs`, `/team` and every API route
+ * included. A route is indexable only if it says so, which is the same posture
+ * `portals.ts` takes toward reachability and for the same reason: the cost of
+ * the two defaults is asymmetric. A public page nobody indexed is noticed in a
+ * week; an indexed `/settings` outlives the fix by however long the cache does.
+ *
+ * The public surfaces — `home`, `p.$key`, `p.$key.$id` — override this with
+ * `pageMeta`, and they are the only routes in the tree that do.
+ */
+export const meta = () => NOINDEX_META
 
 export function Layout({ children }: { children: React.ReactNode }) {
 	return (

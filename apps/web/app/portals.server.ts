@@ -23,7 +23,9 @@ import {
 	type RateLimiter,
 	rateLimiterFromEnv,
 } from '@maxstack/features/observability'
+import type { SiteSpec } from '@maxstack/spec'
 import { getCoordinator } from './coordination.server'
+import { loadSite } from './seo.server'
 import { getAuditSink, getSprout, resolveUser } from './sprout.server'
 
 const portalScope = globalThis as typeof globalThis & {
@@ -152,6 +154,20 @@ export function clientIdOf(request: Request): string {
 export interface PortalRequest {
 	ctx: OpContext
 	plan: PortalPlan
+	/**
+	 * The declared site identity, so the portal routes can derive a canonical and
+	 * an OG card without reaching for the spec themselves.
+	 *
+	 * It rides along here rather than being loaded in the route because those two
+	 * modules are asserted not to import the store or the platform — a route that
+	 * cannot reach them cannot become a second, weaker read path (#186). Adding a
+	 * spec import there to fetch one string would give the route exactly the reach
+	 * that test exists to deny it, for a tag.
+	 *
+	 * `undefined` when no site is declared, which the routes pass straight to
+	 * `pageMeta` — absence means no canonical, no card, and `noindex`.
+	 */
+	site?: SiteSpec
 }
 
 /**
@@ -173,6 +189,9 @@ export async function portalRequest(
 	const found = registry.findPortal(key)
 	if (!found) return null
 	const { plan } = found
+	// Read before the credential check so an unreachable portal costs no more
+	// than it did; `loadSite` never throws and never blocks on the store.
+	const site = await loadSite()
 
 	let tokenId: string | undefined
 	let rowId: string | undefined
@@ -200,6 +219,7 @@ export async function portalRequest(
 
 	return {
 		plan,
+		...(site ? { site } : {}),
 		ctx: {
 			registry,
 			store,

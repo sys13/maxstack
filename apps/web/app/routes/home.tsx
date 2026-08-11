@@ -44,6 +44,7 @@ import {
 	tryMatchProjectRequest,
 } from '~/project.server'
 import { ProjectFrame } from '~/project-nav'
+import { NOINDEX_META, pageMeta } from '~/seo'
 import { getPlatform, hasDemoData, isFreshProject } from '~/sprout.server'
 import type { Route } from './+types/home'
 import ProjectSurface from './project.surface'
@@ -70,11 +71,41 @@ export async function loader({ request }: Route.LoaderArgs) {
 	return {
 		kind: 'landing' as const,
 		...(await projectChrome()),
+		site: spec.site,
 		tagline: spec.product.context.tldr,
 		pages: await loadProjectRoutes(request),
 		fresh: await isFreshProject(),
 		demoAvailable: await hasDemoData(),
 	}
+}
+
+/**
+ * `/` is the app's front door and the one route whose indexability is a
+ * judgement rather than a derivation.
+ *
+ * It is indexable **only when a site is declared** — which is exactly the signal
+ * that somebody decided this app has a public identity. Without one this
+ * inherits root's `noindex` through `pageMeta`'s no-site branch, so a project
+ * running on a laptop or an internal deployment is not advertising its root.
+ *
+ * When `/` is served by a *declared page* rather than the landing page, the
+ * spec's page is the surface and the platform has no title to claim for it, so
+ * this stays on the site-level defaults rather than inventing one.
+ */
+export function meta({ loaderData }: Route.MetaArgs) {
+	if (!loaderData || loaderData.kind === 'project') return NOINDEX_META
+	return pageMeta(
+		{
+			// The site name titles the home page: `composeTitle` collapses
+			// "name · name" to a single "name" rather than repeating it.
+			title: loaderData.site?.name,
+			// The product's own one-liner, never a fabricated sentence. If it is
+			// missing or too short the gate says so on this route by name.
+			description: loaderData.site?.description ?? loaderData.tagline,
+			path: '/',
+		},
+		loaderData.site,
+	)
 }
 
 /**

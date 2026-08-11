@@ -20,6 +20,7 @@
 
 import { opList } from '@maxstack/core'
 import { portalRequest } from '~/portals.server'
+import { humanizeKey, NOINDEX_META, pageMeta } from '~/seo'
 import type { Route } from './+types/p.$key'
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -54,7 +55,37 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		page,
 		hasMore: rows.length === perPage,
 		key: plan.key,
+		site: portal.site,
+		// Only a `public` portal is a thing to index. A `token` portal's URL is a
+		// credential minted for one recipient, and a `role` portal is an ordinary
+		// signed-in session — neither is a page a crawler should ever hold, so
+		// both emit `noindex` even though they render the same way.
+		indexable: plan.audience === 'public',
+		// Page 2 and beyond are the same collection under a query parameter. They
+		// canonicalize to themselves rather than to page 1 — a crawler told that
+		// page 4 "really is" page 1 stops discovering the rows only page 4 links
+		// to, which for a paginated archive is most of them.
+		path: page > 1 ? `/p/${plan.key}?page=${page}` : `/p/${plan.key}`,
 	}
+}
+
+export function meta({ loaderData }: Route.MetaArgs) {
+	// A declared portal is the one surface in this app that is *meant* to be
+	// found, and until now it shipped the root title, no description, no
+	// canonical and no card.
+	if (!loaderData) return NOINDEX_META
+	return pageMeta(
+		{
+			// The key is the label; the declared description is the sentence. Using
+			// the description as a title would put a full sentence in a tab and blow
+			// the 60-character budget on most portals.
+			title: humanizeKey(loaderData.key),
+			description: loaderData.title,
+			path: loaderData.path,
+			noindex: !loaderData.indexable,
+		},
+		loaderData.site,
+	)
 }
 
 /** A value as text. Deliberately dumb: a portal is not a second formatter. */

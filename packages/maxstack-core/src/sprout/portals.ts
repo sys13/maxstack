@@ -48,6 +48,22 @@ export interface PortalPlan {
 	scope: PortalScope
 	/** Column names, in declaration order. */
 	readFields: string[]
+	/**
+	 * The exposed column whose value titles a row page — `pickTitleField`'s pick
+	 * (name > title > first plain string, never a foreign key, #43), **restricted
+	 * to {@link readFields}**.
+	 *
+	 * The restriction is the point rather than an optimization. Picking over the
+	 * entity's full field list would let a column the portal deliberately does not
+	 * expose appear in a `<title>` and an OG card, which is a projection leak
+	 * through the one surface that gets scraped, cached and archived by strangers.
+	 * The projection is an allowlist everywhere else in this layer; it is one here
+	 * too.
+	 *
+	 * Absent when the portal exposes no plain string column, in which case a row
+	 * page falls back to the portal's own label.
+	 */
+	titleField?: string
 	writes: {
 		action: 'create' | 'update'
 		fields: string[]
