@@ -37,6 +37,7 @@ import {
 	seedSpec,
 } from '../lib/project.ts'
 import { renderTemplate } from '../lib/render.ts'
+import { bold, cyan, dim, glyphs, green } from '../lib/tty.ts'
 import { addCommand, renderPreview } from './add.ts'
 
 interface InitOptions {
@@ -295,39 +296,6 @@ export async function initCommand(
 	// wrote a version-pinned `npx` invocation instead, which does not depend on
 	// PATH at all, so the warning would be advice to fix a problem we don't have.
 	if (invocation.command === 'maxstack') await warnOnPathCliMismatch()
-}
-
-// --- terminal styling ------------------------------------------------------
-// A tiny ANSI + glyph layer instead of a color dependency. Color is suppressed
-// when output isn't a TTY (pipes, CI, the test mocks) or NO_COLOR is set, so
-// piped output stays clean plain text. Box-drawing glyphs fall back to ASCII
-// when the locale isn't UTF-8 (e.g. LANG=C), so a legacy shell never renders
-// mojibake.
-const useColor = (): boolean =>
-	Boolean(process.stdout.isTTY) && !process.env.NO_COLOR
-const wrap =
-	(open: number, close: number) =>
-	(s: string): string =>
-		useColor() ? `\x1b[${open}m${s}\x1b[${close}m` : s
-const dim = wrap(2, 22)
-const bold = wrap(1, 22)
-const green = wrap(32, 39)
-const cyan = wrap(36, 39)
-
-const isUtf8 = (): boolean => {
-	const enc = process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG
-	return !enc || /utf-?8/i.test(enc)
-}
-const glyphs = {
-	get check() {
-		return isUtf8() ? '✔' : 'ok'
-	},
-	get mid() {
-		return isUtf8() ? '·' : '-'
-	},
-	get dash() {
-		return isUtf8() ? '—' : '--'
-	},
 }
 
 /** Pluralize a labeled count: `count(1, 'artifact')` → `1 artifact`. */

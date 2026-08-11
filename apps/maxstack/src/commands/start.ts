@@ -42,6 +42,7 @@ import { blueprintToOps } from '../lib/blueprint.ts'
 import { gitBootstrapNotice } from '../lib/git.ts'
 import { landOps } from '../lib/land.ts'
 import { loadProject } from '../lib/project.ts'
+import { bold, cyan, dim, glyphs, green } from '../lib/tty.ts'
 import { devCommand, seedWhenReady } from './dev.ts'
 import { scaffoldProject } from './init.ts'
 
@@ -92,7 +93,7 @@ export async function startCommand(
 	const blueprint = described.blueprint
 	const target = dir ?? projectSlug(blueprint.title)
 
-	console.log(`\n  ${bold(blueprint.title)}  ${dim(`${DASH} ${desc}`)}`)
+	console.log(`\n  ${bold(blueprint.title)}  ${dim(`${glyphs.dash} ${desc}`)}`)
 	console.log(`  ${dim(blueprintLine(blueprint, described.source))}`)
 	if (described.fallbackReason) {
 		console.log(
@@ -107,7 +108,7 @@ export async function startCommand(
 		desc,
 		backend: opts.backend,
 	})
-	console.log(`\n  ${green(CHECK)} scaffolded  ${dim(root)}`)
+	console.log(`\n  ${green(glyphs.check)} scaffolded  ${dim(root)}`)
 	// Same rule as `init`: if the never-clobber guarantee has no
 	// undo behind it, say so before anything is written into the project.
 	const gitNotice = gitBootstrapNotice(git)
@@ -128,18 +129,18 @@ export async function startCommand(
 		actor: { surface: 'cli', path: 'cli-start', agent: 'maxstack-start' },
 	})
 	console.log(
-		`  ${green(CHECK)} landed ${ops.length} spec-op${ops.length === 1 ? '' : 's'}  ` +
-			`${dim(`${DASH} origin: ai, in the op log`)}`,
+		`  ${green(glyphs.check)} landed ${ops.length} spec-op${ops.length === 1 ? '' : 's'}  ` +
+			`${dim(`${glyphs.dash} origin: ai, in the op log`)}`,
 	)
 	for (const entity of blueprint.entities) {
 		console.log(
-			`     ${dim(BRANCH)} ${entity.name.padEnd(nameWidth(blueprint))}  ` +
+			`     ${dim(glyphs.branch)} ${entity.name.padEnd(nameWidth(blueprint))}  ` +
 				`${dim(entity.fields.join(' · '))}`,
 		)
 	}
 	console.log(
-		`  ${green(CHECK)} generated ${landed.gen?.writes.length ?? 0} route writes  ` +
-			`${dim(`${DASH} ${landed.gen?.artifacts.length ?? 0} artifacts`)}`,
+		`  ${green(glyphs.check)} generated ${landed.gen?.writes.length ?? 0} route writes  ` +
+			`${dim(`${glyphs.dash} ${landed.gen?.artifacts.length ?? 0} artifacts`)}`,
 	)
 
 	// `--no-dev` is the CI shape and the "just scaffold it" shape: everything
@@ -168,7 +169,7 @@ export async function startCommand(
 			: seedWhenReady(port, {
 					onFail: (why) =>
 						console.log(
-							`  ${dim(`· could not seed automatically (${why}) ${DASH} run \`${invocation.shell} demo\``)}`,
+							`  ${dim(`· could not seed automatically (${why}) ${glyphs.dash} run \`${invocation.shell} demo\``)}`,
 						),
 				})
 
@@ -180,7 +181,7 @@ export async function startCommand(
 		]),
 	)
 	console.log(
-		`\n  ${dim(`sample rows are demo data ${DASH} remove them with`)} ${cyan(`${invocation.shell} demo --clear`)}\n`,
+		`\n  ${dim(`sample rows are demo data ${glyphs.dash} remove them with`)} ${cyan(`${invocation.shell} demo --clear`)}\n`,
 	)
 
 	try {
@@ -200,7 +201,7 @@ function blueprintLine(
 		source === 'ai'
 			? 'drafted by the model'
 			: 'from the deterministic compiler (no API key)'
-	return `${count(blueprint.entities.length, 'entity', 'entities')} ${MID} ${count(fields, 'field')} ${MID} ${how}`
+	return `${count(blueprint.entities.length, 'entity', 'entities')} ${glyphs.mid} ${count(fields, 'field')} ${glyphs.mid} ${how}`
 }
 
 function nameWidth(blueprint: AppBlueprint): number {
@@ -210,28 +211,6 @@ function nameWidth(blueprint: AppBlueprint): number {
 function count(n: number, noun: string, plural = `${noun}s`): string {
 	return `${n} ${n === 1 ? noun : plural}`
 }
-
-// --- terminal styling (mirrors init.ts; kept local for the same reason) -----
-
-const useColor = (): boolean =>
-	Boolean(process.stdout.isTTY) && !process.env.NO_COLOR
-const wrap =
-	(open: number, close: number) =>
-	(s: string): string =>
-		useColor() ? `\x1b[${open}m${s}\x1b[${close}m` : s
-const dim = wrap(2, 22)
-const bold = wrap(1, 22)
-const green = wrap(32, 39)
-const cyan = wrap(36, 39)
-
-const isUtf8 = (): boolean => {
-	const enc = process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG
-	return !enc || /utf-?8/i.test(enc)
-}
-const CHECK = isUtf8() ? '✔' : 'ok'
-const DASH = isUtf8() ? '—' : '--'
-const MID = isUtf8() ? '·' : '-'
-const BRANCH = isUtf8() ? '├' : '|'
 
 function steps(rows: [cmd: string, note: string][]): string {
 	const withNotes = rows.filter(([, n]) => n)
