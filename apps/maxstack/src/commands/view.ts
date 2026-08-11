@@ -1,7 +1,7 @@
 /**
- * `maxstack add view <resource> [dir]` — scaffold an *owned* view module for a
- * resource: the infer-then-eject workflow as a first-class verb (Plan v5 task
- * 36). It writes `routes/<resource>.tsx` — a module on the same
+ * `maxstack add view <page> [dir]` — scaffold an *owned* view module for a
+ * page: the infer-then-eject workflow as a first-class verb (Plan v5 task
+ * 36). It writes `routes/<module-key>.tsx` — a module on the same
  * `OwnedRouteProps` contract `maxstack eject` hands over, with the inferred
  * title cell written out as an editable `columns` override — then flips that
  * route to `ejected` in the manifest so `maxstack gen` never regenerates over
@@ -17,6 +17,22 @@
  * file stamped THIS FILE IS YOURS is the last place that may write it blind, and
  * this one did until now — so a second run overwrote the user's module wholesale
  * and then re-flipped the manifest entry it had itself already set to `ejected`.
+ *
+ * ## The noun is a page, not a resource (issue #434)
+ *
+ * It used to be `add view <resource>`, writing its manifest entry under the bare
+ * resource. Everything else in the ownership path is page-scoped — eject, the
+ * manifest, `OWNED_ROUTES`, the never-clobber writer — because a page is the
+ * unit a user owns, and the two agree only when an entity has exactly one page.
+ * On a second page there was no argument that could reach it: before #392 the
+ * resource-keyed entry hijacked *every* page over the entity, and after it the
+ * verb silently landed on the first. So the argument now resolves to one page —
+ * by route path, page id or module key, falling back to the sole page over a
+ * named resource — and the entry is keyed by module key, matching eject.
+ *
+ * `OWNED_SLOTS` staying resource-keyed is deliberate and untouched: block slots
+ * genuinely live in one `<resource>.slots.tsx` that every page over the entity
+ * composes from (`generateResourcePage`'s "two keys, deliberately").
  */
 
 import { resolve } from 'node:path'
@@ -33,7 +49,12 @@ import {
 import { pageDescriptor } from '@maxstack/mcp'
 import { getAcceptedOrAll } from '@maxstack/spec'
 import { loadProject } from '../lib/project.ts'
-import { renderViewModule, resolveView, viewFile } from '../lib/view.ts'
+import {
+	renderViewModule,
+	resolveView,
+	resolveViewTarget,
+	viewFile,
+} from '../lib/view.ts'
 
 /** `e-task` → `task` — the same derivation the runtime's page composition uses
  * (`project-routes.ts`), so the page-existence check below matches how the
@@ -42,34 +63,39 @@ const resourceOf = (entityId: string) => entityId.replace(/^e-/, '')
 
 export async function addViewCommand(
 	dir: string | undefined,
-	resource: string,
+	/** A page — its route path, its id, or the module key gen filed it under —
+	 * or a resource, which resolves to its sole page (issue #434). */
+	target: string,
 	options: { force?: boolean } = {},
 ): Promise<void> {
 	const project = await loadProject(dir ?? '.')
 	const spec = await project.spec.load()
 
+	// Which PAGE this scaffold lands on. Throws when a resource has several
+	// pages and none was named — silently taking the first is the bug (#434).
+	const { resource, moduleKey, page } = resolveViewTarget(spec, target)
+
 	// Introspect the resource out of the spec (throws with the known list if the
 	// name is unknown).
 	const view = resolveView(spec, resource)
-	const file = viewFile(resource)
+	const file = viewFile(moduleKey)
 
-	// An owned view renders where a spec page's entity resolves to this resource
-	// (`project.page.tsx`), so the page is what decides which list component the
-	// module should emit — resolved before the write, not after it (issue #360).
-	const pages = getAcceptedOrAll(spec.pages.pages).filter(
-		(p) => p.entityId && resourceOf(p.entityId) === resource,
-	)
-	const hasPage = pages.length > 0
-	const surface = pages
-		.map((p) => pageDescriptor(p, spec.data.entities).list)
-		.find((l) => l)
-	const content = renderViewModule(view, surface)
+	// An owned view renders where the target page mounts (`project.page.tsx`),
+	// so that page is what decides which list component the module should emit —
+	// resolved before the write, not after it (issue #360). One page, not "the
+	// first page over the resource that declares a surface": since #434 this
+	// command owns exactly the one module it was pointed at.
+	const hasPage = page !== undefined
+	const surface = page
+		? pageDescriptor(page, spec.data.entities).list
+		: undefined
+	const content = renderViewModule(view, surface, target)
 
 	const fs = createNodeFs(project.appPath)
 	const manifest: RouteManifest = (await fs.exists(MANIFEST_FILENAME))
 		? parseManifest(await fs.read(MANIFEST_FILENAME))
 		: emptyManifest()
-	const prior = manifest.entries.find((e) => e.id === resource)
+	const prior = manifest.entries.find((e) => e.id === moduleKey)
 
 	// Never-clobber, through the same layer everything else writes through
 	// (issue #360). This used to be a bare `fs.write`, so re-running the command
@@ -88,9 +114,12 @@ export async function addViewCommand(
 		fs,
 		manifest,
 		{
-			id: resource,
-			// Reuse the route path the generator recorded; otherwise derive one.
-			routePath: prior?.routePath ?? `/${resource}`,
+			// The module key, matching what `maxstack eject` writes and what the
+			// mount looks the owned module up by (#434).
+			id: moduleKey,
+			// Reuse the route path the generator recorded; otherwise the page's own
+			// route, and only then a derived one.
+			routePath: prior?.routePath ?? page?.route ?? `/${resource}`,
 			file,
 		},
 		content,
@@ -99,14 +128,14 @@ export async function addViewCommand(
 	if (result.action === 'skipped-user-owned') {
 		throw new Error(
 			`refusing to overwrite ${project.config.appDir}/${file} — you own it` +
-				`\n  ("${resource}" is \`${result.ownership}\` in the route manifest).` +
+				`\n  ("${moduleKey}" is \`${result.ownership}\` in the route manifest).` +
 				'\n' +
 				'\n  Re-running `add view` would replace the whole module, so every hand' +
 				'\n  edit in it would be gone with no diff and no undo.' +
 				'\n' +
 				'\n  If you meant to regenerate it — the upgrade path to the current' +
 				'\n  scaffold shape — save your edits first and opt in:' +
-				`\n      maxstack add view ${resource}${dir && dir !== '.' ? ` ${dir}` : ''} --force`,
+				`\n      maxstack add view ${target}${dir && dir !== '.' ? ` ${dir}` : ''} --force`,
 		)
 	}
 	await fs.write(MANIFEST_FILENAME, serializeManifest(next))
@@ -124,8 +153,9 @@ export async function addViewCommand(
 				: ''),
 	)
 	console.log(
-		`  route "${resource}" is now ejected — this file is YOURS: regeneration` +
-			`\n  never touches it again, and it no longer picks up generator improvements.`,
+		`  route "${moduleKey}"${page ? ` (${page.route})` : ''} is now ejected —` +
+			`\n  this file is YOURS: regeneration never touches it again, and it no` +
+			`\n  longer picks up generator improvements.`,
 	)
 	console.log(
 		`  The render is yours; the LOADER is not. Rows, columns, permissions,` +
@@ -145,18 +175,20 @@ export async function addViewCommand(
 	// Since #349 stage 2 there is a better answer than "don't", and the warning
 	// names it: `maxstack gen` writes the board/calendar/timeline module itself
 	// now, so ejecting *that* keeps the arrangement.
-	const arranged = pages.filter(
-		(p) => !pageDescriptor(p, spec.data.entities).list,
-	)
-	if (arranged.length > 0) {
+	//
+	// Only the targeted page is examined, not every page over the resource: a
+	// sibling's board is that sibling's business now that this verb owns one
+	// module (#434).
+	if (page && !surface) {
 		console.log(
-			`  ⚠ ${arranged.map((p) => `"${p.name}"`).join(', ')} arranges these rows` +
+			`  ⚠ "${page.name}" arranges these rows` +
 				`\n    with a view block (calendar / timeline / board) or a` +
 				`\n    list-replacing slot. An owned module replaces the page's whole` +
 				`\n    surface, so this scaffold renders a TABLE there instead.` +
 				`\n    Keep the arrangement instead: "maxstack gen" already writes that` +
-				`\n    page's own module, so "maxstack eject" hands over the real board /` +
-				`\n    calendar / timeline. A block slot keeps it too, and costs no eject.`,
+				`\n    page's own module, so "maxstack eject ${moduleKey}" hands over the` +
+				`\n    real board / calendar / timeline. A block slot keeps it too, and` +
+				`\n    costs no eject.`,
 		)
 	}
 

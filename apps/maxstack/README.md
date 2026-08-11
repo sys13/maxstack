@@ -149,9 +149,11 @@ code, climb the ladder deliberately:
 1. **Fill a slot.** Generated routes ship `*.slots.tsx` stubs — scoped
    injection points (a custom cell, a submit handler). You write the small
    component; the page around it stays generated and keeps regenerating.
-2. **Scaffold an owned view.** `maxstack add view <resource>` writes the
-   resource's inferred list view out as an explicit, editable file and ejects
-   it — start from inference, then hand-edit the one cell you care about.
+2. **Scaffold an owned view.** `maxstack add view <page>` writes that page's
+   inferred list view out as an explicit, editable file and ejects it — start
+   from inference, then hand-edit the one cell you care about. Name the page by
+   route path, page id or module key; a resource name is the shorthand for its
+   sole page.
 3. **Eject a route.** `maxstack eject <route-id>` (`--dry-run` to preview)
    hands you any generated route wholesale.
 
@@ -198,7 +200,7 @@ the image build; `--image <tag>` and `--port <n>` do what they say.
 | `add-field <entity> <spec>` | Add a field (sugar for a `data.addField` op) |
 | `add-page <entity>` | Add a browsable list page for an entity (sugar for a `page.addPage` op) |
 | `add <bundle>` | Install a feature bundle |
-| `add view <resource>` | Scaffold an owned list view (ejects the route — see "When you need your own code") |
+| `add view <page>` | Scaffold an owned list view for one page (ejects that route — see "When you need your own code") |
 | `eject <route-id>` | Take ownership of a generated route (yours forever, never re-clobbered) |
 | `op --file <f> \| --op <json>` | Apply a raw typed spec-op |
 | `gen [dir]` | Regenerate the app tree (never-clobber) |

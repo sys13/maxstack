@@ -358,13 +358,26 @@ reach for the lowest rung that expresses the change:
 
 ### Scaffolding a view — infer-then-eject (`maxstack add view`)
 
-Rung 3 has a fast path for list/detail pages: `maxstack add view <resource>`.
+Rung 3 has a fast path for list/detail pages: `maxstack add view <page>`.
 Where `maxstack gen` emits a *framework-owned* route module, `add view` emits an
 **owned** one, pre-ejected, on the same contract `maxstack eject` hands over
 (`OwnedRouteProps`):
 
 ```sh
 maxstack add view post     # writes app/routes/post.tsx, ejected
+```
+
+**The argument names a page**, because a page — not an entity — is the unit you
+own: one module per page, one manifest entry per module. Naming the resource is
+the shorthand for "the one page over it", and it is all you need until an entity
+has two. When it does, name the page: its route path, its page id, or the module
+key `gen` filed it under. The command lists them if you don't.
+
+```sh
+maxstack add view /archive        # the page at /archive
+maxstack add view pg-post-archive # …the same page, by id
+maxstack add view post-archive    # …by the module key gen wrote
+maxstack add view post            # error: "post" has 2 pages — say which
 ```
 
 The scaffolded file:
@@ -395,10 +408,11 @@ Three things to know before you reach for it:
   is arranged by a `calendar`, `timeline` or `board` block, the scaffold draws a
   table there instead — the same trade `maxstack eject` refuses to make quietly.
   The command warns; prefer filling a block slot, which keeps the arrangement.
-- **The view renders where a spec page targets its entity.** An owned view has
-  no URL of its own — the runtime mounts it at the spec page whose `entityId`
-  resolves to the resource. If no such page exists yet, the command warns and
-  prints the exact `page.addPage` op to run; without it you'd 404 in dev.
+- **The view renders at one page, and only that page.** An owned view has no URL
+  of its own — the runtime mounts it at the page you named, by that page's
+  module key. Sibling pages over the same entity keep their generated modules.
+  If the resource has no page at all yet, the command warns and prints the exact
+  `page.addPage` op to run; without it you'd 404 in dev.
 - **Owned code is compiled, not spec-interpreted.** From an npm install,
   `maxstack dev` auto-selects the owned dev server whenever owned modules
   exist (§3a; needs pnpm — otherwise it falls back to the prebuilt server with

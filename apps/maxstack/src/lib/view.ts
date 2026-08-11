@@ -50,10 +50,12 @@ import {
 import {
 	NEW_LINK_CLASS,
 	type PageListSurface,
+	pageModuleKeys,
+	pageModuleResource,
 	VARIANT_COMPONENT,
 } from '@maxstack/core/ownership'
 import { groundedEntityShapes } from '@maxstack/mcp'
-import type { SpecSystem } from '@maxstack/spec'
+import { getAcceptedOrAll, type PageSpec, type SpecSystem } from '@maxstack/spec'
 
 /** `e-reading-item` → `reading-item` — the same derivation the page generator's
  * `pageDescriptor` and the web app's grounding use, so tables, routes, and views
@@ -104,6 +106,127 @@ export function resolveView(spec: SpecSystem, resource: string): ResolvedView {
 	return { resource, pascal: pascal(resource), introspection, titleField }
 }
 
+/**
+ * What `maxstack add view <target>` decided to scaffold: one **page**, not a
+ * resource (issue #434).
+ *
+ * The whole ownership path downstream of this — eject, the manifest, the
+ * never-clobber writer, `OWNED_ROUTES` — is page-scoped, because a page is the
+ * unit a user owns. `add view` was the last entry point still speaking in
+ * resources, and it wrote its manifest entry under the bare resource. That
+ * agreed with the generator only when the entity had exactly one page: on a
+ * second page it named a module the mount looks up under a different key
+ * (#337/#392), so the file landed where nothing rendered it.
+ */
+export interface ViewTarget {
+	/** The resource whose columns the module renders — never null: a page with
+	 * no entity has no list to scaffold and is refused before this is built. */
+	resource: string
+	/** The manifest id and file stem — `pageModuleKey` of {@link page}, or the
+	 * bare resource when the spec has no page over it yet. */
+	moduleKey: string
+	/** The page the module will render at; absent for a resource with no page. */
+	page?: PageSpec
+}
+
+/** A target that could only ever have been meant as a page — a route path or a
+ * page id — so a miss says "no such page" instead of "unknown resource". */
+const looksLikePageRef = (target: string) =>
+	target.startsWith('/') || target.startsWith('pg-')
+
+/** `maxstack add view <route>` for each candidate — routes are unique and can
+ * never be mistaken for a resource name, so they are the unambiguous handle to
+ * suggest when a bare resource is not. */
+const suggestions = (pages: readonly PageSpec[], keyOf: Map<string, string>) =>
+	pages
+		.map(
+			(p) =>
+				`\n      maxstack add view ${p.route}   # "${p.name}" → routes/${keyOf.get(p.id)}.tsx`,
+		)
+		.join('')
+
+/**
+ * Resolve what the user named — a resource, a page id, a module key or a route
+ * path — to the single page the scaffold lands on (issue #434).
+ *
+ * A bare resource is read as a resource *first*, even though the first page over
+ * it also carries that name as its module key: `add view task` on a two-page
+ * entity must say so rather than quietly take the first page, which is exactly
+ * the failure this replaces. One page over the resource keeps the old
+ * ergonomics; zero pages keeps the orphan path the command already warns about.
+ *
+ * Module keys are folded over the **whole** page list, unfiltered, because the
+ * generator and the runtime mount both do (#392) — a key derived from only the
+ * accepted pages would name a file that is not on disk. Matching then happens
+ * against the accepted-or-all pages, which are the ones that actually render.
+ */
+export function resolveViewTarget(
+	spec: SpecSystem,
+	target: string,
+): ViewTarget {
+	const keys = pageModuleKeys(spec.pages.pages)
+	const keyOf = new Map(
+		spec.pages.pages.map((p, i) => [p.id, keys[i] ?? pageModuleResource(p)]),
+	)
+	const pages = getAcceptedOrAll(spec.pages.pages)
+	const pageTarget = (page: PageSpec): ViewTarget => {
+		if (!page.entityId) {
+			throw new Error(
+				`page "${page.name}" (${page.id}) has no entity, so there is no list to` +
+					'\n  scaffold. `add view` writes a module over a resource\'s rows; for a' +
+					'\n  page that arranges something else, take the generated module over' +
+					`\n  with:\n      maxstack eject ${keyOf.get(page.id)}`,
+			)
+		}
+		return {
+			resource: resourceName(page.entityId),
+			moduleKey: keyOf.get(page.id) ?? pageModuleResource(page),
+			page,
+		}
+	}
+
+	// A resource name first. `over` is the fact that decides everything: the
+	// bare name is only unambiguous when at most one page claims it.
+	const isResource = getAcceptedOrAll(spec.data.entities).some(
+		(e) => resourceName(e.id) === target,
+	)
+	if (isResource) {
+		const over = pages.filter(
+			(p) => p.entityId && resourceName(p.entityId) === target,
+		)
+		if (over.length > 1) {
+			throw new Error(
+				`"${target}" has ${over.length} pages, so "add view ${target}" cannot tell` +
+					'\n  which one you mean — and each page is a separate owned module.' +
+					'\n' +
+					`\n  Name the page (its route, its id, or the module file gen wrote):${suggestions(over, keyOf)}`,
+			)
+		}
+		// Zero pages is the orphan case the command warns about and still
+		// scaffolds; the module key is the resource, which is what gen would use
+		// once a page appears.
+		return over[0]
+			? pageTarget(over[0])
+			: { resource: target, moduleKey: target }
+	}
+
+	// …then a page, by route path, page id, or the module key gen filed it under.
+	const named = pages.find(
+		(p) => p.route === target || p.id === target || keyOf.get(p.id) === target,
+	)
+	if (named) return pageTarget(named)
+	if (looksLikePageRef(target)) {
+		throw new Error(
+			`no page "${target}" in the spec.` +
+				(pages.length > 0
+					? `\n  Known pages:${suggestions(pages, keyOf)}`
+					: '\n  This spec has no pages yet.'),
+		)
+	}
+	// Neither: let the registry throw, with the known-resource list.
+	return { resource: target, moduleKey: target }
+}
+
 /** An object-literal key: bare when the column name is an identifier, quoted
  * (single, the repo's style) when it is not. */
 function key(name: string): string {
@@ -129,6 +252,10 @@ function key(name: string): string {
 export function renderViewModule(
 	view: ResolvedView,
 	surface?: PageListSurface,
+	/** What the user typed to reach this module — quoted back in the banner so
+	 * the re-run it names is the one that lands here. Defaults to the resource,
+	 * which is the whole invocation on a one-page entity. */
+	invocation: string = view.resource,
 ): string {
 	const { resource, pascal: P, titleField } = view
 	const label = formatLabel(resource)
@@ -198,7 +325,7 @@ const columns: ColumnOverrides = {
 			? oneLine
 			: `import {\n${bindings.map((b) => `\t${b},\n`).join('')}} from '@maxstack/ui'`
 
-	return `// Scaffolded by \`maxstack add view ${resource}\` — THIS FILE IS YOURS.
+	return `// Scaffolded by \`maxstack add view ${invocation}\` — THIS FILE IS YOURS.
 //
 // \`maxstack gen\` will never overwrite it: this route is \`ejected\` in the route
 // manifest, so your edits survive regeneration (and it stops receiving generator
@@ -241,7 +368,13 @@ export default function ${P}View({
 `
 }
 
-/** The repo-relative path of a resource's view module (within the app dir). */
-export function viewFile(resource: string): string {
-	return `routes/${resource}.tsx`
+/**
+ * The repo-relative path of a view module (within the app dir).
+ *
+ * Keyed by the page's **module key**, not its resource (#434) — the same stem
+ * `generateResourcePage` files the generated module under, so an owned module
+ * for the second page over an entity lands where the mount looks for it.
+ */
+export function viewFile(moduleKey: string): string {
+	return `routes/${moduleKey}.tsx`
 }

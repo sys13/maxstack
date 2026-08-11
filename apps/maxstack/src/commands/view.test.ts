@@ -641,3 +641,171 @@ describe('maxstack add view never-clobbers (issue #360)', () => {
 		expect(src).not.toContain('ResourceList')
 	})
 })
+
+/**
+ * Page-scoped targeting (issue #434).
+ *
+ * `add view` used to take a *resource* and key its manifest entry by it, while
+ * everything else in the ownership path — eject, the manifest, `OWNED_ROUTES`,
+ * the never-clobber writer — is keyed by the page's module key. Those agree only
+ * when an entity has exactly one page. On a second page the verb had no argument
+ * that could reach it: before #392 the resource-keyed entry hijacked every page
+ * over the entity, and after #392 it silently landed on the first.
+ *
+ * Two pages over one entity is therefore the whole fixture. The load-bearing
+ * assertion is not that the second page got a module — it is that the FIRST
+ * page's module is byte-for-byte what `gen` left there.
+ */
+describe('maxstack add view targets a page, not a resource (issue #434)', () => {
+	let dir: string
+
+	beforeAll(async () => {
+		dir = await mkdtemp(join(tmpdir(), 'maxstack-view-page-'))
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		await initCommand(dir, { desc: 'a blog' })
+		await opCommand(dir, { op: entityOp })
+		await opCommand(dir, { op: pageOp })
+		await opCommand(dir, {
+			op: JSON.stringify({
+				op: 'page.addPage',
+				args: {
+					page: {
+						id: 'pg-post-archive',
+						name: 'Archive',
+						route: '/archive',
+						entityId: 'e-post',
+						provenance,
+						blocks: [{ id: 'blk-archive-table', type: 'table', provenance }],
+					},
+				},
+			}),
+		})
+		await genCommand(dir)
+	})
+
+	afterAll(async () => {
+		vi.restoreAllMocks()
+		await rm(dir, { recursive: true, force: true })
+	})
+
+	const manifestOf = async () =>
+		JSON.parse(
+			await readFile(join(dir, 'app/.generated.routes.json'), 'utf8'),
+		) as {
+			entries: {
+				id: string
+				file: string
+				routePath: string
+				ownership: string
+			}[]
+		}
+
+	it('gen wrote two modules — the second under its own module key (#337)', async () => {
+		const entries = (await manifestOf()).entries
+		expect(entries.find((e) => e.id === 'post')?.file).toBe('routes/post.tsx')
+		expect(entries.find((e) => e.id === 'post-archive')?.file).toBe(
+			'routes/post-archive.tsx',
+		)
+	})
+
+	it('refuses the bare resource rather than silently picking the first page', async () => {
+		// The bug, stated as a test: "post" is genuinely ambiguous once two pages
+		// render it, and each page is a separate owned module — so there is no
+		// answer to guess at, only one to ask for.
+		await expect(addViewCommand(dir, 'post')).rejects.toThrow(
+			/"post" has 2 pages/,
+		)
+		// …and the error hands over arguments that work, one per page.
+		await expect(addViewCommand(dir, 'post')).rejects.toThrow(
+			/maxstack add view \/archive/,
+		)
+		// Refused before any write: both modules are still the generator's.
+		expect(await readFile(join(dir, 'app/routes/post.tsx'), 'utf8')).toContain(
+			'AUTO-GENERATED',
+		)
+		expect(
+			await readFile(join(dir, 'app/routes/post-archive.tsx'), 'utf8'),
+		).toContain('AUTO-GENERATED')
+	})
+
+	it('scaffolds the SECOND page by route path and leaves the first untouched', async () => {
+		const first = await readFile(join(dir, 'app/routes/post.tsx'))
+
+		await addViewCommand(dir, '/archive')
+
+		const owned = await readFile(
+			join(dir, 'app/routes/post-archive.tsx'),
+			'utf8',
+		)
+		expect(owned).toContain('THIS FILE IS YOURS')
+		expect(owned).toContain('<ResourceList {...list}')
+		// The banner names the argument that lands here, so the `--force` re-run
+		// it documents is the one that rewrites this file.
+		expect(owned).toContain('maxstack add view /archive')
+
+		// The first page is byte-for-byte what gen left — not "still contains
+		// AUTO-GENERATED", which a partial rewrite would also satisfy. This is the
+		// assertion the resource-keyed writer could not pass: it wrote
+		// routes/post.tsx whichever page you meant.
+		expect(await readFile(join(dir, 'app/routes/post.tsx'))).toEqual(first)
+
+		const entries = (await manifestOf()).entries
+		// Keyed by module key, matching what `eject` writes and what the mount
+		// looks an owned module up by (#392).
+		const ejected = entries.find((e) => e.id === 'post-archive')
+		expect(ejected).toMatchObject({
+			ownership: 'ejected',
+			file: 'routes/post-archive.tsx',
+			routePath: '/archive',
+		})
+		// The sibling's entry is untouched, and in particular still the
+		// framework's to regenerate.
+		expect(entries.find((e) => e.id === 'post')?.ownership).toBe('generated')
+		// No resource-keyed stowaway entry beside it.
+		expect(entries.filter((e) => e.id === 'post')).toHaveLength(1)
+	})
+
+	it('reaches the first page by page id, module key or route', async () => {
+		const archive = await readFile(join(dir, 'app/routes/post-archive.tsx'))
+
+		await addViewCommand(dir, 'pg-posts')
+
+		expect(await readFile(join(dir, 'app/routes/post.tsx'), 'utf8')).toContain(
+			'THIS FILE IS YOURS',
+		)
+		// …and the page scaffolded first is not rewritten as a side effect.
+		expect(await readFile(join(dir, 'app/routes/post-archive.tsx'))).toEqual(
+			archive,
+		)
+		const entries = (await manifestOf()).entries
+		expect(entries.find((e) => e.id === 'post')).toMatchObject({
+			ownership: 'ejected',
+			file: 'routes/post.tsx',
+			routePath: '/posts',
+		})
+	})
+
+	it('regeneration leaves both owned modules alone', async () => {
+		const before = await Promise.all([
+			readFile(join(dir, 'app/routes/post.tsx')),
+			readFile(join(dir, 'app/routes/post-archive.tsx')),
+		])
+		await genCommand(dir)
+		expect(
+			await Promise.all([
+				readFile(join(dir, 'app/routes/post.tsx')),
+				readFile(join(dir, 'app/routes/post-archive.tsx')),
+			]),
+		).toEqual(before)
+	})
+
+	it('names an unknown page rather than reporting an unknown resource', async () => {
+		await expect(addViewCommand(dir, '/nope')).rejects.toThrow(
+			/no page "\/nope" in the spec/,
+		)
+		await expect(addViewCommand(dir, 'pg-nope')).rejects.toThrow(
+			/Known pages:[\s\S]*\/archive/,
+		)
+	})
+})

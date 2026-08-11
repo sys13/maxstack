@@ -21,7 +21,7 @@
  *       add-page     terminal-native sugar → a page.addPage op
  *       theme        terminal-native sugar → a theme.set op
  *       add <bundle> install a feature bundle (schema + pages + seeds + DI)
- *       add view <r> scaffold an owned list view (inferred columns, then ejected)
+ *       add view <p> scaffold one page's owned list view (inferred, then ejected)
  *       eject <id>   take ownership of a generated route (never re-clobbered)
  *       drift        what you own, and how far it has drifted from the derivation
  *       review       the queue, risk classification, and the coherent overview
@@ -334,11 +334,11 @@ export function buildProgram(): Command {
 		.command('add')
 		.argument(
 			'[target]',
-			'feature bundle slug (auth, members, audit, ...), or "view" to scaffold a resource view. Omit to browse the catalog.',
+			'feature bundle slug (auth, members, audit, ...), or "view" to scaffold a page view. Omit to browse the catalog.',
 		)
 		.argument(
 			'[arg2]',
-			'for "add view": the resource to scaffold; otherwise the project directory',
+			'for "add view": the page to scaffold — its route path, page id or module key, or a resource with exactly one page; otherwise the project directory',
 		)
 		.argument('[dir]', 'for "add view": the project directory', '.')
 		.option(
@@ -350,14 +350,19 @@ export function buildProgram(): Command {
 			'for "add view": overwrite the view module even though you own it (destroys your edits)',
 		)
 		.description(
-			'Browse the catalog (no argument), install a feature bundle, or "add view <resource>" to scaffold an owned list view',
+			'Browse the catalog (no argument), install a feature bundle, or "add view <page>" to scaffold an owned list view',
 		)
 		.action((target, arg2, dir, opts) => {
 			// No argument is the discovery surface: a catalog nobody
 			// can browse markets as breadth and delivers as trivia.
 			if (!target) return catalogCommand(arg2 ?? '.')
 			if (target === 'view') {
-				if (!arg2) throw new Error('usage: maxstack add view <resource> [dir]')
+				if (!arg2)
+					throw new Error(
+						'usage: maxstack add view <page> [dir]\n' +
+							'  <page> is a route path, page id or module key — or a resource,\n' +
+							'  when exactly one page renders it.',
+					)
 				return addViewCommand(dir, arg2, { force: opts.force === true })
 			}
 			return addCommand(arg2 ?? '.', target, { dryRun: opts.dryRun === true })

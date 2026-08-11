@@ -286,7 +286,7 @@ maxstack theme [options] <preset> [dir]
 
 ### `maxstack add`
 
-Browse the catalog (no argument), install a feature bundle, or "add view <resource>" to scaffold an owned list view
+Browse the catalog (no argument), install a feature bundle, or "add view <page>" to scaffold an owned list view
 
 ```sh
 maxstack add [options] [target] [arg2] [dir]
@@ -294,8 +294,8 @@ maxstack add [options] [target] [arg2] [dir]
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `target` | no | — | feature bundle slug (auth, members, audit, ...), or "view" to scaffold a resource view. Omit to browse the catalog. |
-| `arg2` | no | — | for "add view": the resource to scaffold; otherwise the project directory |
+| `target` | no | — | feature bundle slug (auth, members, audit, ...), or "view" to scaffold a page view. Omit to browse the catalog. |
+| `arg2` | no | — | for "add view": the page to scaffold — its route path, page id or module key, or a resource with exactly one page; otherwise the project directory |
 | `dir` | no | `.` | for "add view": the project directory |
 
 | Option | Meaning | Default |
