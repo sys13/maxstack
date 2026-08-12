@@ -215,6 +215,7 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 				ariaDescribedBy={meta.errorId}
 				className={uiOptions?.className}
 				onCreate={uiOptions?.onCreateReference}
+				search={uiOptions?.referenceSearch}
 			/>
 		)
 	} else if (inputType === 'reference-array') {
@@ -231,6 +232,7 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 				ariaDescribedBy={meta.errorId}
 				className={uiOptions?.className}
 				onCreate={uiOptions?.onCreateReference}
+				search={uiOptions?.referenceSearch}
 			/>
 		)
 	} else if (inputType === 'markdown') {

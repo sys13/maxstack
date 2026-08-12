@@ -193,6 +193,11 @@ export {
 	formatDateTyping,
 	isCompleteDate,
 } from './form/DateInput.tsx'
+export {
+	REFERENCE_OPTION_PAGE,
+	type ReferenceSearchPlan,
+	referenceSearchPlan,
+} from './form/reference-search.ts'
 export { useDirtyGuard } from './form/use-dirty-guard.ts'
 export {
 	type FormDraft,
