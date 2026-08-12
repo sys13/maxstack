@@ -10,6 +10,12 @@
  */
 
 import {
+	type ActionRowOutcome,
+	type ActionRunResult,
+	actionWrite,
+	findActionPlan,
+} from './actions.ts'
+import {
 	compileDocument,
 	type DocumentBlock,
 	type DocumentData,
@@ -136,6 +142,97 @@ export class LimitExceededError extends Error {
  * point of a public write path being *declared* is that every caller shares the
  * declaration. Rendered as 429.
  */
+/**
+ * A run refused because the caller aimed it at more rows than the declaration
+ * allows, or at none at all.
+ *
+ * Its own error, and thrown from `opRunAction` rather than from a route, for
+ * `RateLimitedError`'s reason: a cap enforced by the page is a cap the REST and
+ * MCP surfaces never meet, and the whole point of the blast radius being
+ * *declared* is that every caller shares the declaration.
+ *
+ * The run is refused **whole**. Truncating to the first `maxSelection` ids would
+ * silently do part of what somebody asked for and report success, which is the
+ * failure mode #388 named: refuse rather than ignore. Rendered as 400.
+ */
+export class SelectionTooLargeError extends Error {
+	readonly resource: string
+	readonly action: string
+	readonly requested: number
+	readonly maxSelection: number
+
+	constructor(
+		resource: string,
+		action: string,
+		requested: number,
+		maxSelection: number,
+	) {
+		super(
+			requested === 0
+				? `Nothing selected: action "${action}" needs at least one row`
+				: `Too many rows: action "${action}" allows ${maxSelection} per run and ${requested} were selected. The run was refused whole rather than applied to the first ${maxSelection} — a partial run that reported success is how somebody discovers next week that 88 rows were never touched.`,
+		)
+		this.name = 'SelectionTooLargeError'
+		this.resource = resource
+		this.action = action
+		this.requested = requested
+		this.maxSelection = maxSelection
+	}
+}
+
+/**
+ * A run refused because the operator's choice is not one of the declared
+ * options, or because a choice was required and absent.
+ *
+ * `ActionPlan.choose` carries its options precisely so this check can happen
+ * below every surface. A route that trusted the value it was posted would be
+ * the one gate three of four callers skip. Rendered as 400.
+ */
+export class InvalidActionChoiceError extends Error {
+	readonly resource: string
+	readonly action: string
+	readonly column: string
+	readonly options: string[]
+
+	constructor(
+		resource: string,
+		action: string,
+		column: string,
+		options: string[],
+		got: string | undefined,
+	) {
+		super(
+			got === undefined
+				? `Action "${action}" needs a value for ${column} — one of: ${options.join(', ')}`
+				: `"${got}" is not a declared option for ${column} on action "${action}" — one of: ${options.join(', ')}`,
+		)
+		this.name = 'InvalidActionChoiceError'
+		this.resource = resource
+		this.action = action
+		this.column = column
+		this.options = options
+	}
+}
+
+/**
+ * A run refused because the resource declares no action by that key.
+ *
+ * A 404 rather than a 403: an action key is a declaration, not a secret, and the
+ * honest answer to "run `archive` on books" when books declares no `archive` is
+ * that there is no such operation.
+ */
+export class UnknownActionError extends Error {
+	readonly resource: string
+	readonly action: string
+
+	constructor(resource: string, action: string) {
+		super(`Unknown action "${action}" on ${resource}`)
+		this.name = 'UnknownActionError'
+		this.resource = resource
+		this.action = action
+	}
+}
+
 export class RateLimitedError extends Error {
 	readonly resource: string
 	readonly portalKey: string
@@ -251,9 +348,25 @@ export class EmptyUpdateError extends ValidationError {
  * `@maxstack/features`'s `AuditEntry` that an op can supply — kept local so core
  * stays free of a features dependency (features depends on core, not the
  * reverse). A features `AuditSink` is assignable to `OpAuditSink`. */
+/**
+ * What an audit entry says happened.
+ *
+ * The four CRUD verbs, plus one bounded extension: a **batch** entry for a
+ * declared list action, `action:<key>` (and `action:<key>:undo`). It is a
+ * widening of the union rather than a free string on purpose — an audit `action`
+ * that accepted anything would let every future feature invent its own verb, and
+ * the value of this column is that a reader can enumerate what it may contain.
+ *
+ * The batch entry sits *alongside* the per-row `update` entries a run produces,
+ * never instead of them: those are real writes through the real path, and
+ * suppressing them to get one tidy row would weaken the audit of individual
+ * writes to buy a nicer-looking log. `metadata.batchId` correlates the two.
+ */
+export type OpAuditAction = SproutAction | `action:${string}`
+
 export interface OpAuditEntry {
 	userId: string
-	action: SproutAction
+	action: OpAuditAction
 	resource: string
 	resourceId?: string
 	/**
@@ -1741,6 +1854,257 @@ export async function opUpdate(
 	})
 	await publish(ctx, resource, id)
 	return updated
+}
+
+/**
+ * Run a declared list action over a caller-supplied selection.
+ *
+ * ## Not a client-side loop, and not a second write path either
+ *
+ * The loop is here rather than in a browser, which is what buys the three
+ * properties a client-side bulk action cannot have: the *batch* is authorized,
+ * the batch has a single audit record, and the write carries the caller's origin
+ * attribution like every other write.
+ *
+ * But the loop still calls {@link opUpdate} once per row rather than issuing one
+ * wide `UPDATE`. That is deliberate and it costs round trips:
+ *
+ *  - Tenancy, the soft-delete scope, the portal row bound, per-value limits,
+ *    validation, the per-row audit entry and the live publish are enforced
+ *    exactly once in this codebase. A set-based path would be a second
+ *    implementation of all seven, and the second one is the one that drifts.
+ *  - Authorization is **per row**. `authorize` reads the row for owner checks,
+ *    so "you may edit your own tasks" holds inside a batch, and a selection that
+ *    reaches past what the caller may edit fails on those rows rather than
+ *    succeeding wholesale.
+ *
+ * `MAX_ACTION_SELECTION` is set where it is because of this choice: five hundred
+ * of these is a request that holds a connection for a noticeable time, and past
+ * that the honest answer is a schedule rather than a larger cap.
+ *
+ * ## Partial results are a real state, not an edge case
+ *
+ * There is no transaction, because {@link SproutStore} has no transaction —
+ * and adding one only for this path would be the second write path the previous
+ * paragraph exists to avoid. So a run can half-succeed, and
+ * {@link ActionRunResult} reports which rows did and which did not, **by id**.
+ * That is the honest shape rather than the comfortable one: a run that rolled
+ * back on the first refusal would make one unauthorized row in a selection of
+ * four hundred discard three hundred and ninety-nine legitimate writes.
+ *
+ * ## Two audit records, not one instead of N
+ *
+ * Every row still writes its own `update` entry, because those are real writes
+ * through the real path and suppressing them to get a tidy single row would
+ * weaken the audit of individual writes. On top of them, the batch writes one
+ * `action:<key>` entry naming the selection, the write, the outcome and — for an
+ * undoable action — what it overwrote. The two are correlated by `batchId`.
+ *
+ * The batch entry is written **after** the rows, and it is written even when
+ * every row failed: a run that changed nothing is exactly the run somebody will
+ * ask about.
+ */
+export async function opRunAction(
+	ctx: OpContext,
+	resource: string,
+	actionKey: string,
+	input: { ids: readonly string[]; choice?: string; batchId: string },
+): Promise<ActionRunResult> {
+	const { registry, user } = ctx
+	const entry = resolve(registry, resource)
+	const plan = findActionPlan(entry.config.actions, actionKey)
+	if (!plan) throw new UnknownActionError(resource, actionKey)
+
+	// The batch gate, before a single row is read. It is *in addition to* the
+	// per-row `update` check inside opUpdate, never instead of it — which is what
+	// makes an action unable to do something its caller could not do row by row,
+	// while still letting the batch itself be privileged when the declaration
+	// says so.
+	if (plan.role && (user?.role ?? null) !== plan.role)
+		throw new PermissionError(resource, 'update')
+
+	// Deduplicated before the cap is checked, so a caller that sent the same id
+	// twice is not refused for a selection it did not make — and so a row cannot
+	// be written twice by one run, which would double its audit entries and, for
+	// an undoable action, record the run's own write as the "before".
+	const ids = [...new Set(input.ids)]
+	if (ids.length === 0 || ids.length > plan.maxSelection)
+		throw new SelectionTooLargeError(
+			resource,
+			actionKey,
+			ids.length,
+			plan.maxSelection,
+		)
+
+	// The operator's choice, checked against the declared options here rather
+	// than at whichever surface built the request. See `InvalidActionChoiceError`.
+	if (plan.choose) {
+		if (
+			input.choice === undefined ||
+			!plan.choose.options.includes(input.choice)
+		)
+			throw new InvalidActionChoiceError(
+				resource,
+				actionKey,
+				plan.choose.column,
+				plan.choose.options,
+				input.choice,
+			)
+	}
+
+	const write = actionWrite(plan, input.choice)
+	const columns = Object.keys(write)
+	const applied: ActionRowOutcome[] = []
+	const failed: ActionRowOutcome[] = []
+
+	for (const id of ids) {
+		try {
+			// Read first, and only when the action is undoable: the before-image is
+			// the whole of what makes a run reversible, and reading it for an action
+			// that declared itself irreversible would be paying for a record nothing
+			// will ever use. `opGet` rather than `store.get` so the read is
+			// authorized and tenant-scoped like any other — an unauthorized row must
+			// not have its prior values reported back through the result.
+			const before = plan.undoable
+				? pick(await opGet(ctx, resource, id), columns)
+				: undefined
+			await opUpdate(ctx, resource, id, write as Row)
+			applied.push(before ? { id, before } : { id })
+		} catch (error) {
+			// Every refusal is kept in the words the single-row path used, so a
+			// caller reading the report gets the same sentence they would have got
+			// editing that row on its own — "you may not edit this one" and "the
+			// doing column is full" are different problems and must not flatten into
+			// "88 rows failed".
+			failed.push({
+				id,
+				error: error instanceof Error ? error.message : String(error),
+			})
+		}
+	}
+
+	await record(ctx, {
+		action: `action:${plan.key}`,
+		resource,
+		metadata: {
+			batchId: input.batchId,
+			// The selection as sent, so the record answers "what was this aimed at"
+			// rather than only "what did it hit".
+			requested: ids.length,
+			applied: applied.map((o) => o.id),
+			failed: failed.map((o) => ({ id: o.id, error: o.error })),
+			write,
+			undoable: plan.undoable,
+			// Only present for an undoable action, and this is the reversal record.
+			...(plan.undoable
+				? { before: Object.fromEntries(applied.map((o) => [o.id, o.before])) }
+				: {}),
+		},
+	})
+
+	return {
+		action: plan.key,
+		batchId: input.batchId,
+		requested: ids.length,
+		applied,
+		failed,
+		...(input.choice !== undefined ? { chosen: input.choice } : {}),
+	}
+}
+
+/**
+ * Put back what a run overwrote.
+ *
+ * Takes the run's own {@link ActionRunResult} rather than a batch id, because
+ * the before-image is what makes the reversal possible and this module reads no
+ * audit log — a `batchId`-shaped API would imply a lookup that does not exist
+ * here and would put the undo's correctness in the sink's hands.
+ *
+ * It is an **ordinary write**: each row goes back through `opUpdate`, so the
+ * undo is authorized, validated, capped, audited and published exactly as the
+ * run was. Somebody whose permission changed between the two cannot undo their
+ * way past it, and the undo's own audit trail is a first-class record rather
+ * than a rollback that left none. That is why the result is another
+ * {@link ActionRunResult} and why an undo can itself half-succeed.
+ *
+ * Refused outright for an action that declared itself not undoable, rather than
+ * quietly doing nothing: the declaration said the run could not be taken back,
+ * and a silent no-op would let a caller believe it had been.
+ */
+export async function opUndoAction(
+	ctx: OpContext,
+	resource: string,
+	run: ActionRunResult,
+	batchId: string,
+): Promise<ActionRunResult> {
+	const entry = resolve(ctx.registry, resource)
+	const plan = findActionPlan(entry.config.actions, run.action)
+	if (!plan) throw new UnknownActionError(resource, run.action)
+	// Authorization before explanation. A caller who may not run this action gets
+	// the permission refusal rather than a lecture on whether it is undoable —
+	// the same order every other op uses, and the order that keeps the shape of
+	// somebody else's declaration out of an unauthorized answer.
+	if (plan.role && (ctx.user?.role ?? null) !== plan.role)
+		throw new PermissionError(resource, 'update')
+	if (!plan.undoable)
+		throw new UnsupportedOperationError(
+			resource,
+			'undo',
+			`action "${plan.key}" is declared not undoable, so the run recorded nothing it overwrote`,
+		)
+
+	const applied: ActionRowOutcome[] = []
+	const failed: ActionRowOutcome[] = []
+	for (const outcome of run.applied) {
+		// A row with no before-image cannot be restored, and saying so is better
+		// than skipping it: the caller asked for the run to be reversed, and a row
+		// silently left in its new state is the one they will not check.
+		if (!outcome.before) {
+			failed.push({
+				id: outcome.id,
+				error: 'no recorded prior value for this row',
+			})
+			continue
+		}
+		try {
+			await opUpdate(ctx, resource, outcome.id, outcome.before)
+			applied.push({ id: outcome.id })
+		} catch (error) {
+			failed.push({
+				id: outcome.id,
+				error: error instanceof Error ? error.message : String(error),
+			})
+		}
+	}
+
+	await record(ctx, {
+		action: `action:${plan.key}:undo`,
+		resource,
+		metadata: {
+			batchId,
+			undoes: run.batchId,
+			applied: applied.map((o) => o.id),
+			failed: failed.map((o) => ({ id: o.id, error: o.error })),
+		},
+	})
+
+	return {
+		action: run.action,
+		batchId,
+		requested: run.applied.length,
+		applied,
+		failed,
+	}
+}
+
+/** The named columns of a row, and only those — the before-image an undoable
+ *  run records. A whole-row snapshot would be a copy of every column including
+ *  ones the action never touched, so an undo would put back a value somebody
+ *  else legitimately changed in between. */
+function pick(row: Row, columns: readonly string[]): Row {
+	const out: Row = {}
+	for (const column of columns) out[column] = row[column]
+	return out
 }
 
 export async function opDelete(

@@ -67,6 +67,14 @@ export default [
 		// Static `search` segment for the same reason `count` is one: otherwise
 		// `/api/task/search` falls through as `opGet('search')`.
 		route(':resource/search', 'routes/api.resource.search.tsx'),
+		// `POST /api/:resource/actions/:action` — run a declared list action.
+		// Static segment, ahead of the `:resource/:id` catch below for the same
+		// reason `count` and `search` are: without it `/api/task/actions` routes
+		// as a read of a row whose id is the word "actions".
+		route(
+			':resource/actions/:action',
+			'routes/api.resource.actions.$action.tsx',
+		),
 		route(':resource/:id', 'routes/api.resource.$id.tsx'),
 		// `POST /api/:resource/:id/restore` — undo a soft delete.
 		route(':resource/:id/restore', 'routes/api.resource.$id.restore.tsx'),

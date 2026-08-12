@@ -83,12 +83,23 @@ export const TYPE_ALIASES_FOR_TEST: Readonly<Record<string, FieldType>> =
  * stay clean. */
 const SLUG_RE = /^[a-z][a-zA-Z0-9]*$/
 
+/**
+ * The slug complaint, as a message rather than a throw — `undefined` when the
+ * value is fine.
+ *
+ * Split out of {@link assertSlug} for the interactive path (#421), which has to
+ * *re-ask* on a bad answer rather than abort a command halfway through. Both
+ * spellings share this one so a name the prompt accepted can never be a name
+ * `parseField` then rejects.
+ */
+export function slugProblem(kind: string, value: string): string | undefined {
+	if (SLUG_RE.test(value)) return undefined
+	return `invalid ${kind} "${value}" — use an identifier starting with a lowercase letter (e.g. task, dueOn)`
+}
+
 function assertSlug(kind: string, value: string): void {
-	if (!SLUG_RE.test(value)) {
-		throw new Error(
-			`invalid ${kind} "${value}" — use an identifier starting with a lowercase letter (e.g. task, dueOn)`,
-		)
-	}
+	const problem = slugProblem(kind, value)
+	if (problem) throw new Error(problem)
 }
 
 /** The `e-`-prefixed branded entity id for a slug. */

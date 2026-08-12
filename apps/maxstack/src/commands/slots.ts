@@ -28,7 +28,9 @@ import {
 } from '@maxstack/core/ownership'
 import { type SlotInfo, slotInventory } from '@maxstack/mcp'
 import type { SpecSystem } from '@maxstack/spec'
+import { slotChoices } from '../lib/choices.ts'
 import { loadProject, type Project } from '../lib/project.ts'
+import { type Interaction, nonInteractive, resolveArg } from '../lib/prompt.ts'
 
 /**
  * What each resource's slot file exports, read straight off disk — the fill
@@ -167,21 +169,38 @@ function findSlot(
 }
 
 export async function slotsFillCommand(
-	id: string,
+	id: string | undefined,
 	dir: string | undefined,
+	io: Interaction = nonInteractive,
 ): Promise<void> {
 	const project = await loadProject(dir ?? '.')
 	const spec = await project.spec.load()
 	const inventory = slotInventory(spec, await filledByResource(project, spec))
-	const found = findSlot(inventory, id)
+
+	// The two rejections below — no such id, and "that is a declared page slot"
+	// — are exactly what `slotChoices` filters out, so an id picked from the menu
+	// cannot reach either (#421). Slot ids are also the worst thing in this CLI
+	// to retype: they carry an escaping rule that `BLOCK_SLOT_ID_ESCAPING` needs
+	// a paragraph to explain, and the error path below exists to explain it.
+	const chosen = await resolveArg(id, 'id', io, (prompter) => {
+		const choices = slotChoices(inventory)
+		if (choices.length === 0) {
+			throw new Error(
+				'no unfilled block slots in this project — run `maxstack slots` to see what exists.',
+			)
+		}
+		return prompter.select('Which slot do you want to fill?', choices)
+	})
+
+	const found = findSlot(inventory, chosen)
 
 	if (!found) {
-		console.error(`✖ no slot "${id}" in this project.`)
+		console.error(`✖ no slot "${chosen}" in this project.`)
 		// The caller who mistyped an id is exactly the caller who needs the escape
 		// rule (#378, #390). A bare "not found" reads as *the id* being wrong, and
 		// the likely next move — renaming the entity so its id stops looking
 		// mangled — is the worse outcome. So: the repair first, then the rule.
-		const suggestion = unescapedSpelling(inventory, id)
+		const suggestion = unescapedSpelling(inventory, chosen)
 		if (suggestion) console.error(`  Did you mean "${suggestion}"?`)
 		console.error(
 			indent(wrap(BLOCK_SLOT_ID_ESCAPING.replaceAll('`', ''), 76), '  '),
@@ -193,7 +212,7 @@ export async function slotsFillCommand(
 	if (found.slot.kind !== 'block') {
 		// A declared `slot:<name>` block is scaffolded by generation itself.
 		console.error(
-			`✖ "${id}" is a declared page slot, not a block slot — run \`maxstack gen\` and it is stubbed for you.`,
+			`✖ "${chosen}" is a declared page slot, not a block slot — run \`maxstack gen\` and it is stubbed for you.`,
 		)
 		process.exitCode = 1
 		return
@@ -202,10 +221,10 @@ export async function slotsFillCommand(
 	const descriptor = blockSlotsForResource(
 		found.resource,
 		found.slot.field ? [found.slot.field] : [],
-	).find((s) => s.id === id)
+	).find((s) => s.id === chosen)
 	if (!descriptor) {
 		// Unreachable via the inventory, which is built from the same fold.
-		console.error(`✖ could not derive slot "${id}"`)
+		console.error(`✖ could not derive slot "${chosen}"`)
 		process.exitCode = 1
 		return
 	}
@@ -219,10 +238,12 @@ export async function slotsFillCommand(
 
 	const file = pageFilePaths(found.resource).slotFile
 	if (!res.added) {
-		console.log(`· ${id} is already implemented in ${file} — nothing to do`)
+		console.log(`· ${chosen} is already implemented in ${file} — nothing to do`)
 		return
 	}
 	console.log(`✔ ${res.result.action} ${file}`)
-	console.log(`  ${id}(props: ${descriptor.props}) — it is yours; edit freely.`)
+	console.log(
+		`  ${chosen}(props: ${descriptor.props}) — it is yours; edit freely.`,
+	)
 	console.log('  Regeneration will never overwrite this file.')
 }

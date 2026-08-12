@@ -46,12 +46,12 @@ const entity: SpecOp = {
 }
 
 describe('the vocabulary', () => {
-	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(64)
+	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + provenance.review, one metadata entry each', () => {
+		expect(SPEC_OP_NAMES).toHaveLength(67)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
-		// spans all fourteen layers, plus the system-level review op
+		// spans all fifteen layers, plus the system-level review op
 		expect(
 			new Set(Object.values(SPEC_OP_VOCABULARY).map((m) => m.layer)),
 		).toEqual(
@@ -69,6 +69,7 @@ describe('the vocabulary', () => {
 				'imports',
 				'portals',
 				'live',
+				'view',
 				'site',
 				'system',
 			]),

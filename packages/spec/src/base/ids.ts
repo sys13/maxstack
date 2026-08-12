@@ -134,6 +134,18 @@ export type PortalId = `ptl-${string}`
  */
 export type LiveId = `lv-${string}`
 
+// ---- view layer -----------------------------------------------------------
+/**
+ * A declared list action. Disjoint from every prefix above — no other
+ * layer uses `act`, and the template-literal type requires the `-`. As
+ * everywhere else the action's *key* (the `/api/:resource/actions/<key>` URL
+ * segment, the audit label, the MCP tool name) is separate from the
+ * spec-internal handle; here the separation earns its keep because the label a
+ * button carries is prose somebody will reword, and rewording a button must not
+ * move an endpoint.
+ */
+export type ActionId = `act-${string}`
+
 // ---- system-level ---------------------------------------------------------
 /** A single applied spec-op instance in the op log. */
 export type OpId = `op-${string}`
@@ -153,6 +165,7 @@ export type SpecLayer =
 	| 'imports'
 	| 'portals'
 	| 'live'
+	| 'view'
 	| 'site'
 	| 'system'
 

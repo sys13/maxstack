@@ -10,9 +10,11 @@
  */
 
 import { type SpecOp, THEME_PRESETS, type ThemeSpec } from '@maxstack/spec'
+import { themeChoices } from '../lib/choices.ts'
 import { landOp } from '../lib/land.ts'
 import { resolveActor, resolveOrigin } from '../lib/origin.ts'
 import { loadProject } from '../lib/project.ts'
+import { type Interaction, nonInteractive, resolveArg } from '../lib/prompt.ts'
 
 interface ThemeOptions {
 	accent?: string
@@ -28,13 +30,21 @@ interface ThemeOptions {
 
 export async function themeCommand(
 	dir: string | undefined,
-	preset: string,
+	preset: string | undefined,
 	opts: ThemeOptions,
+	io: Interaction = nonInteractive,
 ): Promise<void> {
+	// This command already prints `presets: …` from `THEME_PRESETS` on success
+	// (#421) — the list existed, it just arrived after the guess. `themeChoices`
+	// reads the same export, so the menu cannot offer a preset the op refuses.
+	const chosen = await resolveArg(preset, 'preset', io, (prompter) =>
+		prompter.select('Which theme?', themeChoices()),
+	)
+
 	// Compile flags → the op payload verbatim; `landOp` runs the shared
 	// validator, so a bad preset/enum/hex fails with the op's structured errors.
 	const theme = {
-		preset,
+		preset: chosen,
 		accent: opts.accent,
 		radius: opts.radius,
 		density: opts.density,
@@ -55,7 +65,7 @@ export async function themeCommand(
 		.map(([k, v]) => `${k} ${v}`)
 		.join(' · ')
 	console.log(
-		`✔ theme set to "${preset}"${extras ? ` (${extras})` : ''} — live on the next page load`,
+		`✔ theme set to "${chosen}"${extras ? ` (${extras})` : ''} — live on the next page load`,
 	)
 	console.log(`  presets: ${THEME_PRESETS.join(' · ')}`)
 }

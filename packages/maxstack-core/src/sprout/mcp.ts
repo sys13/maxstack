@@ -111,6 +111,7 @@ import { nextErrorId, reportInternalError } from './error-id.ts'
 import type { ImportPlan } from './imports.ts'
 import {
 	EmptyUpdateError,
+	InvalidActionChoiceError,
 	LimitExceededError,
 	NotFoundError,
 	type OpContext,
@@ -119,10 +120,13 @@ import {
 	opGet,
 	opList,
 	opRenderDocument,
+	opRunAction,
 	opSearch,
 	opUpdate,
 	planImport,
 	RateLimitedError,
+	SelectionTooLargeError,
+	UnknownActionError,
 	UnknownResourceError,
 	UnsupportedOperationError,
 	ValidationError,
@@ -465,6 +469,51 @@ const UPDATE_SCHEMA: JsonSchema = {
 	required: ['resource', 'id', 'data'],
 }
 
+/**
+ * `run_action` — one tool for every declared list action, not one per action.
+ *
+ * The action key is an *argument*, exactly as the resource name is, and for
+ * #320's reason: a tool per declared action is O(entities × actions) entries on
+ * connect, which is the growth that made the tool list unusable and that the
+ * fixed vocabulary exists to remove. What each action writes, how many rows it
+ * may touch and what may be chosen come from
+ * `describe_resources { resource } → actions`.
+ *
+ * `ids` is an explicit array and there is deliberately no `filter` spelling.
+ * Everything the epic says about a human ticking boxes applies harder to an
+ * agent: "everything matching the current filter" resolves the set server-side
+ * after the count was read, and an agent that mis-formed the filter learns how
+ * many rows it changed afterwards.
+ */
+const RUN_ACTION_SCHEMA: JsonSchema = {
+	type: 'object',
+	properties: {
+		resource: RESOURCE_PROP,
+		action: {
+			type: 'string',
+			description:
+				'The action key, from `describe_resources { resource }` → `actions[].key`.',
+		},
+		ids: {
+			type: 'array',
+			items: { type: 'string' },
+			description:
+				'The rows to act on, by id. An explicit list — there is no "everything matching a filter" spelling, deliberately. Over the action\'s declared maxSelection the whole run is refused rather than truncated.',
+		},
+		choice: {
+			type: 'string',
+			description:
+				"Required iff the action declares `choose`, and must be one of that field's declared options.",
+		},
+		batchId: {
+			type: 'string',
+			description:
+				'Correlates the batch audit entry with the per-row ones. Supply your own so you can find this run in the log afterwards.',
+		},
+	},
+	required: ['resource', 'action', 'ids', 'batchId'],
+}
+
 const ACTIONS: SproutAction[] = ['read', 'create', 'update', 'delete']
 
 /**
@@ -632,6 +681,19 @@ export async function generateMCPTools(
 				'Update one record by id, with the fields to change. Field schema from `describe_resources { resource }`.',
 			inputSchema: UPDATE_SCHEMA,
 		})
+	// Offered only when something reachable actually declares an action, on
+	// `search_records`' reasoning: a tool with nothing behind it teaches an agent
+	// to try it and fall back. Gated on `update` because running one IS an update.
+	if (
+		permitted.has('update') &&
+		entries.some((e) => (e.config.actions?.length ?? 0) > 0)
+	)
+		tools.push({
+			name: 'run_action',
+			description:
+				"Run a declared list action over an explicit set of rows — the same named, capped, role-gated operation the app's own toolbar runs, not a loop of updates. What it writes comes from the spec, never from you: you supply the rows and, when the action declares one, a choice from its declared options. `describe_resources { resource }` lists each action, what it sets, its cap and whether it can be undone. A run over the cap is refused whole rather than truncated; a run may partially succeed, and the reply names every row that did not, by id and reason.",
+			inputSchema: RUN_ACTION_SCHEMA,
+		})
 	if (permitted.has('delete'))
 		tools.push({
 			name: 'delete_record',
@@ -773,6 +835,16 @@ function describeExtras(
 ): Record<string, unknown> {
 	const documents = readableDocuments(entry, actions)
 	const importers = usableImporters(entry, actions)
+	// Declared actions, gated on `update` — running one IS an update of the rows
+	// (`opRunAction` is built out of `opGet`/`opUpdate`), so offering one where
+	// the rows are unwritable would advertise a door that is locked. The declared
+	// `role` is NOT checked here: it is a batch gate enforced in the op, and a
+	// caller who holds `update` but not the role should be told the action exists
+	// and refused when they run it, rather than shown a registry that quietly
+	// differs per person.
+	const listActions = actions.includes('update')
+		? (entry.config.actions ?? [])
+		: []
 	return {
 		...(actions.includes('read') && entry.config.search
 			? { search: true }
@@ -790,6 +862,29 @@ function describeExtras(
 					importers: importers.map((i) => ({
 						key: i.key,
 						description: i.description,
+					})),
+				}
+			: {}),
+		...(listActions.length > 0
+			? {
+					actions: listActions.map((a) => ({
+						key: a.key,
+						label: a.label,
+						description: a.description,
+						arity: a.arity,
+						// The three facts an agent needs before calling `run_action`:
+						// what it writes, how many rows it may aim at, and what it may
+						// pick. Inlined here rather than in the tool schema for #320's
+						// reason — an enum of every action on connect is O(entities).
+						writes: a.set,
+						...(a.choose
+							? {
+									choose: { field: a.choose.column, options: a.choose.options },
+								}
+							: {}),
+						maxSelection: a.maxSelection,
+						undoable: a.undoable,
+						...(a.role ? { role: a.role } : {}),
 					})),
 				}
 			: {}),
@@ -892,7 +987,15 @@ export function mcpFail(
 		e instanceof UnknownResourceError ||
 		// A spent portal budget. "Try again later" is addressed to the caller and
 		// is the one thing that stops an agent retrying immediately.
-		e instanceof RateLimitedError
+		e instanceof RateLimitedError ||
+		// The three list-action refusals. Named explicitly, because every one of
+		// them is a repair instruction an agent can act on — the cap it exceeded,
+		// the options it may choose from, the action that does not exist — and the
+		// generic fallback below would turn each into "Internal error", which an
+		// agent retries verbatim.
+		e instanceof SelectionTooLargeError ||
+		e instanceof InvalidActionChoiceError ||
+		e instanceof UnknownActionError
 	) {
 		return err(e.message)
 	}
@@ -1102,6 +1205,35 @@ export async function executeMCPTool(
 			return mcpFail(
 				e,
 				{ resource: String(args.resource ?? 'query'), operation: 'query' },
+				exposure,
+			)
+		}
+	}
+	// Dispatched here rather than through `GENERIC_VERBS` because it is not a
+	// verb over one resource — it is a named operation the *spec* defines. It
+	// still reaches the store only through `opGet`/`opUpdate`, so it is not a
+	// second write path either.
+	if (toolName === 'run_action') {
+		try {
+			return ok(
+				await opRunAction(
+					ctx,
+					String(args.resource ?? ''),
+					String(args.action ?? ''),
+					{
+						ids: Array.isArray(args.ids) ? args.ids.map(String) : [],
+						...(typeof args.choice === 'string' ? { choice: args.choice } : {}),
+						batchId: String(args.batchId ?? ''),
+					},
+				),
+			)
+		} catch (e) {
+			return mcpFail(
+				e,
+				{
+					resource: String(args.resource ?? ''),
+					operation: `action:${String(args.action ?? '')}`,
+				},
 				exposure,
 			)
 		}

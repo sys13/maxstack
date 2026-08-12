@@ -22,8 +22,14 @@ import {
 	resolveInstallOrder,
 	validateBundleApply,
 } from '@maxstack/features/bundle'
+import { bundleChoices } from '../lib/choices.ts'
 import { generateProject } from '../lib/generate.ts'
 import { loadProject, saveConfig } from '../lib/project.ts'
+import {
+	echoInvocation,
+	type Interaction,
+	nonInteractive,
+} from '../lib/prompt.ts'
 
 export interface AddOptions {
 	/** Show the spec diff the install would produce; write nothing. */
@@ -70,16 +76,46 @@ export function renderCatalog(entries: BundleSummary[]): string {
  * outside a project too: "what could I add" is a question people ask before
  * they have somewhere to add it to.
  */
-export async function catalogCommand(dir: string | undefined): Promise<void> {
+export async function catalogCommand(
+	dir: string | undefined,
+	io: Interaction = nonInteractive,
+): Promise<void> {
 	let installed: InstalledBundle[] = []
+	let inProject = false
 	try {
 		installed = (await loadProject(dir ?? '.')).config.bundles
+		inProject = true
 	} catch {
 		// Not in a project. Still worth answering.
 	}
 	const entries = describeCatalog(installed)
 	console.log(`\n  ${entries.length} installable modules\n`)
 	console.log(renderCatalog(entries))
+
+	// At a terminal inside a project, the catalog is a menu rather than a
+	// reference (#421): the next thing anyone does with this output is retype one
+	// of the slugs in it. Outside a project there is nowhere to install to, so it
+	// stays a reference and prints the usage instead.
+	const choices = inProject ? bundleChoices(installed) : []
+	if (io.prompter && choices.length > 0) {
+		console.log()
+		// The last row, and the only one that writes nothing. `maxstack add` with
+		// no argument is documented as *browsing* the catalog, so a picker with no
+		// way out would turn a read-only verb into one that always installs
+		// something — the user came to look, and looking has to stay free.
+		const slug = await io.prompter.select<string | null>('Install one?', [
+			...choices,
+			{ value: null, label: 'none', hint: 'just browsing' },
+		])
+		if (slug === null) {
+			console.log()
+			return
+		}
+		echoInvocation(['maxstack', 'add', slug])
+		await addCommand(dir ?? '.', slug)
+		return
+	}
+
 	console.log(
 		'\n  maxstack add <slug>            install it (prerequisites resolved first)' +
 			'\n  maxstack add <slug> --dry-run  preview the spec diff, write nothing\n',

@@ -55,6 +55,7 @@ import type {
 	RollupSpec,
 	SpecSystem,
 } from './spec-system.ts'
+import type { ActionSpec, ViewSpec } from './view.ts'
 
 /**
  * The on-disk format version. v1 is the original single monolithic `spec.json`
@@ -107,6 +108,17 @@ export const SPEC_DIR_FILES = {
 	 */
 	live: 'live.json',
 	/**
+	 * Written only once a list action has been declared; absent = none.
+	 *
+	 * The absence is load-bearing on `portals.json`'s terms rather than
+	 * `theme.json`'s: a spec dir with no `view.json` has no way to change a row
+	 * except through its form, one at a time. So every project that predates this
+	 * layer reads as having no bulk write path at all without anybody having to
+	 * write that down — which is the correct default, because the alternative is
+	 * a button somebody never reviewed sitting above a list.
+	 */
+	view: 'view.json',
+	/**
 	 * Written only once a `site.set` has landed; absent = no public identity.
 	 *
 	 * The absence is load-bearing on `portals.json`'s terms rather than
@@ -145,6 +157,7 @@ export const OPTIONAL_SPEC_DIR_FILES: readonly string[] = [
 	SPEC_DIR_FILES.imports,
 	SPEC_DIR_FILES.portals,
 	SPEC_DIR_FILES.live,
+	SPEC_DIR_FILES.view,
 	SPEC_DIR_FILES.site,
 ]
 
@@ -410,6 +423,19 @@ function decodeLive(raw: Record<string, unknown>): LiveSpec {
 	return {
 		subscriptions: ((raw.subscriptions ?? []) as Record<string, unknown>[]).map(
 			(s) => decodeDerived<LiveSubscriptionSpec>(s),
+		),
+	}
+}
+
+/** List actions — same rule again: only provenance is compacted. */
+function encodeView(view: ViewSpec): unknown {
+	return { actions: view.actions.map(encodeDerived) }
+}
+
+function decodeView(raw: Record<string, unknown>): ViewSpec {
+	return {
+		actions: ((raw.actions ?? []) as Record<string, unknown>[]).map((a) =>
+			decodeDerived<ActionSpec>(a),
 		),
 	}
 }
@@ -728,6 +754,8 @@ export function encodeSpecSystem(spec: SpecSystem): SpecDir {
 		dir[SPEC_DIR_FILES.portals] = jsonFile(encodePortals(spec.portals))
 	if (spec.live !== undefined)
 		dir[SPEC_DIR_FILES.live] = jsonFile(encodeLive(spec.live))
+	if (spec.view !== undefined)
+		dir[SPEC_DIR_FILES.view] = jsonFile(encodeView(spec.view))
 	// Same absence rule again, and no encoder: a site is whole-document
 	// last-wins state with no provenance to compact, exactly like theme.json.
 	if (spec.site !== undefined) dir[SPEC_DIR_FILES.site] = jsonFile(spec.site)
@@ -802,6 +830,9 @@ export function decodeSpecSystem(dir: SpecDir): SpecSystem {
 	const liveRaw = dir[SPEC_DIR_FILES.live]
 	if (liveRaw !== undefined && liveRaw.trim().length > 0)
 		state.live = decodeLive(JSON.parse(liveRaw) as Record<string, unknown>)
+	const viewRaw = dir[SPEC_DIR_FILES.view]
+	if (viewRaw !== undefined && viewRaw.trim().length > 0)
+		state.view = decodeView(JSON.parse(viewRaw) as Record<string, unknown>)
 	const siteRaw = dir[SPEC_DIR_FILES.site]
 	if (siteRaw !== undefined && siteRaw.trim().length > 0)
 		state.site = JSON.parse(siteRaw) as SpecSystem['site']

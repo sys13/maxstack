@@ -268,6 +268,14 @@ function renderCliReference(): string {
 		'  when the tree is regenerated (a running `maxstack dev` does it for you).',
 		'- **Exit codes are binary**: `0` on success, `1` with a `✖ <message>` line on',
 		'  stderr for any failure. There are no other codes to branch on.',
+		'- **An omitted argument is asked for at a terminal.** Where the table below',
+		'  says an argument is not required, that is only true interactively: when',
+		'  both stdin and stdout are a TTY the CLI prompts, offering the values it',
+		'  can read off the project — entities, routes, slots, bundles, presets.',
+		'  Anywhere else — a pipe, CI, an agent — the argument is still required and',
+		"  omitting it fails with `error: missing required argument '<name>'` and",
+		'  exit 1, exactly as before. Set `MAXSTACK_NO_PROMPT=1` to force that',
+		'  behaviour at a terminal.',
 		'',
 		'## Environment',
 		'',
@@ -282,6 +290,7 @@ function renderCliReference(): string {
 		'| `DATABASE_URL` | `dev`, `build` | Postgres connection when the backend is `postgres`. |',
 		'| `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` | origin detection | Presence means an agent is driving; origin becomes `ai`. |',
 		'| `NO_COLOR` | all output | Suppresses ANSI colour. |',
+		'| `MAXSTACK_NO_PROMPT` | every verb that can prompt | Any non-empty value disables interactive prompting, so an omitted argument fails instead of being asked for. |',
 		'',
 	]
 

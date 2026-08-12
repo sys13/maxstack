@@ -3,8 +3,6 @@
  * `withMeta`, register it, and derive validation, REST, and MCP tools from it.
  */
 
-export * from './api.ts'
-export * from './api-contract.ts'
 // NOTE: `./backend.ts` is deliberately NOT re-exported here. It statically
 // imports the pglite + postgres.js drivers, so folding it into this barrel
 // pulls those Node-only DB drivers into any *client* bundle that imports
@@ -14,6 +12,9 @@ export * from './api-contract.ts'
 // subpath instead. The `StoreBackend` type still flows through `from-spec.ts`.
 // `./coordination.ts` only *type*-imports `./backend.ts`, so it carries none of
 // the driver weight the note above is about and belongs in the barrel.
+export * from './actions.ts'
+export * from './api.ts'
+export * from './api-contract.ts'
 export * from './constraints.ts'
 export * from './coordination.ts'
 export * from './derived.ts'

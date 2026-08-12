@@ -25,6 +25,14 @@ and then [`user-guide.md`](user-guide.md).
   when the tree is regenerated (a running `maxstack dev` does it for you).
 - **Exit codes are binary**: `0` on success, `1` with a `✖ <message>` line on
   stderr for any failure. There are no other codes to branch on.
+- **An omitted argument is asked for at a terminal.** Where the table below
+  says an argument is not required, that is only true interactively: when
+  both stdin and stdout are a TTY the CLI prompts, offering the values it
+  can read off the project — entities, routes, slots, bundles, presets.
+  Anywhere else — a pipe, CI, an agent — the argument is still required and
+  omitting it fails with `error: missing required argument '<name>'` and
+  exit 1, exactly as before. Set `MAXSTACK_NO_PROMPT=1` to force that
+  behaviour at a terminal.
 
 ## Environment
 
@@ -39,6 +47,7 @@ and then [`user-guide.md`](user-guide.md).
 | `DATABASE_URL` | `dev`, `build` | Postgres connection when the backend is `postgres`. |
 | `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` | origin detection | Presence means an agent is driving; origin becomes `ai`. |
 | `NO_COLOR` | all output | Suppresses ANSI colour. |
+| `MAXSTACK_NO_PROMPT` | every verb that can prompt | Any non-empty value disables interactive prompting, so an omitted argument fails instead of being asked for. |
 
 ## Starting and running a project
 
@@ -196,12 +205,12 @@ maxstack op [options] [dir|file]
 Add a data entity — sugar that compiles to a data.addEntity op
 
 ```sh
-maxstack add-entity [options] <slug> [dir]
+maxstack add-entity [options] [slug] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `slug` | yes | — | entity id slug (lowercase, e.g. task -> e-task) |
+| `slug` | no | — | entity id slug (lowercase, e.g. task -> e-task); omit at a terminal to be asked |
 | `dir` | no | `.` | project directory |
 
 | Option | Meaning | Default |
@@ -222,13 +231,13 @@ maxstack add-entity [options] <slug> [dir]
 Add a field to an entity — sugar for a data.addField op
 
 ```sh
-maxstack add-field [options] <entity> <spec> [dir]
+maxstack add-field [options] [entity] [spec] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `entity` | yes | — | target entity id or slug (e-task or task) |
-| `spec` | yes | — | the field as name:type[!] — dueOn:date!, 'status:enum(todo,done)', owner:ref:e-user (quote any spec with ( or ->) |
+| `entity` | no | — | target entity id or slug (e-task or task); omit at a terminal to be asked |
+| `spec` | no | — | the field as name:type[!] — dueOn:date!, 'status:enum(todo,done)', owner:ref:e-user (quote any spec with ( or ->). Omit at a terminal to be asked field-by-field, which needs no quoting |
 | `dir` | no | `.` | project directory |
 
 | Option | Meaning | Default |
@@ -243,12 +252,12 @@ maxstack add-field [options] <entity> <spec> [dir]
 Add a default list page for an entity — sugar that compiles to a page.addPage op
 
 ```sh
-maxstack add-page [options] <entity> [dir]
+maxstack add-page [options] [entity] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `entity` | yes | — | target entity id or slug (e-task or task) |
+| `entity` | no | — | target entity id or slug (e-task or task); omit at a terminal to be asked |
 | `dir` | no | `.` | project directory |
 
 | Option | Meaning | Default |
@@ -266,12 +275,12 @@ maxstack add-page [options] <entity> [dir]
 Set the app's visual theme — sugar that compiles to a theme.set op (live immediately)
 
 ```sh
-maxstack theme [options] <preset> [dir]
+maxstack theme [options] [preset] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `preset` | yes | — | theme preset: zinc \| ocean \| forest \| sunset \| mono \| rose \| amber |
+| `preset` | no | — | theme preset: zinc \| ocean \| forest \| sunset \| mono \| rose \| amber; omit at a terminal to be asked |
 | `dir` | no | `.` | project directory |
 
 | Option | Meaning | Default |
@@ -328,12 +337,12 @@ maxstack slots [options] [dir] <subcommand>
 Scaffold a typed, user-owned stub for one block slot
 
 ```sh
-maxstack slots fill <id> [dir]
+maxstack slots fill [id] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `id` | yes | — | slot id, as printed by `maxstack slots` |
+| `id` | no | — | slot id, as printed by `maxstack slots`; omit at a terminal to be asked |
 | `dir` | no | `.` | project directory |
 
 ### `maxstack eject`
@@ -341,12 +350,12 @@ maxstack slots fill <id> [dir]
 Take ownership of a generated route (never re-clobbered)
 
 ```sh
-maxstack eject [options] <route-id> [dir]
+maxstack eject [options] [route-id] [dir]
 ```
 
 | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `route-id` | yes | — | route id to take ownership of |
+| `route-id` | no | — | route id to take ownership of; omit at a terminal to be asked |
 | `dir` | no | `.` | project directory |
 
 | Option | Meaning | Default |
