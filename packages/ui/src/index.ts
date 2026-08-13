@@ -394,12 +394,14 @@ export {
 } from './resource/filter-params.ts'
 export {
 	activeFilterCount,
+	declaredFilterOperators,
 	deriveFacets,
 	EMPTY_FILTERS,
 	type Facet,
 	type FacetKind,
 	type FacetOption,
 	type FilterValues,
+	filterOperatorsOf,
 	isRelationFilterColumn,
 	isSortableColumn,
 	type RangeValue,

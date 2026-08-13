@@ -752,6 +752,15 @@ async function describeResources(
 						...((c.meta.description ?? c.meta.label)
 							? { description: c.meta.description ?? c.meta.label }
 							: {}),
+						// What the spec declared about filtering this column (#414),
+						// reported only where it was declared. An agent that cannot see
+						// the declaration learns it by being refused, which costs a round
+						// trip to discover something the app already knows and is the
+						// asymmetry `describe_resources` exists to remove.
+						...(c.meta.filterable === false ? { filterable: false } : {}),
+						...(c.meta.filterOperators?.length
+							? { filterOperators: c.meta.filterOperators }
+							: {}),
 					}))
 				: undefined,
 			createSchema: actions.includes('create')

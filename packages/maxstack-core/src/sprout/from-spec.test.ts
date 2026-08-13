@@ -1213,3 +1213,42 @@ describe('a number field carries its declared presentation onto the column', () 
 		expect(col('pages')?.meta.max).toBeUndefined()
 	})
 })
+
+// ---------------------------------------------------------------------------
+// Issue #414 — a field's declared filter control.
+//
+// `meta.filterable` was already read by the list-filter derivation in both
+// directions and no spec op wrote it, so the only layer a person writes in
+// could not say "not this column". `meta.filterOperators` is the new half.
+// ---------------------------------------------------------------------------
+
+describe('a field carries its declared filter control onto the column', () => {
+	const ledger: SpecEntityShape = {
+		name: 'invoice',
+		fields: [
+			{ name: 'reference', type: 'string', required: true },
+			{
+				name: 'internalNote',
+				type: 'string',
+				required: false,
+				filter: { filterable: false },
+			},
+			{
+				name: 'year',
+				type: 'number',
+				required: false,
+				filter: { operators: ['eq'] },
+			},
+			{ name: 'total', type: 'number', required: false },
+		],
+	}
+
+	it('grounds filter onto meta, and leaves an undeclared field alone', () => {
+		const resource = introspectTable(tableFromSpecEntity(ledger))
+		const col = (name: string) => resource.columns.find((c) => c.name === name)
+		expect(col('internalNote')?.meta.filterable).toBe(false)
+		expect(col('year')?.meta.filterOperators).toEqual(['eq'])
+		expect(col('total')?.meta.filterable).toBeUndefined()
+		expect(col('total')?.meta.filterOperators).toBeUndefined()
+	})
+})

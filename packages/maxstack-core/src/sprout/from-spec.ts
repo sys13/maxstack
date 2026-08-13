@@ -135,6 +135,20 @@ export interface SpecFieldShape {
 		max?: number
 		step?: number
 	}
+	/**
+	 * A column's declared filter control — the spec's `field.filter` (#414).
+	 * Carried into `meta.filterable` (a key the list-filter derivation already
+	 * honoured in both directions, and which no op could write until now — the
+	 * same shape `display` had before #345) and `meta.filterOperators`.
+	 *
+	 * It reaches further than the derivation: `opList` refuses a REST filter on a
+	 * column declared un-filterable, so the declaration means the same thing on
+	 * the page and over the API rather than being a hint one surface honours.
+	 */
+	filter?: {
+		filterable?: boolean
+		operators?: string[]
+	}
 }
 
 /**
@@ -280,6 +294,17 @@ function columnFor(
 		if (field.display.min !== undefined) meta.min = field.display.min
 		if (field.display.max !== undefined) meta.max = field.display.max
 		if (field.display.step !== undefined) meta.step = field.display.step
+	}
+	// A column's declared filter control (#414). `filterable` was already read by
+	// the derivation and reachable from nothing; `filterOperators` is new, and
+	// narrows the spellings the control offers to the ones the author named. Both
+	// are carried verbatim — the op validator has already refused a `range` on a
+	// column that has no ordering, so this is not the place to re-litigate it.
+	if (field.filter) {
+		if (field.filter.filterable !== undefined)
+			meta.filterable = field.filter.filterable
+		if (field.filter.operators?.length)
+			meta.filterOperators = [...field.filter.operators]
 	}
 	// A rank key is a text column with a database default, hidden and
 	// read-only in the UI: it is written by moving a row, never by typing.

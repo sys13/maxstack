@@ -105,6 +105,17 @@ export interface ColumnMetadata {
 	required?: boolean
 	sortable?: boolean
 	filterable?: boolean
+	/**
+	 * Which filter spellings this column's control offers — `['eq']`,
+	 * `['range']`, or both (#414). Absent means the list-filter derivation
+	 * decides from the column's type, which is the case for every column no spec
+	 * op has spoken about.
+	 *
+	 * Strings rather than a union so `@maxstack/ui` — which has no workspace
+	 * dependencies — can read the key without importing the spec's
+	 * `FilterOperator`; the op validator is what keeps the values honest.
+	 */
+	filterOperators?: string[]
 	// relational
 	reference?: SproutColumnReference
 	/**

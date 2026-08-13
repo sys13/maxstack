@@ -9,7 +9,9 @@
 import { describe, expect, it } from 'vitest'
 import {
 	activeFilterCount,
+	declaredFilterOperators,
 	deriveFacets,
+	filterOperatorsOf,
 	isSortableColumn,
 	searchableFields,
 	sortableFields,
@@ -218,5 +220,48 @@ describe('isSortableColumn / sortableFields (#342)', () => {
 	it('lists a resource sortable fields, primary key excluded', () => {
 		expect(sortableFields(resource)).not.toContain('id')
 		expect(sortableFields(resource)).toContain('title')
+	})
+})
+
+/**
+ * Issue #414 — the declared half of the derivation. `filterable` was already
+ * honoured here and unreachable from the spec; `filterOperators` is the new
+ * key, and it may only ever *narrow* what the type would have given.
+ */
+describe('declared filter operators', () => {
+	const cost = { name: 'cost', type: 'number', meta: {} }
+
+	it('derives a range for an ordered column and equality for the rest', () => {
+		expect(filterOperatorsOf(cost)).toEqual(['range'])
+		expect(
+			filterOperatorsOf({ name: 'title', type: 'string', meta: {} }),
+		).toEqual(['eq'])
+	})
+
+	it('renders an exact-match control when the declaration says eq', () => {
+		const facets = deriveFacets({
+			name: 'invoice',
+			primaryKey: 'id',
+			columns: [{ ...cost, meta: { filterOperators: ['eq'] } }],
+		})
+		expect(facets.map((f) => [f.name, f.kind])).toEqual([['cost', 'text']])
+	})
+
+	it('leaves an undeclared column exactly as it was', () => {
+		const facets = deriveFacets({
+			name: 'invoice',
+			primaryKey: 'id',
+			columns: [cost],
+		})
+		expect(facets.map((f) => f.kind)).toEqual(['range'])
+	})
+
+	it('maps only the columns that declared a set — a narrowing refuses nothing else', () => {
+		expect(
+			declaredFilterOperators([
+				cost,
+				{ ...cost, name: 'year', meta: { filterOperators: ['eq'] } },
+			]),
+		).toEqual({ year: ['eq'] })
 	})
 })

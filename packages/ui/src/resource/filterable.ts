@@ -182,6 +182,43 @@ export function isRelationFilterColumn(column: IntrospectedColumn): boolean {
 	return isReference(column) && !optedOut(column)
 }
 
+/**
+ * Which filter spellings a column's control offers — the declared
+ * `meta.filterOperators` (#414) when there is one, and the type's own default
+ * when there is not.
+ *
+ * The default is stated here rather than left implicit in {@link deriveFacets}'
+ * branches so that the *form* and the *narrowing* read one answer: a control
+ * that renders a range pair while the narrowing drops range bounds is a filter
+ * that visibly does nothing, which is the worst of the three possible bugs.
+ */
+export function filterOperatorsOf(column: IntrospectedColumn): string[] {
+	const declared = column.meta?.filterOperators
+	if (declared?.length) return declared
+	return isRangeColumn(column) && !isEnum(column) ? ['range'] : ['eq']
+}
+
+/**
+ * The **declared** operator sets, keyed by column — what a narrowing enforces.
+ *
+ * Deliberately not {@link filterOperatorsOf} for every column. The derived
+ * default is what a *control* should render; enforcing it as well would newly
+ * drop `?filter.cost=5` on an undeclared number column, which every list has
+ * honoured since #342. A narrowing may only refuse what somebody declared, so
+ * an undeclared column is absent from this map and passes through exactly as
+ * before.
+ */
+export function declaredFilterOperators(
+	columns: readonly IntrospectedColumn[],
+): Record<string, string[]> {
+	const out: Record<string, string[]> = {}
+	for (const column of columns) {
+		const declared = column.meta?.filterOperators
+		if (declared?.length) out[column.name] = declared
+	}
+	return out
+}
+
 const BOOLEAN_OPTIONS: FacetOption[] = [
 	{ label: 'Yes', value: 'true' },
 	{ label: 'No', value: 'false' },
@@ -210,6 +247,20 @@ export function deriveFacets(
 	for (const column of resource.columns) {
 		if (optedOut(column) || column.name === resource.primaryKey) continue
 		const label = column.meta?.label ?? humanizeLabel(column.name)
+		const operators = filterOperatorsOf(column)
+		// A declared operator set narrows the control the type would have given
+		// (#414). The case it exists for: a number or date whose useful filter is
+		// an exact value — a year, an invoice number — rather than the `>=`/`<=`
+		// pair every ordered column derives. `range` is refused on any other type
+		// by the op validator, so the only narrowing that reaches here is this one.
+		if (
+			!operators.includes('range') &&
+			isRangeColumn(column) &&
+			!isEnum(column)
+		) {
+			out.push({ column, name: column.name, label, kind: 'text', options: [] })
+			continue
+		}
 		if (isReference(column)) {
 			out.push({
 				column,

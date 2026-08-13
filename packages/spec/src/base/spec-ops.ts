@@ -225,7 +225,9 @@ import {
 	FIELD_TYPES,
 	FILE_DERIVATIVE_MAX_DIMENSION,
 	FILE_MAX_SIZE_CEILING,
+	FILTER_OPERATORS,
 	type FieldDisplaySpec,
+	type FieldFilterSpec,
 	type FieldOption,
 	type FieldSpec,
 	isAcceptPattern,
@@ -741,6 +743,28 @@ export type SpecOp =
 				entityId: EntityId
 				fieldId: FieldId
 				display: FieldDisplaySpec
+			}
+	  }
+	| {
+			/**
+			 * Say whether a field is one of a list's filter controls, and
+			 * with which operators — the declared form of what the list-filter
+			 * derivation otherwise infers from the column's type (#414).
+			 *
+			 * **A narrowing, never a widening.** A page may be filtered by exactly
+			 * the columns it renders; `filterable: true` force-includes a column
+			 * *among those*, and the page-level narrowing still runs after it. There
+			 * is deliberately no spelling that reaches a column the page does not
+			 * show — that is a comparison oracle over its values.
+			 *
+			 * Last-wins, and `{}` clears the declaration and returns the field to
+			 * inference.
+			 */
+			op: 'data.setFieldFilter'
+			args: {
+				entityId: EntityId
+				fieldId: FieldId
+				filter: FieldFilterSpec
 			}
 	  }
 	| {
@@ -1483,6 +1507,7 @@ export const SPEC_OP_NAMES = [
 	'data.setFieldOpenReference',
 	'data.setFieldLimits',
 	'data.setFieldDisplay',
+	'data.setFieldFilter',
 	'data.addComputed',
 	'data.addRollup',
 	'page.addPage',
@@ -2723,6 +2748,43 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['entityId', 'fieldId', 'display'],
+		},
+	},
+	'data.setFieldFilter': {
+		name: 'data.setFieldFilter',
+		layer: 'data',
+		summary:
+			'Say whether a field is one of a list\'s FILTER CONTROLS and with which operators, instead of letting its TYPE decide. By default an enum filters as a dropdown, a reference as a record dropdown, a boolean as yes/no, a number or date as a >= / <= range pair, and a plain string not at all (it is searched by the search box instead). filterable:false takes a column out of the filter bar AND out of search — and REST refuses a filter on it too, so it means one thing everywhere. filterable:true gives a plain string an exact-match input. operators narrows the spellings: ["eq"] turns a range pair into one exact-match input, ["range"] drops equality. A NARROWING only — a page can be filtered by exactly the columns it renders, and this cannot reach past them. Last-wins; {} clears the declaration and returns the field to inference.',
+		args: {
+			type: 'object',
+			properties: {
+				entityId: {
+					type: 'string',
+					description: 'entity that owns the field, prefix "e-".',
+				},
+				fieldId: {
+					type: 'string',
+					description:
+						'the field to declare a filter control for, prefix "fld-".',
+				},
+				filter: {
+					type: 'object',
+					properties: {
+						filterable: {
+							type: 'boolean',
+							description:
+								'false = not a filter control and not searched; true = force a control onto a column the type gives none. Omit to derive from the type.',
+						},
+						operators: {
+							type: 'array',
+							items: { type: 'string', enum: [...FILTER_OPERATORS] },
+							description:
+								'"eq" (one exact value) and/or "range" (inclusive >= / <= bounds). Non-empty; "range" is refused on anything but a number or date field. Omit to derive from the type.',
+						},
+					},
+				},
+			},
+			required: ['entityId', 'fieldId', 'filter'],
 		},
 	},
 	'data.addComputed': {
@@ -5237,6 +5299,78 @@ function fieldDisplayErrors(
 	return errors
 }
 
+/**
+ * The field types an inclusive `>=` / `<=` range control is defined over. The
+ * same pair the derivation uses (`isRangeColumn` in `@maxstack/ui`), and the
+ * same reason: a range is a comparison the reader has to be able to predict,
+ * which holds for a number and a timestamp and does not hold for a string
+ * whose ordering is a collation nobody declared.
+ */
+const RANGE_FILTER_TYPES = new Set(['number', 'date'])
+
+/**
+ * Issue #414 — a field's declared filter control. Three refusals, each of them
+ * a case where honouring the declaration is impossible and *ignoring* it would
+ * leave the author reading a spec that says something the app does not do:
+ *
+ *  - **A range on a type that has none.** `range` is the `>=`/`<=` pair, and
+ *    only `number`/`date` columns have one. On a string it names a control the
+ *    form cannot render and a comparison the reader cannot predict.
+ *  - **An empty operator set.** "Filterable, with no operators" is already
+ *    spelled `filterable: false`; a second spelling for one meaning is how a
+ *    spec comes to disagree with itself.
+ *  - **Operators on a field that is not filterable.** The two halves contradict
+ *    each other outright, and picking a winner silently would make the loser
+ *    look honoured.
+ */
+function fieldFilterErrors(
+	field: { id: string; type: string; filter?: unknown },
+	opName: SpecOpName,
+): string[] {
+	const where = `${opName}: field "${field.id}"`
+	const raw = field.filter
+	if (raw === undefined) return []
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return [`${where} -> "filter" must be an object`]
+
+	const errors: string[] = []
+	const { filterable, operators } = raw as Record<string, unknown>
+	if (filterable !== undefined && typeof filterable !== 'boolean')
+		errors.push(`${where} -> filter.filterable must be a boolean`)
+	if (operators !== undefined) {
+		if (!Array.isArray(operators))
+			return [
+				...errors,
+				`${where} -> filter.operators must be an array of ${FILTER_OPERATORS.join(', ')}`,
+			]
+		if (operators.length === 0)
+			errors.push(
+				`${where} -> filter.operators is empty — a field with no operators is spelled { "filterable": false }`,
+			)
+		if (filterable === false)
+			errors.push(
+				`${where} -> filter.operators cannot be declared alongside filterable:false — the two say opposite things`,
+			)
+		const seen = new Set<unknown>()
+		for (const operator of operators) {
+			if (!(FILTER_OPERATORS as readonly unknown[]).includes(operator))
+				errors.push(
+					`${where} -> filter.operators "${String(operator)}" is not one of ${FILTER_OPERATORS.join(', ')}`,
+				)
+			else if (seen.has(operator))
+				errors.push(
+					`${where} -> filter.operators lists "${String(operator)}" twice`,
+				)
+			else seen.add(operator)
+			if (operator === 'range' && !RANGE_FILTER_TYPES.has(field.type))
+				errors.push(
+					`${where} -> a "range" filter needs an ordered column (${[...RANGE_FILTER_TYPES].join(' or ')}), and this field is "${field.type}"`,
+				)
+		}
+	}
+	return errors
+}
+
 /** The values an enum field's options declare, or `undefined` when it has none
  * (a permissive text column — there is nothing to check a limit against). */
 function optionValuesOf(field: {
@@ -5917,6 +6051,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				errors.push(...fieldOptionErrors(f, op.op))
 				errors.push(...fieldFileErrors(f, op.op))
 				errors.push(...fieldDisplayErrors(f, op.op))
+				errors.push(...fieldFilterErrors(f, op.op))
 			}
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -5947,6 +6082,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(...fieldFileErrors(op.args.field, op.op))
 			errors.push(...fieldRankErrors(op.args.field, op.op))
 			errors.push(...fieldDisplayErrors(op.args.field, op.op))
+			errors.push(...fieldFilterErrors(op.args.field, op.op))
 			errors.push(
 				...fieldLimitsErrors(
 					op.args.field,
@@ -6037,6 +6173,27 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(
 				...fieldDisplayErrors(
 					{ id: op.args.fieldId, type: field.type, display: op.args.display },
+					op.op,
+				),
+			)
+			break
+		}
+		case 'data.setFieldFilter': {
+			const entity = system.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			if (!entity) {
+				errors.push(`${op.op}: unknown entity "${op.args.entityId}"`)
+				break
+			}
+			if (!field) {
+				errors.push(
+					`${op.op}: unknown field "${op.args.fieldId}" on ${op.args.entityId}`,
+				)
+				break
+			}
+			errors.push(
+				...fieldFilterErrors(
+					{ id: op.args.fieldId, type: field.type, filter: op.args.filter },
 					op.op,
 				),
 			)
@@ -7477,6 +7634,29 @@ export function diffOp(op: SpecOp): SpecDiff {
 					: `Clear the declared display of field "${op.args.fieldId}" — it falls back to inference from the field's name`,
 			}
 		}
+		case 'data.setFieldFilter': {
+			const { filterable, operators } = op.args.filter
+			const said = [
+				filterable === false
+					? 'not a filter control, and not searched'
+					: filterable === true
+						? 'a filter control'
+						: null,
+				operators?.length ? `by ${operators.join(' and ')}` : null,
+			]
+				.filter(Boolean)
+				.join(' ')
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.fieldId,
+				parentId: op.args.entityId,
+				summary: said
+					? `Filter field "${op.args.fieldId}": ${said}`
+					: `Clear the declared filter of field "${op.args.fieldId}" — its control falls back to inference from the field's type`,
+			}
+		}
 		case 'data.addComputed':
 			return add(
 				op.args.computed.id,
@@ -8163,6 +8343,22 @@ export function applyOp(
 				) as FieldDisplaySpec
 				if (Object.keys(declared).length === 0) delete field.display
 				else field.display = declared
+			}
+			break
+		}
+		case 'data.setFieldFilter': {
+			const entity = next.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			// Last-wins and `{}` clears, exactly as `data.setFieldDisplay` above:
+			// a second call that omits `operators` means "no declared operators",
+			// and a field returned to inference encodes byte-for-byte as it did
+			// before anything was ever declared on it.
+			if (field) {
+				const declared = Object.fromEntries(
+					Object.entries(op.args.filter).filter(([, v]) => v !== undefined),
+				) as FieldFilterSpec
+				if (Object.keys(declared).length === 0) delete field.filter
+				else field.filter = declared
 			}
 			break
 		}

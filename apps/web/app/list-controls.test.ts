@@ -281,3 +281,58 @@ describe('listControls: a filtered relation joins the page (#362)', () => {
 		)
 	})
 })
+
+/**
+ * Issue #414 — the declared half. The narrowing above is derived from what the
+ * page renders and cannot be widened; a declaration narrows *within* it.
+ */
+describe('listControls: a declared operator set narrows further (#414)', () => {
+	const declared = {
+		primaryKey: 'id',
+		columns: [
+			column('id', 'uuid'),
+			column('title', 'string'),
+			// An ordered column narrowed to an exact match — a year is a number
+			// whose useful control is not a `>=` pair.
+			column('year', 'number', { filterOperators: ['eq'] }),
+			column('rating', 'number'),
+		],
+	}
+
+	it('drops a bound the column declared it does not offer', () => {
+		const controls = listControls(
+			at('?filter.year=2026&filter.year.gte=2000'),
+			declared,
+			null,
+			null,
+		)
+		expect(controls.filters.filter).toEqual({ year: '2026' })
+		expect(controls.filters.range ?? {}).toEqual({})
+	})
+
+	it('leaves a column that declared nothing exactly as it was', () => {
+		const controls = listControls(
+			at('?filter.rating.gte=4'),
+			declared,
+			null,
+			null,
+		)
+		expect(controls.filters.range).toEqual({ rating: { gte: '4' } })
+	})
+
+	it('cannot re-admit a column the page does not render', () => {
+		// The declaration is a narrowing. A column outside the rendered set stays
+		// unfilterable however loudly it declares an operator.
+		const hidden = {
+			primaryKey: 'id',
+			columns: [
+				column('id', 'uuid'),
+				column('title', 'string'),
+				column('cost', 'number', { hidden: true, filterOperators: ['eq'] }),
+			],
+		}
+		expect(
+			listControls(at('?filter.cost=100'), hidden, null, null).filters,
+		).toBe(EMPTY_FILTERS)
+	})
+})
