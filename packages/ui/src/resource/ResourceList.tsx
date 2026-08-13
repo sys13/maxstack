@@ -44,6 +44,7 @@ import {
 } from '../fields/reference-context.tsx'
 import { cn } from '../lib/cn.ts'
 import type { RowSlotProps } from '../slots/block-slots.ts'
+import { NewRowCells, useNewRow } from './create-in-place.tsx'
 import { addTheFirst, EmptyState } from './EmptyState.tsx'
 import { EditableCell } from './edit-in-place.tsx'
 import { isSortableColumn } from './filterable.ts'
@@ -144,6 +145,29 @@ export interface ResourceListProps {
 		column: string,
 		value: unknown,
 	) => void | Promise<void>
+	// --- add-a-row-in-place (#444) ---
+	/**
+	 * Column names the list collects for a **new** row, rendered as a trailing
+	 * row of editors under their own headers. Needs `onRowCreate`; suppressed
+	 * when `can.create` is false, so the affordance is absent for a viewer whose
+	 * Add would be refused rather than present and refusing.
+	 *
+	 * Which fields these are is the spec block's `creatable`, validated to be
+	 * *complete* — every required field of the entity is in it — so a row this
+	 * form can describe is a row the server can accept. See
+	 * `apps/web/app/inline-create.ts`.
+	 */
+	creatable?: string[]
+	/**
+	 * Persist a new row. Receives only the boxes that were filled: an untouched
+	 * box is an absence, not a `null`, so column defaults still apply exactly as
+	 * they do for a row created from the New form.
+	 *
+	 * Resolving means the row was created — the draft clears. Rejecting leaves
+	 * the draft exactly as typed, so a refusal costs a correction and not the
+	 * work.
+	 */
+	onRowCreate?: (values: Row) => void | Promise<void>
 	// --- pagination (controlled; omit + set pageSize for client-side default) ---
 	pageSize?: number
 	page?: number
@@ -281,6 +305,8 @@ export function ResourceList({
 	onSort,
 	editable,
 	onCellSave,
+	creatable,
+	onRowCreate,
 	pageSize,
 	page,
 	total,
@@ -310,6 +336,18 @@ export function ResourceList({
 		() => resolveColumns(resource, columns, showPrimaryKey),
 		[resource, columns, showPrimaryKey],
 	)
+	// Add-a-row: same shape as edit-in-place one line up — a handler and the
+	// matching permission, or the affordance does not exist.
+	const creatableSet = useMemo(
+		() => new Set(caps.create && onRowCreate ? (creatable ?? []) : []),
+		[caps.create, onRowCreate, creatable],
+	)
+	const creatableCols = useMemo(
+		() =>
+			cols.filter((c) => creatableSet.has(c.column.name)).map((c) => c.column),
+		[cols, creatableSet],
+	)
+	const newRow = useNewRow(creatableCols)
 	const demoSet = useMemo(() => new Set(demoIds ?? []), [demoIds])
 
 	// Sorting: controlled via `sort`/`onSort`, else internal client-side state.
@@ -616,6 +654,57 @@ export function ResourceList({
 												</tr>
 											)
 										})}
+								{/* The new row, last in the body rather than in a modal or a
+									    separate form: a line grid is a grid, and the row being described
+									    belongs under the rows that exist, with each box beneath the header
+									    that names it. Hidden while the list is loading — there is nothing
+									    yet to add a row *to*, and a draft that outlived a skeleton would be
+									    typing into a table whose shape has not arrived. */}
+								{!loading && creatableCols.length > 0 ? (
+									<>
+										<tr className="bg-muted/20">
+											{canSelect ? <td className="px-3 py-2" /> : null}
+											<NewRowCells
+												columns={cols.map((c) => c.column)}
+												collectable={creatableSet}
+												row={newRow}
+											/>
+											{rowHref ? <td /> : null}
+											{rowActions ? <td /> : null}
+										</tr>
+										<tr className="bg-muted/20">
+											<td
+												colSpan={
+													cols.length +
+													(canSelect ? 1 : 0) +
+													(rowHref ? 1 : 0) +
+													(rowActions ? 1 : 0)
+												}
+												className="border-b border-border/50 px-3 pb-2 text-right"
+											>
+												<button
+													type="button"
+													disabled={!newRow.filled || newRow.busy}
+													onClick={() => {
+														// biome-ignore lint/style/noNonNullAssertion: creatableCols is empty without onRowCreate
+														void newRow.submit(onRowCreate!)
+													}}
+													className={cn(
+														'rounded-md border border-border px-3 py-1 text-sm font-medium',
+														(!newRow.filled || newRow.busy) && 'opacity-50',
+													)}
+												>
+													{newRow.busy ? 'Adding…' : 'Add'}
+												</button>
+												{newRow.failed ? (
+													<span className="ml-2 text-sm text-destructive">
+														Could not add the row — nothing was saved
+													</span>
+												) : null}
+											</td>
+										</tr>
+									</>
+								) : null}
 							</tbody>
 						</table>
 					</div>

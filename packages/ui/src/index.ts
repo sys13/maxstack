@@ -354,6 +354,13 @@ export {
 	useColumnPrefs,
 } from './resource/column-prefs.ts'
 export {
+	NewRowCells,
+	type NewRowDraft,
+	NewRowEditor,
+	type NewRowEditorsProps,
+	useNewRow,
+} from './resource/create-in-place.tsx'
+export {
 	type CsvColumn,
 	type CsvExportOptions,
 	cellToText,

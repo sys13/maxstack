@@ -19,6 +19,7 @@ import {
 import { AGGREGATE_LIMIT_DEFAULT, type AggregateFilter } from '@maxstack/spec'
 import { activeFilterCount } from '@maxstack/ui'
 import { data } from 'react-router'
+import { inlineCreatableFields } from '~/inline-create'
 import { inlineEditableFields } from '~/inline-edit'
 import { liveQueryKeyFor, liveSlotFor } from '~/live.server'
 import {
@@ -240,6 +241,21 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 			resolved.introspection.columns,
 			resolved.page.editable,
 		),
+		// The fields a row added from this list collects: declared by the block,
+		// narrowed the same way, and gated on `create` here rather than in the
+		// component — a client that never receives the names cannot render a form
+		// for them, and a viewer whose every Add would be refused is offered no Add.
+		// The write itself is gated where every other write is, in `opCreate`.
+		//
+		// A view page gets none: a board's and a calendar's rows are a window the
+		// loader chose, and the new row belongs under the columns of a table.
+		creatable:
+			view || !can.create
+				? []
+				: inlineCreatableFields(
+						resolved.introspection.columns,
+						resolved.page.creatable,
+					),
 		// FK columns render the referenced record's title, not its raw id — the
 		// same batched resolution the admin list uses.
 		references: await resolveRowReferences(ctx, resolved.introspection, rows),
