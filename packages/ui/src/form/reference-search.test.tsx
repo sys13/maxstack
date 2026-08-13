@@ -122,7 +122,10 @@ describe('referenceUiOptions', () => {
 				references: { table: 'customer', column: 'id', displayField: 'name' },
 			},
 		]
-		const ui = referenceUiOptions(columns, { customerId: page() })
+		const ui = referenceUiOptions(columns, {
+			options: { customerId: page() },
+			create: {},
+		})
 		expect(ui.customerId?.inputType).toBe('reference')
 		expect(ui.customerId?.referenceSearch).toEqual(PLAN)
 	})
@@ -131,7 +134,10 @@ describe('referenceUiOptions', () => {
 		// The options map and the columns can disagree (a spec/DB skew). No column,
 		// no derived plan — the picker falls back to its page rather than guessing
 		// a resource name.
-		const ui = referenceUiOptions([], { customerId: page() })
+		const ui = referenceUiOptions([], {
+			options: { customerId: page() },
+			create: {},
+		})
 		expect(ui.customerId?.referenceSearch).toBeUndefined()
 	})
 })

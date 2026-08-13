@@ -35,7 +35,10 @@ export async function action({ request, params }: AdminResourceArgs) {
 		text,
 		// The same rows the form's comboboxes load, read through this request's
 		// context so a reference the caller may not read yields no options.
-		referenceOptions: await referenceFieldOptions(ctx, entry.resource),
+		// `.options` — the AI extractor resolves a label to an id and never
+		// creates, so the create plans travelling beside them are not its business.
+		referenceOptions: (await referenceFieldOptions(ctx, entry.resource))
+			.options,
 	})
 	if ('error' in result) {
 		return data(result, { status: result.error === 'unparseable' ? 502 : 503 })

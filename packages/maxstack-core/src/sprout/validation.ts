@@ -214,6 +214,31 @@ function includeColumn(column: SproutColumn): boolean {
 	return true
 }
 
+/**
+ * The columns a create must name, or the write is refused.
+ *
+ * Derived from the *same* three conditions {@link generateValidationSchema}
+ * applies in create mode — the column is in the input schema at all, and it is
+ * neither nullable-and-not-forced-required nor defaulted-and-not-forced-required
+ * — rather than restated, because the only consumer of this list is code
+ * deciding whether it may mint a record from less than a full form. A second
+ * reading of "required" that drifted optimistic would offer an affordance whose
+ * every use 422s; one that drifted pessimistic would silently withdraw a
+ * capability nobody could then find. The schema is the fact; this reads it out.
+ *
+ * What it does *not* account for is the columns `opCreate` stamps after the
+ * caller is done with the row — the tenant column, the soft-delete column, a
+ * portal's bound. Those are required of the *row* and never of the *caller*, and
+ * they are not knowable from a resource alone, so a caller that needs the
+ * caller-facing set subtracts them itself (`referenceFieldOptions` does).
+ */
+export function requiredCreateFields(resource: SproutResource): string[] {
+	const schema = generateValidationSchema(resource, 'create')
+	return Object.entries(schema.shape)
+		.filter(([, field]) => !field.safeParse(undefined).success)
+		.map(([name]) => name)
+}
+
 export function generateValidationSchema(
 	resource: SproutResource,
 	mode: ValidationMode = 'create',

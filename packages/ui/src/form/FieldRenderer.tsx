@@ -215,6 +215,7 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 				ariaDescribedBy={meta.errorId}
 				className={uiOptions?.className}
 				onCreate={uiOptions?.onCreateReference}
+				create={uiOptions?.referenceCreate}
 				search={uiOptions?.referenceSearch}
 			/>
 		)
@@ -232,6 +233,7 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 				ariaDescribedBy={meta.errorId}
 				className={uiOptions?.className}
 				onCreate={uiOptions?.onCreateReference}
+				create={uiOptions?.referenceCreate}
 				search={uiOptions?.referenceSearch}
 			/>
 		)

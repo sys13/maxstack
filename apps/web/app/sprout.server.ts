@@ -21,6 +21,7 @@ import {
 	AUTHENTICATED_WRITES,
 	applyComputed,
 	type ComputedShape,
+	canPerformAction,
 	createAccessContext,
 	createSpecStore,
 	type InverseReference,
@@ -36,6 +37,7 @@ import {
 	type Row,
 	registerSpecEntities,
 	relatedOrder,
+	requiredCreateFields,
 	resolveReferences,
 	resolveRollups,
 	resourceCapabilities,
@@ -142,6 +144,8 @@ import {
 	isUrlValue,
 	type ListActionDescriptor,
 	REFERENCE_OPTION_PAGE,
+	type ReferenceCreatePlan,
+	type ReferenceFieldPlans,
 } from '@maxstack/ui'
 import { eq } from 'drizzle-orm'
 import {
@@ -1945,12 +1949,18 @@ export interface ReferenceChoice {
  * the page unselectable and one already stored past it render blank. Anything
  * outside the page is reached by searching — through this same `opList`, so the
  * tenant, soft-delete and portal scopes are the identical forced bounds.
+ *
+ * It also answers, per column, whether the picker may offer **create-inline**
+ * (#443) — see {@link referenceCreatePlan}. That answer rides along with the
+ * options rather than arriving by its own optional argument, because an optional
+ * extra a loader may decline to pass is precisely how `onCreateReference` stayed
+ * dead in every generated app for a year while being fully implemented.
  */
 export async function referenceFieldOptions(
 	ctx: McpContext,
 	introspection: SproutResource,
-): Promise<Record<string, ReferenceChoice[]>> {
-	const out: Record<string, ReferenceChoice[]> = {}
+): Promise<ReferenceFieldPlans> {
+	const out: ReferenceFieldPlans = { options: {}, create: {} }
 	for (const col of introspection.columns) {
 		// Single FK or the "many" side (an array reference, task 38) — both pick
 		// from the same option set (the referenced table's records).
@@ -1958,11 +1968,13 @@ export async function referenceFieldOptions(
 		if (!ref) continue
 		const display =
 			ref.displayField ?? ctx.registry.get(ref.table)?.config.titleField
+		const plan = await referenceCreatePlan(ctx, ref.table, ref.column, display)
+		if (plan) out.create[col.name] = plan
 		try {
 			const rows = await opList(ctx, ref.table, {
 				limit: REFERENCE_OPTION_PAGE,
 			})
-			out[col.name] = rows.map((r) => ({
+			out.options[col.name] = rows.map((r) => ({
 				value: String(r[ref.column]),
 				label:
 					display && r[display] != null
@@ -1972,10 +1984,82 @@ export async function referenceFieldOptions(
 		} catch {
 			// An unreadable/unknown referenced table just yields no options rather
 			// than failing the whole page.
-			out[col.name] = []
+			out.options[col.name] = []
 		}
 	}
 	return out
+}
+
+/** No FK columns, so nothing to resolve — the shape a caller that skipped the
+ * resolution passes on. Named rather than written as `{ options: {}, create: {} }`
+ * at each site so a third key added here reaches every one of them. */
+export const NO_REFERENCE_PLANS: ReferenceFieldPlans = {
+	options: {},
+	create: {},
+}
+
+/**
+ * Whether an FK picker may offer to create the record it points at, and what it
+ * needs to do so (#443) — or `undefined`, which is how the affordance stays off
+ * the screen entirely rather than being refused on click.
+ *
+ * Three questions, all about a resource the *form* is not for, which is why they
+ * are answered here and not derived on the client:
+ *
+ * 1. **Is there one field a name can become?** No title field means minting from
+ *    a typed string is meaningless, so there is nothing to offer.
+ * 2. **May this viewer create one?** Asked of `canPerformAction` — the same
+ *    function `authorize()` calls inside `opCreate` — so the row is absent under
+ *    exactly the conditions the write would be refused under. A viewer who may
+ *    pick a customer is not thereby a viewer who may create one.
+ * 3. **Is a name enough?** Every other field the target requires at create must
+ *    have a default or be nullable, or minting writes a half-record or 422s. The
+ *    required set is read from the create schema itself
+ *    (`requiredCreateFields`), minus the columns `opCreate` stamps *after* the
+ *    caller is done — the tenant column and the soft-delete column are required
+ *    of the row and never of the caller, and treating them as caller-facing would
+ *    withdraw create-inline from every org-scoped resource in the product.
+ *
+ * A portal identity is excluded outright. Its writes are declared field-by-field
+ * and budgeted, so a create it never declared is a refusal by construction; the
+ * gate above would already deny it, and this states why rather than relying on
+ * the coincidence.
+ *
+ * Exported for its own tests rather than only exercised through
+ * {@link referenceFieldOptions}: what it returns decides whether a write
+ * affordance for a *second* resource appears, so each gate is worth an
+ * assertion that names it, and the interesting cases (a target needing more
+ * than a name, a denied create) are ones the demo registry does not contain.
+ */
+export async function referenceCreatePlan(
+	ctx: McpContext,
+	table: string,
+	idField: string,
+	display: string | undefined,
+): Promise<ReferenceCreatePlan | undefined> {
+	if (!display) return undefined
+	const entry = ctx.registry.get(table)
+	if (!entry) return undefined
+	const allowed = await canPerformAction(
+		table,
+		entry.config.access,
+		'create',
+		createAccessContext(ctx.user),
+	)
+	if (!allowed) return undefined
+	const serverStamped = new Set(
+		[
+			entry.config.tenantField,
+			entry.config.softDelete ? 'deletedAt' : undefined,
+		]
+			.filter((f): f is string => typeof f === 'string')
+			.concat(display),
+	)
+	const outstanding = requiredCreateFields(entry.resource).filter(
+		(name) => !serverStamped.has(name),
+	)
+	if (outstanding.length > 0) return undefined
+	return { resource: table, idField, labelField: display }
 }
 
 /**

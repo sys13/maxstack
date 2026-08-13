@@ -697,7 +697,7 @@ export default function ProjectListPage({
 			rows={rows}
 			value={filters}
 			references={references}
-			referenceOptions={referenceOptions}
+			referenceOptions={referenceOptions.options}
 			onChange={(next) =>
 				setSearchParams(
 					{ ...filtersToSearchParams(next), ...sortToSearchParams(sort) },

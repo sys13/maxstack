@@ -175,7 +175,7 @@ export default function ResourceListPage({
 						preventScrollReset: true,
 					})
 				}
-				referenceOptions={referenceOptions}
+				referenceOptions={referenceOptions.options}
 				className="mb-4"
 			/>
 

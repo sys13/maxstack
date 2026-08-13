@@ -72,6 +72,7 @@ export {
 	type FormLayout,
 	type FormSection,
 	type InputTypeOverride,
+	type ReferenceFieldPlans,
 	referenceUiOptions,
 	type SectionVariant,
 } from './form/types.ts'

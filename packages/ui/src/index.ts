@@ -45,6 +45,7 @@ export type {
 	FormLayout,
 	FormSection,
 	InputTypeOverride,
+	ReferenceFieldPlans,
 	SectionVariant,
 } from './DynamicForm.tsx'
 export { DynamicForm, referenceUiOptions } from './DynamicForm.tsx'
@@ -193,6 +194,10 @@ export {
 	formatDateTyping,
 	isCompleteDate,
 } from './form/DateInput.tsx'
+export {
+	type ReferenceCreatePlan,
+	useReferenceCreate,
+} from './form/reference-create.ts'
 export {
 	REFERENCE_OPTION_PAGE,
 	type ReferenceSearchPlan,
