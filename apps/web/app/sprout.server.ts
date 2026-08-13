@@ -141,6 +141,7 @@ import {
 	type FileResolution,
 	isUrlValue,
 	type ListActionDescriptor,
+	REFERENCE_OPTION_PAGE,
 } from '@maxstack/ui'
 import { eq } from 'drizzle-orm'
 import {
@@ -1936,6 +1937,14 @@ export interface ReferenceChoice {
  * `{ label: <title>, value: <id> }` choices — the option set the form's FK
  * autocomplete (`<AutocompleteInput>`) picks from (Plan v5 task 32). Keyed by
  * the FK column name so a route can drop them straight into `uiOptions`.
+ *
+ * **This is one page, not the table** (`REFERENCE_OPTION_PAGE` rows), and the
+ * page size is imported rather than restated so the picker can tell the user
+ * when what it is showing is a page. Before #442 the number lived here alone and
+ * the client filtered it as if it were everything, which made a reference past
+ * the page unselectable and one already stored past it render blank. Anything
+ * outside the page is reached by searching — through this same `opList`, so the
+ * tenant, soft-delete and portal scopes are the identical forced bounds.
  */
 export async function referenceFieldOptions(
 	ctx: McpContext,
@@ -1950,7 +1959,9 @@ export async function referenceFieldOptions(
 		const display =
 			ref.displayField ?? ctx.registry.get(ref.table)?.config.titleField
 		try {
-			const rows = await opList(ctx, ref.table, { limit: 100 })
+			const rows = await opList(ctx, ref.table, {
+				limit: REFERENCE_OPTION_PAGE,
+			})
 			out[col.name] = rows.map((r) => ({
 				value: String(r[ref.column]),
 				label:

@@ -17,6 +17,12 @@ import { RadioGroup } from '@base-ui/react/radio-group'
 import { Select } from '@base-ui/react/select'
 import { useControl } from '@conform-to/react/future'
 import { useId, useMemo, useRef, useState } from 'react'
+import {
+	REFERENCE_OPTION_PAGE,
+	type ReferenceSearchPlan,
+	useReferenceSearch,
+	useResolvedReferenceLabel,
+} from '../form/reference-search.ts'
 import { cn } from '../lib/cn.ts'
 
 interface FieldWidgetProps {
@@ -176,6 +182,10 @@ export interface AutocompleteOption {
  *
  * With `onCreate` an unmatched query offers a "Create" row that mints a new
  * option inline (react-admin's create-inline) and selects it.
+ *
+ * With `search` — and a `<DataProvider>` in context — a query goes to the
+ * referenced resource instead of filtering `options`, which is only ever the
+ * loader's first page (#442). Without either, the old client-side filter stands.
  */
 export function FormAutocomplete({
 	id,
@@ -186,17 +196,17 @@ export function FormAutocomplete({
 	ariaDescribedBy,
 	className,
 	onCreate,
+	search,
 }: FieldWidgetProps & {
 	options: AutocompleteOption[]
 	defaultValue?: string
 	placeholder?: string
 	onCreate?: (label: string) => Promise<AutocompleteOption> | AutocompleteOption
+	search?: ReferenceSearchPlan
 }) {
 	const control = useControl({ defaultValue })
 	const [extra, setExtra] = useState<AutocompleteOption[]>([])
 	const all = useMemo(() => [...options, ...extra], [options, extra])
-	const labelFor = (value: string) =>
-		all.find((o) => o.value === value)?.label ?? ''
 	const selected = control.value ?? ''
 
 	const [open, setOpen] = useState(false)
@@ -204,10 +214,37 @@ export function FormAutocomplete({
 	const listId = useId()
 	const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-	const filtered = query
-		? all.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
-		: all
-	const exactMatch = all.some(
+	const {
+		options: candidates,
+		fromServer,
+		searching,
+		failed,
+		pageIsFull,
+		canSearch,
+	} = useReferenceSearch({ plan: search, options, query, extra })
+	// A stored id the loaded page does not carry has a label on the server and
+	// nowhere here; resolving it is what keeps a set reference from rendering as
+	// an empty box (#442).
+	const resolved = useResolvedReferenceLabel({
+		plan: search,
+		value: selected,
+		known: all.some((o) => o.value === selected),
+	})
+	const labelFor = (value: string) =>
+		all.find((o) => o.value === value)?.label ??
+		(resolved?.value === value ? resolved.label : '')
+
+	// The server has already matched, so its answer is rendered as it came:
+	// re-filtering would narrow by a rule the server does not share (it matched
+	// the declared search field; this matches the rendered label) and drop rows
+	// it said match. The client filter applies to the local page only.
+	const filtered =
+		query && !fromServer
+			? candidates.filter((o) =>
+					o.label.toLowerCase().includes(query.toLowerCase()),
+				)
+			: candidates
+	const exactMatch = candidates.some(
 		(o) => o.label.toLowerCase() === query.trim().toLowerCase(),
 	)
 
@@ -274,8 +311,28 @@ export function FormAutocomplete({
 							{option.label}
 						</button>
 					))}
-					{filtered.length === 0 && !onCreate && (
+					{searching && (
+						<p className="px-2 py-1.5 text-muted-foreground">Searching…</p>
+					)}
+					{/* A failed request is not an absence of records, and saying "No
+					    matches" for one tells the user their record does not exist. */}
+					{failed && (
+						<p className="px-2 py-1.5 text-destructive">
+							Could not search {search?.resource ?? 'records'} — try again
+						</p>
+					)}
+					{filtered.length === 0 && !onCreate && !searching && !failed && (
 						<p className="px-2 py-1.5 text-muted-foreground">No matches</p>
+					)}
+					{/* The loader sends one page. With a full page there is no way to
+					    know from here whether one more record exists or a million, so
+					    the list says what it is instead of implying it is everything. */}
+					{pageIsFull && !searching && (
+						<p className="px-2 py-1.5 text-muted-foreground text-xs">
+							{canSearch
+								? `Showing the first ${REFERENCE_OPTION_PAGE} — type to search them all`
+								: `Showing the first ${REFERENCE_OPTION_PAGE}`}
+						</p>
 					)}
 					{onCreate && query.trim() && !exactMatch && (
 						<button
@@ -347,6 +404,10 @@ export function FormMultiCheckboxGroup({
  *
  * With `onCreate` an unmatched query offers a create-inline row (react-admin's
  * pattern), minting a new option and selecting it.
+ *
+ * `search` gives it the same server-side query as the single picker (#442). A
+ * chip whose label is not in the loaded page falls back to the id — ugly and
+ * true, where the single picker's blank box was tidy and false.
  */
 export function FormReferenceArrayInput({
 	id,
@@ -357,11 +418,13 @@ export function FormReferenceArrayInput({
 	ariaDescribedBy,
 	className,
 	onCreate,
+	search,
 }: FieldWidgetProps & {
 	options: AutocompleteOption[]
 	defaultValue?: string[]
 	placeholder?: string
 	onCreate?: (label: string) => Promise<AutocompleteOption> | AutocompleteOption
+	search?: ReferenceSearchPlan
 }) {
 	const [selected, setSelected] = useState<string[]>(defaultValue)
 	const [extra, setExtra] = useState<AutocompleteOption[]>([])
@@ -374,12 +437,23 @@ export function FormReferenceArrayInput({
 	const listId = useId()
 	const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-	const available = all.filter(
+	const {
+		options: candidates,
+		fromServer,
+		searching,
+		failed,
+		pageIsFull,
+		canSearch,
+	} = useReferenceSearch({ plan: search, options, query, extra })
+	const available = candidates.filter(
 		(o) =>
 			!selected.includes(o.value) &&
-			(query ? o.label.toLowerCase().includes(query.toLowerCase()) : true),
+			// Already matched by the server; see the note in `FormAutocomplete`.
+			(query && !fromServer
+				? o.label.toLowerCase().includes(query.toLowerCase())
+				: true),
 	)
-	const exactMatch = all.some(
+	const exactMatch = candidates.some(
 		(o) => o.label.toLowerCase() === query.trim().toLowerCase(),
 	)
 
@@ -466,8 +540,23 @@ export function FormReferenceArrayInput({
 								{option.label}
 							</button>
 						))}
-						{available.length === 0 && !onCreate && (
+						{searching && (
+							<p className="px-2 py-1.5 text-muted-foreground">Searching…</p>
+						)}
+						{failed && (
+							<p className="px-2 py-1.5 text-destructive">
+								Could not search {search?.resource ?? 'records'} — try again
+							</p>
+						)}
+						{available.length === 0 && !onCreate && !searching && !failed && (
 							<p className="px-2 py-1.5 text-muted-foreground">No matches</p>
+						)}
+						{pageIsFull && !searching && (
+							<p className="px-2 py-1.5 text-muted-foreground text-xs">
+								{canSearch
+									? `Showing the first ${REFERENCE_OPTION_PAGE} — type to search them all`
+									: `Showing the first ${REFERENCE_OPTION_PAGE}`}
+							</p>
 						)}
 						{onCreate && query.trim() && !exactMatch && (
 							<button

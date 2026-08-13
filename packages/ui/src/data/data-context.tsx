@@ -74,6 +74,22 @@ export function useDataProvider(): DataProviderContract {
 	return useDataContext().dataProvider
 }
 
+/**
+ * The provider if there is one, `null` if there is not — for a component that
+ * *upgrades* when the data layer is present rather than depending on it.
+ *
+ * The FK picker is the case this exists for: it renders from the options its
+ * loader handed it, and with a provider in context it can additionally search
+ * the referenced resource as the user types. A thrown error would be wrong there
+ * — the picker works without one — and a nested `<DataProvider>` to satisfy the
+ * throwing hook would be the split cache `useDataContext` warns about. So the
+ * absence is a value, not an exception, and every existing standalone render of
+ * a picker (there are several, in tests) keeps working unchanged.
+ */
+export function useOptionalDataProvider(): DataProviderContract | null {
+	return useContext(DataContext)?.dataProvider ?? null
+}
+
 export function useQueryClient(): QueryClient {
 	return useDataContext().queryClient
 }
