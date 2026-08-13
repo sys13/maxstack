@@ -686,8 +686,12 @@ export function ResourceList({
 													type="button"
 													disabled={!newRow.filled || newRow.busy}
 													onClick={() => {
-														// biome-ignore lint/style/noNonNullAssertion: creatableCols is empty without onRowCreate
-														void newRow.submit(onRowCreate!)
+														// Narrowed rather than asserted: `creatableCols` is
+														// empty without a handler so this branch does not
+														// render, but the compiler cannot see that from here
+														// and an assertion would be one more suppression to
+														// justify at every future reading.
+														if (onRowCreate) void newRow.submit(onRowCreate)
 													}}
 													className={cn(
 														'rounded-md border border-border px-3 py-1 text-sm font-medium',
