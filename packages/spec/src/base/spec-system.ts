@@ -326,6 +326,86 @@ export interface FieldSpec extends Provenanced {
 	 * two would make "show this out of 10" silently start rejecting rows.
 	 */
 	display?: FieldDisplaySpec
+	/**
+	 * Whether this field is one of the list's **filter controls**, and with which
+	 * operators. See {@link FieldFilterSpec}.
+	 */
+	filter?: FieldFilterSpec
+}
+
+/**
+ * The operators a filter control may offer. Deliberately two, because the query
+ * dialect every surface speaks has exactly two spellings: `?filter.<col>=` is
+ * equality and `?filter.<col>.gte=` / `.lte=` is an inclusive range. An operator
+ * set is a *statement about the existing dialect*, never a new one — a `like`,
+ * an `in` or a `not` here would be a declaration with no parser, no index story
+ * and no MCP spelling behind it.
+ *
+ *  - `eq` — one value, matched exactly. The control is a dropdown when the
+ *    column has an option set (an enum, a boolean, a reference) and a plain
+ *    input when it does not.
+ *  - `range` — inclusive `>=` / `<=` bounds, as a pair of inputs. Only
+ *    meaningful on the ordered scalar types (`number`, `date`), and refused
+ *    elsewhere: a range over a string column is a comparison whose result the
+ *    reader cannot predict.
+ */
+export type FilterOperator = 'eq' | 'range'
+
+/** Runtime guard for {@link FilterOperator} — same rationale as {@link FIELD_TYPES}. */
+export const FILTER_OPERATORS: readonly FilterOperator[] = ['eq', 'range']
+
+/**
+ * How a field participates in a list's **user-operated** filters — #414, stage
+ * A1 of epic #405.
+ *
+ * ## What this is, and the much larger thing it deliberately is not
+ *
+ * The controls themselves already ship (#342): a generated list page renders a
+ * search box and per-column facets, and `GET /api/:resource` parses the same
+ * query dialect. What did not exist was any way for the *spec* to say anything
+ * about them. `ColumnMetadata.filterable` was honoured by the derivation in both
+ * directions and **no op wrote it** — the same shape as `display` before #345:
+ * the runtime key existed, and the one layer a person is supposed to write in
+ * could not reach it.
+ *
+ * So this key is a **narrowing**, not an allow-list. The rule a list page
+ * enforces is that a page may be filtered and ordered by exactly the columns it
+ * renders, because a filter on a column the viewer was never shown is a
+ * comparison oracle over its values (`listControls`, and `assertPortalReadShape`
+ * in core for the portal case). A declaration that could *widen* past the
+ * rendered columns would re-open precisely that hole, so there is no spelling
+ * for it here: {@link filterable} `true` force-includes a column the derivation
+ * would have skipped **among the columns the page already renders**, and the
+ * page-level narrowing still runs after it.
+ *
+ * ## What it says
+ *
+ *  - {@link filterable} `false` — this column is not a filter control and not
+ *    searched by the search box, whatever its type suggests. Honoured on the
+ *    page *and* refused by REST, so "not filterable" means one thing everywhere.
+ *  - {@link filterable} `true` — force-include a column the type-based
+ *    derivation gives no control (a plain string), as an equality input.
+ *  - {@link operators} — which of the two spellings the column accepts. The
+ *    common case is a number or date whose useful filter is an exact match
+ *    rather than the range pair it derives by default.
+ *
+ * Absent, every one of these is derived from the column's type exactly as it was
+ * before the key existed — an app gets sensible filters for free, and says
+ * something here only where the derivation is wrong.
+ */
+export interface FieldFilterSpec {
+	/**
+	 * Three-state override of the type-based derivation: `false` excludes the
+	 * column from search and facets, `true` force-includes it, absent derives.
+	 */
+	filterable?: boolean
+	/**
+	 * The operators this column's control offers, narrowing the derived set. Must
+	 * be non-empty — "filterable with no operators" is spelled
+	 * `filterable: false`, and two ways to say one thing is how a spec comes to
+	 * disagree with itself. `range` is refused on any type but `number`/`date`.
+	 */
+	operators?: FilterOperator[]
 }
 
 /**

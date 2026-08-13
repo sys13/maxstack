@@ -180,6 +180,34 @@ describe('narrowFilters', () => {
 		)
 	})
 
+	it('drops a spelling the column declared it does not offer', () => {
+		// #414: `operators: ["eq"]` means the control is an exact match, so a
+		// `.gte` typed into the URL is refused rather than quietly answered.
+		expect(
+			narrowFilters(
+				{ filter: { cost: '5' }, range: { cost: { gte: '5' } } },
+				allowed,
+				{ cost: ['eq'] },
+			),
+		).toEqual({ search: undefined, filter: { cost: '5' } })
+	})
+
+	it('leaves a column that declared nothing exactly as it was', () => {
+		// A narrowing may only refuse what somebody declared: every list has
+		// honoured an equality filter on an ordered column since #342.
+		expect(
+			narrowFilters({ filter: { cost: '5' } }, allowed, { status: ['eq'] }),
+		).toEqual({ search: undefined, filter: { cost: '5' } })
+	})
+
+	it('cannot re-admit a column the page does not render', () => {
+		expect(
+			narrowFilters({ filter: { salary: '1' } }, allowed, {
+				salary: ['eq', 'range'],
+			}),
+		).toBe(EMPTY_FILTERS)
+	})
+
 	it('never narrows the free-text search, which names no column', () => {
 		// Search scans a derived field set the caller cannot choose, so there is
 		// nothing here to narrow — and dropping it would silently ignore the one

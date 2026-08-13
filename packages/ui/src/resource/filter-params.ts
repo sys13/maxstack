@@ -141,14 +141,29 @@ export function sortFromSearchParams(
 export function narrowFilters(
 	values: FilterValues,
 	allowed: readonly string[],
+	/**
+	 * The **declared** operator sets per column (#414) — see
+	 * `declaredFilterOperators`. A column absent from the map declared nothing
+	 * and keeps every spelling it has honoured since #342; a column present in it
+	 * keeps only the spellings it named, so `operators: ["eq"]` drops a `.gte`
+	 * bound somebody typed into the URL instead of quietly answering it.
+	 *
+	 * This narrows *within* `allowed` rather than beside it: a declaration can
+	 * never re-admit a column the page does not render.
+	 */
+	operators: Record<string, readonly string[]> = {},
 ): FilterValues {
 	const permitted = new Set(allowed)
+	const offers = (column: string, operator: 'eq' | 'range'): boolean => {
+		const declared = operators[column]
+		return declared === undefined || declared.includes(operator)
+	}
 	const filter: Record<string, string> = {}
 	for (const [key, value] of Object.entries(values.filter))
-		if (permitted.has(key)) filter[key] = value
+		if (permitted.has(key) && offers(key, 'eq')) filter[key] = value
 	const range: Record<string, { gte?: string; lte?: string }> = {}
 	for (const [key, value] of Object.entries(values.range ?? {}))
-		if (permitted.has(key)) range[key] = value
+		if (permitted.has(key) && offers(key, 'range')) range[key] = value
 	const hasRange = Object.keys(range).length > 0
 	return values.search === undefined &&
 		Object.keys(filter).length === 0 &&

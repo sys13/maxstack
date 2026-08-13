@@ -820,6 +820,70 @@ function assertPortalReadShape(
 }
 
 /**
+ * Refuse a read whose filter contradicts what the spec declared about that
+ * column — `data.setFieldFilter` (#414), enforced here so that the declaration
+ * means one thing on every surface.
+ *
+ * The page-side derivation in `@maxstack/ui` already honours the same two keys,
+ * but a derivation a route runs is a statement about *that route*. `filterable:
+ * false` read as "the filter bar does not offer it" and "the REST collection
+ * answers it anyway" would be a declaration an author reads back and believes,
+ * and a filter is exactly the thing a script uses rather than the filter bar.
+ *
+ * **This is not the oracle rule.** That one is a security boundary and lives
+ * where the boundary is: `assertPortalReadShape` for a portal identity, and the
+ * page's own rendered-columns narrowing for a browser. REST hands back every
+ * column of every row it returns, so refusing a filter here buys no
+ * confidentiality — it buys the author one meaning for one declaration. Hence a
+ * `ValidationError` (400, saying which key and which op wrote it) rather than a
+ * `PermissionError`.
+ *
+ * Silence is the default in both directions: a column the spec has said nothing
+ * about filters exactly as it has since #342.
+ */
+export function assertDeclaredFilterShape(
+	resource: string,
+	entry: RegisteredResource,
+	opts: {
+		filter?: Record<string, unknown>
+		range?: Record<string, unknown>
+	},
+): void {
+	const named = [
+		...Object.keys(opts.filter ?? {}).map((c) => [c, 'eq'] as const),
+		...Object.keys(opts.range ?? {}).map((c) => [c, 'range'] as const),
+	]
+	if (named.length === 0) return
+	for (const [name, operator] of named) {
+		const meta = entry.resource.columns.find((c) => c.name === name)?.meta
+		if (!meta) continue
+		if (meta.filterable === false)
+			throw new ValidationError(
+				{
+					[name]: [
+						`"${name}" is declared un-filterable on "${resource}", so this filter is refused rather than ignored — data.setFieldFilter is what declared it`,
+					],
+				},
+				{
+					summary: `"${name}" is not a filterable column of "${resource}"`,
+				},
+			)
+		const operators = meta.filterOperators
+		if (operators?.length && !operators.includes(operator))
+			throw new ValidationError(
+				{
+					[name]: [
+						`"${name}" declares ${operators.map((o) => `"${o}"`).join(' and ')} filtering, and this asks for "${operator}" — refused rather than ignored, because an ignored bound widens the read`,
+					],
+				},
+				{
+					summary: `"${name}" on "${resource}" does not offer "${operator}" filtering`,
+				},
+			)
+	}
+}
+
+/**
  * The bound a portal read is forced to run under.
  *
  * Spread **last**, over any caller-supplied filter, exactly as the tenant and
@@ -970,6 +1034,9 @@ export async function opList(
 	// An orderBy or filter naming a column the portal does not expose is a
 	// comparison oracle over a hidden column — refused, never ignored.
 	assertPortalReadShape(user, resource, entry, opts)
+	// A filter the spec declared this column does not offer is refused for a
+	// different reason — see `assertDeclaredFilterShape`.
+	assertDeclaredFilterShape(resource, entry, opts)
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
 	// Tenant scope, the soft-delete default scope and the portal's declared bound
@@ -1262,6 +1329,10 @@ export async function opCount(
 	)
 	assertPortalMayEnumerate(user, resource)
 	assertPortalReadShape(user, resource, entry, opts)
+	// Counting under a filter is the same question `opList` asks, so it is
+	// refused on the same terms: a count that answered a filter the list refuses
+	// would be a second door to the same declaration, disagreeing.
+	assertDeclaredFilterShape(resource, entry, opts)
 	const tenant = tenantOf(entry, user, resource, 'read')
 	const softField = softDeleteFieldOf(entry)
 	let filter = opts.filter

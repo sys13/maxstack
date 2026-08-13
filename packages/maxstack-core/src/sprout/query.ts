@@ -76,6 +76,7 @@
  */
 
 import {
+	assertDeclaredFilterShape,
 	type OpContext,
 	opGetMany,
 	opList,
@@ -313,6 +314,14 @@ function assertPredicateColumns(
 					'this filter takes a scalar (string, number, boolean or null) — use `range` for a bound',
 				],
 			})
+	// A predicate the spec declared this column does not offer (#414). Checked on
+	// every hop, not only the root: a declaration an agent can walk around by
+	// asking through a join is a declaration that holds only for the surfaces
+	// that happened to remember it.
+	assertDeclaredFilterShape(entry.resource.name, entry, {
+		filter: where,
+		range,
+	})
 }
 
 /**

@@ -46,8 +46,8 @@ const entity: SpecOp = {
 }
 
 describe('the vocabulary', () => {
-	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(68)
+	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + data.setFieldFilter + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + provenance.review, one metadata entry each', () => {
+		expect(SPEC_OP_NAMES).toHaveLength(69)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -4648,5 +4648,167 @@ describe('number field presentation — data.setFieldDisplay', () => {
 			'Display field "fld-book-rating" as a rating max 10',
 		)
 		expect(diffOp(setDisplay({})).summary).toMatch(/falls back to inference/)
+	})
+})
+
+/**
+ * Issue #414 (stage A1 of epic #405) — a list's filter controls shipped in #342
+ * and the spec could say nothing about them. `ColumnMetadata.filterable` was
+ * honoured by the derivation in both directions and no op wrote it: the same
+ * shape `display` had before #345, a runtime key the one layer a person writes
+ * in could not reach.
+ */
+describe('list filter controls — data.setFieldFilter', () => {
+	const invoice: SpecOp = {
+		op: 'data.addEntity',
+		args: {
+			entity: {
+				id: 'e-invoice',
+				name: 'Invoice',
+				description: 'A bill sent to a client',
+				fields: [
+					{
+						id: 'fld-invoice-reference',
+						name: 'reference',
+						type: 'string',
+						required: true,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-invoice-year',
+						name: 'year',
+						type: 'number',
+						required: false,
+						provenance: suggested(),
+					},
+				],
+				provenance: suggested(),
+			},
+		},
+	}
+	const withInvoice = () => applyOp(base(), invoice, meta(1))
+	const setFilter = (
+		filter: Record<string, unknown>,
+		fieldId = 'fld-invoice-year',
+	): SpecOp =>
+		({
+			op: 'data.setFieldFilter',
+			args: { entityId: 'e-invoice', fieldId, filter },
+		}) as SpecOp
+	const find = (spec: SpecSystem, fieldId = 'fld-invoice-year') =>
+		spec.data.entities
+			.find((e) => e.id === 'e-invoice')
+			?.fields.find((f) => f.id === fieldId)
+
+	it('narrows an ordered column to an exact-match control', () => {
+		const s = applyOp(withInvoice(), setFilter({ operators: ['eq'] }), meta(2))
+		expect(find(s)?.filter).toEqual({ operators: ['eq'] })
+		expect(validateSpecSystem(s)).toBe(s)
+	})
+
+	it('takes a column out of the filter bar altogether', () => {
+		const s = applyOp(
+			withInvoice(),
+			setFilter({ filterable: false }, 'fld-invoice-reference'),
+			meta(2),
+		)
+		expect(find(s, 'fld-invoice-reference')?.filter).toEqual({
+			filterable: false,
+		})
+	})
+
+	it('is last-wins, and {} returns the field to inference', () => {
+		const declared = applyOp(
+			withInvoice(),
+			setFilter({ filterable: true, operators: ['eq', 'range'] }),
+			meta(2),
+		)
+		// An omitted `operators` on a second call means "no declared operators",
+		// not "keep the old set" — otherwise removing one would be impossible
+		// without knowing what was there.
+		const narrowed = applyOp(declared, setFilter({ filterable: true }), meta(3))
+		expect(find(narrowed)?.filter).toEqual({ filterable: true })
+		const cleared = applyOp(narrowed, setFilter({}), meta(4))
+		// Deleted rather than stored as `{}`, so a field returned to inference
+		// encodes byte-for-byte as it did before anything was declared on it.
+		const back = find(cleared)
+		expect(back && 'filter' in back).toBe(false)
+	})
+
+	it('refuses a range filter on a column with no ordering', () => {
+		expect(
+			validateOp(
+				withInvoice(),
+				setFilter({ operators: ['range'] }, 'fld-invoice-reference'),
+			),
+		).toContain(
+			'data.setFieldFilter: field "fld-invoice-reference" -> a "range" filter needs an ordered column (number or date), and this field is "string"',
+		)
+	})
+
+	it('refuses the two ways of contradicting itself', () => {
+		expect(
+			validateOp(withInvoice(), setFilter({ operators: [] })).join(),
+		).toMatch(/a field with no operators is spelled \{ "filterable": false \}/)
+		expect(
+			validateOp(
+				withInvoice(),
+				setFilter({ filterable: false, operators: ['eq'] }),
+			).join(),
+		).toMatch(/cannot be declared alongside filterable:false/)
+	})
+
+	it('refuses an operator that is not one', () => {
+		expect(
+			validateOp(withInvoice(), setFilter({ operators: ['like'] })).join(),
+		).toMatch(/filter.operators "like" is not one of eq, range/)
+	})
+
+	it('names an unknown entity or field rather than failing silently', () => {
+		expect(
+			validateOp(withInvoice(), setFilter({ filterable: false }, 'fld-nope')),
+		).toContain('data.setFieldFilter: unknown field "fld-nope" on e-invoice')
+	})
+
+	it('validates a filter declared inline on data.addField', () => {
+		expect(
+			validateOp(withInvoice(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-invoice',
+					field: {
+						id: 'fld-invoice-note',
+						name: 'note',
+						type: 'string',
+						required: false,
+						filter: { operators: ['range'] },
+					},
+				},
+			}).join(),
+		).toMatch(/a "range" filter needs an ordered column/)
+	})
+
+	it('round-trips through the spec directory codec', () => {
+		const s = applyOp(
+			withInvoice(),
+			setFilter({ filterable: true, operators: ['eq'] }),
+			meta(2),
+		)
+		const back = decodeSpecSystem(encodeSpecSystem(s))
+		expect(
+			back.data.entities
+				.find((e) => e.id === 'e-invoice')
+				?.fields.find((f) => f.id === 'fld-invoice-year')?.filter,
+		).toEqual({ filterable: true, operators: ['eq'] })
+	})
+
+	it('summarizes the declaration in the diff', () => {
+		expect(diffOp(setFilter({ operators: ['eq'] })).summary).toBe(
+			'Filter field "fld-invoice-year": by eq',
+		)
+		expect(diffOp(setFilter({ filterable: false })).summary).toBe(
+			'Filter field "fld-invoice-year": not a filter control, and not searched',
+		)
+		expect(diffOp(setFilter({})).summary).toMatch(/falls back to inference/)
 	})
 })

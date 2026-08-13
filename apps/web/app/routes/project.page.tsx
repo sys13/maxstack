@@ -29,6 +29,7 @@ import {
 	type ColumnOverrides,
 	dayKeyOf,
 	daysInMonth,
+	declaredFilterOperators,
 	describeActionRun,
 	EMPTY_FILTERS,
 	type EmptySlotProps,
@@ -182,6 +183,11 @@ export function listControls(
 		filters: narrowFilters(
 			requested,
 			columns.map((c) => c.name),
+			// The page narrows by what it renders; the declaration narrows *within*
+			// that, to the spellings `data.setFieldFilter` named (#414). Two
+			// narrowings and no widening: nothing declared can re-admit a column
+			// this page does not show.
+			declaredFilterOperators(columns),
 		),
 		sort: sortFromSearchParams(url.searchParams, sortableFields(shown)),
 		searchFields: searchableFields(shown),

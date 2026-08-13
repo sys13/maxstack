@@ -60,6 +60,10 @@ export function groundedEntityShapes(spec: SpecSystem): SpecEntityShape[] {
 			// module's own rule it belongs in the shared subset, not only in the web
 			// host's richer fold.
 			display: field.display,
+			// A field's declared filter control (#414), on the same rule: it
+			// reaches a *column* (as `meta.filterable`/`meta.filterOperators`), so it
+			// belongs in the shared subset rather than only in the web host's fold.
+			filter: field.filter,
 			reference: field.reference ? target(field.reference) : undefined,
 		})),
 	}))

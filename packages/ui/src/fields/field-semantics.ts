@@ -50,6 +50,14 @@ export interface FieldMetaLike {
 	rankKey?: boolean
 	sortable?: boolean
 	filterable?: boolean
+	/**
+	 * Which filter spellings this column's control offers — `['eq']`,
+	 * `['range']`, or both (#414). Structurally `ColumnMetadata.filterOperators`
+	 * from `@maxstack/core`. Absent means the derivation in `filterable.ts`
+	 * decides from the column's type, which is every column the spec has not
+	 * spoken about.
+	 */
+	filterOperators?: string[]
 	/** The "many" side of a reference (task 38): this column holds an array of
 	 * foreign keys. Structurally a `SproutColumnReference`. */
 	arrayReference?: FieldReferenceLike

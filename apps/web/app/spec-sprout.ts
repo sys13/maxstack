@@ -855,6 +855,12 @@ export function groundedEntityShapes(
 				// asked for is not a fact the runtime is free to re-derive. Dropping it
 				// here would leave `data.setFieldDisplay` writing to a spec nothing reads.
 				display: field.display,
+				// A field's declared filter control (#414) — grounded for the
+				// same reason `display` is: the control an author asked for (or asked
+				// *not* to have) is not a fact the runtime may re-derive. Dropping it
+				// here would leave `data.setFieldFilter` writing to a spec nothing
+				// reads, and REST would keep honouring a filter the spec refuses.
+				filter: field.filter,
 				reference: field.reference
 					? groundReference(entities, field.reference, options.installedBundles)
 					: undefined,
