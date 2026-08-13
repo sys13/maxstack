@@ -3,6 +3,7 @@
 import type { IntrospectedColumn } from '../fields/field-semantics.ts'
 import type { AutocompleteOption } from '../ui/form-fields.tsx'
 import type { FieldWidget } from '../zod-to-form-fields.ts'
+import type { ReferenceCreatePlan } from './reference-create.ts'
 import {
 	type ReferenceSearchPlan,
 	referenceSearchPlan,
@@ -49,10 +50,43 @@ export interface FieldUiOptions {
 	 * {@link referenceUiOptions}.
 	 */
 	referenceSearch?: ReferenceSearchPlan
-	/** Create-inline handler for the FK picker (mints + selects a new option). */
+	/**
+	 * What the picker needs to create a record of the referenced resource from
+	 * the typed string, and — by its mere presence — permission to offer the
+	 * affordance at all (#443). Built server-side by `referenceFieldOptions`,
+	 * which is the only place the two gates can be answered; absent means the
+	 * viewer may not create one, or the target needs more than a name.
+	 */
+	referenceCreate?: ReferenceCreatePlan
+	/**
+	 * Create-inline handler for the FK picker (mints + selects a new option).
+	 *
+	 * An override for owned code that wants its own minting — a wizard, a
+	 * duplicate check, a default beyond the label. Generated apps get their
+	 * handler from {@link referenceCreate} instead, and this stays undefined;
+	 * when both are present this one wins, because a hand-written handler is a
+	 * deliberate statement and a derived one is a default.
+	 */
 	onCreateReference?: (
 		label: string,
 	) => Promise<AutocompleteOption> | AutocompleteOption
+}
+
+/**
+ * Everything a loader resolves about one resource's FK columns: the first page
+ * of choices for each, and — for the subset that may be created inline — the
+ * plan to do it.
+ *
+ * One object rather than two arguments, deliberately. `onCreateReference` was
+ * dead for a year because it was an optional extra a loader could decline to
+ * pass and nothing would look wrong; a second optional argument to
+ * {@link referenceUiOptions} would rebuild that trap exactly. Threading both
+ * through one value the eight loaders already produce means the compiler asks
+ * for the create half at every site that produces the options half.
+ */
+export interface ReferenceFieldPlans {
+	options: Record<string, AutocompleteOption[]>
+	create: Record<string, ReferenceCreatePlan>
 }
 
 /**
@@ -67,23 +101,30 @@ export interface FieldUiOptions {
  * display field — already travels with the introspection every one of these
  * routes hands the form, so deriving it means the eight loaders that build
  * `referenceOptions` need no change and, more to the point, cannot be the place
- * a surface silently misses out on it. That is the failure mode #443 records:
- * `onCreateReference` is a real capability that no loader ever passes.
+ * a surface silently misses out on it. That was the failure mode #443 recorded:
+ * `onCreateReference` was a real capability that no loader ever passed.
+ *
+ * The **create** plan (#443) cannot be derived here for the reason set out in
+ * `reference-create.ts` — whether the viewer may create a record of the *target*
+ * resource, and whether a name is enough to make one, are facts about a resource
+ * the form does not carry. So it arrives with the options, in one value, and
+ * this function only routes it to the right field.
  */
 export function referenceUiOptions(
 	columns: readonly IntrospectedColumn[],
-	referenceOptions: Record<string, AutocompleteOption[]>,
+	references: ReferenceFieldPlans,
 ): Record<string, FieldUiOptions> {
 	const byName = new Map(columns.map((c) => [c.name, c]))
 	const arrayRefFields = new Set(
 		columns.filter((c) => c.meta?.arrayReference).map((c) => c.name),
 	)
 	const out: Record<string, FieldUiOptions> = {}
-	for (const [field, options] of Object.entries(referenceOptions)) {
+	for (const [field, options] of Object.entries(references.options)) {
 		const column = byName.get(field)
 		out[field] = {
 			inputType: arrayRefFields.has(field) ? 'reference-array' : 'reference',
 			referenceOptions: options,
+			referenceCreate: references.create[field],
 			referenceSearch: column ? referenceSearchPlan(column) : undefined,
 		}
 	}

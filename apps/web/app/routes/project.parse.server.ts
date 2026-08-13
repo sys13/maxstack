@@ -26,7 +26,9 @@ export async function action({ request, params }: ProjectRouteArgs) {
 		// resolve to Dana's id. Read through the request's own
 		// context, so a reference the caller may not read yields no options
 		// rather than leaking labels past the permission layer.
-		referenceOptions: await referenceFieldOptions(ctx, resolved.introspection),
+		// `.options` — see the note in the admin's parse route.
+		referenceOptions: (await referenceFieldOptions(ctx, resolved.introspection))
+			.options,
 	})
 	if ('error' in result) {
 		return data(result, { status: result.error === 'unparseable' ? 502 : 503 })

@@ -18,6 +18,10 @@ import { Select } from '@base-ui/react/select'
 import { useControl } from '@conform-to/react/future'
 import { useId, useMemo, useRef, useState } from 'react'
 import {
+	type ReferenceCreatePlan,
+	useReferenceCreate,
+} from '../form/reference-create.ts'
+import {
 	REFERENCE_OPTION_PAGE,
 	type ReferenceSearchPlan,
 	useReferenceSearch,
@@ -180,8 +184,10 @@ export interface AutocompleteOption {
  * Conform exactly like `FormSelect`: `useControl` owns the submitted value and a
  * hidden `<input name>` is registered, so exactly one id submits per field.
  *
- * With `onCreate` an unmatched query offers a "Create" row that mints a new
- * option inline (react-admin's create-inline) and selects it.
+ * With `create` — the server having said this viewer may create one and that a
+ * name is enough to make one — an unmatched query offers a "Create" row that
+ * mints the record through the ordinary `POST /api/:resource` and selects it
+ * (#443). `onCreate` is the owned-code override of the same row.
  *
  * With `search` — and a `<DataProvider>` in context — a query goes to the
  * referenced resource instead of filtering `options`, which is only ever the
@@ -196,16 +202,23 @@ export function FormAutocomplete({
 	ariaDescribedBy,
 	className,
 	onCreate,
+	create: createPlan,
 	search,
 }: FieldWidgetProps & {
 	options: AutocompleteOption[]
 	defaultValue?: string
 	placeholder?: string
 	onCreate?: (label: string) => Promise<AutocompleteOption> | AutocompleteOption
+	create?: ReferenceCreatePlan
 	search?: ReferenceSearchPlan
 }) {
 	const control = useControl({ defaultValue })
 	const [extra, setExtra] = useState<AutocompleteOption[]>([])
+	const derivedCreate = useReferenceCreate(createPlan)
+	// The hand-written handler wins: a plan is a default, and owned code passing
+	// `onCreate` is a deliberate statement about how a record gets made.
+	const mint = onCreate ?? derivedCreate
+	const [createFailed, setCreateFailed] = useState(false)
 	const all = useMemo(() => [...options, ...extra], [options, extra])
 	const selected = control.value ?? ''
 
@@ -254,11 +267,25 @@ export function FormAutocomplete({
 		setOpen(false)
 	}
 
+	/**
+	 * Mint the record and select it — or say that it did not happen.
+	 *
+	 * The gates mean a refusal here is a surprise (a unique-name collision, a
+	 * custom validation, a rule that reads the row), and a surprise is exactly
+	 * the case that must not be swallowed: before #443 nothing awaited this, so a
+	 * rejected handler was an unhandled rejection and the picker simply sat
+	 * there. Nothing is selected on failure, so there is no half-state to undo.
+	 */
 	async function create() {
-		if (!onCreate) return
-		const created = await onCreate(query.trim())
-		setExtra((prev) => [...prev, created])
-		choose(created)
+		if (!mint) return
+		setCreateFailed(false)
+		try {
+			const created = await mint(query.trim())
+			setExtra((prev) => [...prev, created])
+			choose(created)
+		} catch {
+			setCreateFailed(true)
+		}
 	}
 
 	// While open the input shows the live query; when closed it shows the
@@ -321,7 +348,7 @@ export function FormAutocomplete({
 							Could not search {search?.resource ?? 'records'} — try again
 						</p>
 					)}
-					{filtered.length === 0 && !onCreate && !searching && !failed && (
+					{filtered.length === 0 && !mint && !searching && !failed && (
 						<p className="px-2 py-1.5 text-muted-foreground">No matches</p>
 					)}
 					{/* The loader sends one page. With a full page there is no way to
@@ -334,7 +361,7 @@ export function FormAutocomplete({
 								: `Showing the first ${REFERENCE_OPTION_PAGE}`}
 						</p>
 					)}
-					{onCreate && query.trim() && !exactMatch && (
+					{mint && query.trim() && !exactMatch && (
 						<button
 							type="button"
 							onMouseDown={(e) => e.preventDefault()}
@@ -346,6 +373,12 @@ export function FormAutocomplete({
 						>
 							Create “{query.trim()}”
 						</button>
+					)}
+					{createFailed && (
+						<p className="px-2 py-1.5 text-destructive">
+							Could not create {createPlan?.resource ?? 'the record'} — nothing
+							was saved
+						</p>
 					)}
 				</div>
 			)}
@@ -402,8 +435,9 @@ export function FormMultiCheckboxGroup({
  * a `string[]` for `z.array(z.string())`, exactly like `FormMultiCheckboxGroup`.
  * No Conform `useControl` needed: the submitted shape is native.
  *
- * With `onCreate` an unmatched query offers a create-inline row (react-admin's
- * pattern), minting a new option and selecting it.
+ * `create` and `onCreate` are the single picker's create-inline, unchanged in
+ * meaning (#443): an unmatched query offers a row that mints the record through
+ * `POST /api/:resource` and adds it to the selection.
  *
  * `search` gives it the same server-side query as the single picker (#442). A
  * chip whose label is not in the loaded page falls back to the id — ugly and
@@ -418,16 +452,21 @@ export function FormReferenceArrayInput({
 	ariaDescribedBy,
 	className,
 	onCreate,
+	create: createPlan,
 	search,
 }: FieldWidgetProps & {
 	options: AutocompleteOption[]
 	defaultValue?: string[]
 	placeholder?: string
 	onCreate?: (label: string) => Promise<AutocompleteOption> | AutocompleteOption
+	create?: ReferenceCreatePlan
 	search?: ReferenceSearchPlan
 }) {
 	const [selected, setSelected] = useState<string[]>(defaultValue)
 	const [extra, setExtra] = useState<AutocompleteOption[]>([])
+	const derivedCreate = useReferenceCreate(createPlan)
+	const mint = onCreate ?? derivedCreate
+	const [createFailed, setCreateFailed] = useState(false)
 	const all = useMemo(() => [...options, ...extra], [options, extra])
 	const labelFor = (value: string) =>
 		all.find((o) => o.value === value)?.label ?? value
@@ -465,11 +504,17 @@ export function FormReferenceArrayInput({
 	function remove(value: string) {
 		setSelected((prev) => prev.filter((v) => v !== value))
 	}
+	/** As `FormAutocomplete`'s: a refusal is reported, and adds nothing. */
 	async function create() {
-		if (!onCreate) return
-		const created = await onCreate(query.trim())
-		setExtra((prev) => [...prev, created])
-		add(created.value)
+		if (!mint) return
+		setCreateFailed(false)
+		try {
+			const created = await mint(query.trim())
+			setExtra((prev) => [...prev, created])
+			add(created.value)
+		} catch {
+			setCreateFailed(true)
+		}
 	}
 
 	return (
@@ -548,7 +593,7 @@ export function FormReferenceArrayInput({
 								Could not search {search?.resource ?? 'records'} — try again
 							</p>
 						)}
-						{available.length === 0 && !onCreate && !searching && !failed && (
+						{available.length === 0 && !mint && !searching && !failed && (
 							<p className="px-2 py-1.5 text-muted-foreground">No matches</p>
 						)}
 						{pageIsFull && !searching && (
@@ -558,7 +603,7 @@ export function FormReferenceArrayInput({
 									: `Showing the first ${REFERENCE_OPTION_PAGE}`}
 							</p>
 						)}
-						{onCreate && query.trim() && !exactMatch && (
+						{mint && query.trim() && !exactMatch && (
 							<button
 								type="button"
 								onMouseDown={(e) => e.preventDefault()}
@@ -570,6 +615,12 @@ export function FormReferenceArrayInput({
 							>
 								Create “{query.trim()}”
 							</button>
+						)}
+						{createFailed && (
+							<p className="px-2 py-1.5 text-destructive">
+								Could not create {createPlan?.resource ?? 'the record'} —
+								nothing was saved
+							</p>
 						)}
 					</div>
 				)}

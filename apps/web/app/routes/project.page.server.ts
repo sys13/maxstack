@@ -32,6 +32,7 @@ import {
 	getSprout,
 	hasDemoData,
 	listActionDescriptors,
+	NO_REFERENCE_PLANS,
 	referenceFieldOptions,
 	resolveCapabilities,
 	resolveRowFiles,
@@ -206,7 +207,9 @@ export async function loader({ request, params }: ProjectRouteArgs) {
 		// thing a facet cannot derive from the schema alone. Skipped entirely when
 		// the page shows no FK column, so an ordinary list does not pay a query
 		// for a control it will not render.
-		referenceOptions: view ? {} : await referenceFieldOptions(ctx, shown),
+		referenceOptions: view
+			? NO_REFERENCE_PLANS
+			: await referenceFieldOptions(ctx, shown),
 		// What this session may do to this resource (task 22/35). The server
 		// enforces it either way — `opUpdate` is the wall, not this — but a list
 		// that offers an inline editor to a viewer whose every save will 403 is a

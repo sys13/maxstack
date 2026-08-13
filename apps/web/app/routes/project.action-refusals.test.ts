@@ -59,7 +59,7 @@ vi.mock('~/project.server', () => ({
 
 vi.mock('~/sprout.server', () => ({
 	getContext: async () => ({}),
-	referenceFieldOptions: async () => ({}),
+	referenceFieldOptions: async () => ({ options: {}, create: {} }),
 	relatedRecords: async () => [],
 	resolveRowFiles: () => ({}),
 }))
