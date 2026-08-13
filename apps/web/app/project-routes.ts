@@ -112,6 +112,17 @@ export interface ProjectRoute {
 	 */
 	editable: string[]
 	/**
+	 * Which fields a row added **from the list** collects — the first `table`
+	 * block's `creatable`. `[]` = a list you cannot add to, which is what every
+	 * page that has not declared otherwise gets.
+	 *
+	 * Not nullable, for `editable`'s reason: "no field is collected" and "this
+	 * block declares nothing" are the same fact about the page, and a capability
+	 * whose absence and whose emptiness read differently is one somebody
+	 * eventually treats as a tri-state.
+	 */
+	creatable: string[]
+	/**
 	 * The page's arranged view, from its first `calendar`,
 	 * `timeline` or `board` block. `null` = an ordinary list page. A view replaces
 	 * the list rather than sitting beside it: the block says "these rows, arranged
@@ -301,6 +312,7 @@ export function getRoutes(
 				variant: blocks.find((b) => b.type === 'table')?.variant ?? 'table',
 				fields: blocks.find((b) => b.type === 'table')?.fields ?? null,
 				editable: blocks.find((b) => b.type === 'table')?.editable ?? [],
+				creatable: blocks.find((b) => b.type === 'table')?.creatable ?? [],
 				view: viewOf(blocks, entity),
 			}
 		})

@@ -127,6 +127,20 @@ and stop at the first rung that fits — do not start at the bottom:
    ```json
    {"op":"page.setBlockEditable","args":{"pageId":"pg-<page>","blockId":"blk-<table>","editable":["status","rating"]}}
    ```
+
+   `page.setBlockCreatable` names the fields a **new row added from the list**
+   collects, so a whole record costs typing across the bottom row instead of a
+   trip to the New form and back. Reach for it on the lists people add to over
+   and over — line items, tasks, log entries. Same simple types as
+   `setBlockEditable`, and one extra rule: **every required field of the entity
+   must be named**, or the op is refused — a row form that cannot describe a
+   valid record would 422 on every use. The row posts to the resource's own
+   create route, so it runs the same validation, permissions and audit trail as
+   the form. Pass `[]` to take the affordance away again.
+
+   ```json
+   {"op":"page.setBlockCreatable","args":{"pageId":"pg-<page>","blockId":"blk-<table>","creatable":["title","quantity","unitPrice"]}}
+   ```
 3. **Is it how one page is composed, beyond theme + variant?** Use a **slot**.
    Add a slot block to the page and
    fill `app/routes/<resource>.slots.tsx` — yours, stubbed once, survives

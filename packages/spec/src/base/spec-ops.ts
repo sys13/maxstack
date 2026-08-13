@@ -15,7 +15,8 @@
  *   data:     data.addEntity · data.addField
  *   page:     page.addPage · page.addBlock · page.setBlockOrder ·
  *             page.setBlockVariant · page.setBlockFields ·
- *             page.setBlockEditable · page.setE2ETests
+ *             page.setBlockEditable · page.setBlockCreatable ·
+ *             page.setE2ETests
  *   pricing:  pricing.addTier
  * theme: theme.set (visual design as spec-as-data;
  *             full-replace, last-wins on the singleton theme)
@@ -790,6 +791,23 @@ export type SpecOp =
 	  }
 	| {
 			/**
+			 * Name the fields a **new row added from the list** collects.
+			 *
+			 * The second of the two `page.*` ops that is not presentational, and an
+			 * op for the same reason its sibling is: "this list can be added to" is a
+			 * line a reviewer reads. Last-wins, and `[]` clears.
+			 *
+			 * It creates no write path either — the row posts to the resource's own
+			 * create route. What it does carry that `page.setBlockEditable` does not
+			 * is a **completeness** obligation: a required field the row form omits
+			 * makes every Add a 422, so it is refused here instead. See
+			 * {@link BlockSpec.creatable}.
+			 */
+			op: 'page.setBlockCreatable'
+			args: { pageId: PageId; blockId: BlockId; creatable: string[] }
+	  }
+	| {
+			/**
 			 * Set a page's natural-language end-to-end tests.
 			 *
 			 * `page.addPage` could always carry `e2eTests`, but nothing could add
@@ -1473,6 +1491,7 @@ export const SPEC_OP_NAMES = [
 	'page.setBlockVariant',
 	'page.setBlockFields',
 	'page.setBlockEditable',
+	'page.setBlockCreatable',
 	'page.setE2ETests',
 	'page.addCalendar',
 	'page.addTimeline',
@@ -2928,6 +2947,26 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['pageId', 'blockId', 'editable'],
+		},
+	},
+	'page.setBlockCreatable': {
+		name: 'page.setBlockCreatable',
+		layer: 'page',
+		summary:
+			'Name the fields a NEW ROW added from the list collects — type across the bottom row, hit Add, no trip to the New form. The row posts to the resource’s own create route, so it runs the same validation, permission check, value limits and audit entry as the form; the list gets no write path of its own. Stricter than setBlockEditable in one way: every REQUIRED field of the entity must be named, or the create could never succeed and the op is refused. References, files, json and rank keys are refused — a row form cannot collect them. Last-wins; pass [] to take the affordance away again.',
+		args: {
+			type: 'object',
+			properties: {
+				pageId: { type: 'string', description: 'page id, prefix "pg-".' },
+				blockId: { type: 'string', description: 'block id, prefix "blk-".' },
+				creatable: {
+					type: 'array',
+					description:
+						'entity FIELD NAMES (not ids) the new-row form collects. Simple types only: string, number, boolean, enum (with options), date — and every required field of the entity must appear. This array REPLACES the block’s current list; pass [] to clear.',
+					items: { type: 'string' },
+				},
+			},
+			required: ['pageId', 'blockId', 'creatable'],
 		},
 	},
 	'page.setE2ETests': {
@@ -5261,6 +5300,67 @@ function inlineEditRefusal(field: FieldSpec): string | null {
 }
 
 /**
+ * Everything a block's `creatable` must be true about — shared by
+ * `page.setBlockCreatable` and the inline block form, for the reason
+ * {@link inlineEditRefusal} is shared: a declaration legal inline and illegal
+ * one op later teaches the inline form as the way to dodge validation.
+ *
+ * Two rules, and the second is the one that makes this more than a copy of the
+ * editable check.
+ *
+ * **The named fields must be collectable.** Identical to a cell's rule and
+ * deliberately not a looser one. A new-row form *could* in principle host an FK
+ * picker or a file input, and the day it does this line moves — but shipping the
+ * looser rule first would mean declaring a `creatable` that renders a broken
+ * control, which is the cost the stricter rule buys out.
+ *
+ * **Every required field must be named.** This has no analogue in `editable`,
+ * because an inline edit writes one field of a row that already satisfies its
+ * constraints while a new row must satisfy all of them at once. A `creatable`
+ * that omits a required field describes an affordance whose every use is a 422,
+ * and there is no input that makes it work — so it is refused at the op, by the
+ * name of the field that is missing, rather than discovered by a person clicking
+ * Add on a generated page.
+ *
+ * A required field that is *also* uncollectable gets the combined sentence
+ * instead of two contradictory ones, because the two rules together mean this
+ * entity cannot have rows added from a list at all, and that is the fact worth
+ * saying.
+ *
+ * No exemption is needed for a rank key, and the absence is deliberate: `rank`
+ * fields are already refused `required: true` at `data.addField` — they are
+ * stamped by the database and set by moving a row — so "required and never
+ * typed" is a state the spec cannot reach, and a guard for it here would be dead
+ * code implying otherwise.
+ */
+function inlineCreateErrors(
+	entity: EntitySpec,
+	creatable: readonly string[],
+): string[] {
+	const errors: string[] = []
+	for (const name of creatable) {
+		const field = entity.fields.find((f) => f.name === name)
+		if (!field) {
+			errors.push(`field "${name}" is not a field of "${entity.id}"`)
+			continue
+		}
+		const refusal = inlineEditRefusal(field)
+		if (refusal) errors.push(`field "${name}" ${refusal}`)
+	}
+	for (const field of entity.fields) {
+		if (!field.required) continue
+		if (creatable.includes(field.name)) continue
+		const refusal = inlineEditRefusal(field)
+		errors.push(
+			refusal
+				? `field "${field.name}" is required and ${refusal} — so a new row cannot be added to "${entity.id}" from a list at all; use the New form`
+				: `field "${field.name}" is required by "${entity.id}" but the new-row form does not collect it, so every add would be refused — name it in creatable, or make the field optional`,
+		)
+	}
+	return errors
+}
+
+/**
  * Everything `page.addPage`'s *inline* blocks must be true about.
  *
  * The bug this exists for: a page declared with a `table` block carrying
@@ -5367,6 +5467,21 @@ function inlineBlockErrors(
 				names.push(...editable)
 			}
 		}
+		// And an inline `creatable` is checked exactly as `page.setBlockCreatable`
+		// checks it — same reason, one paragraph up.
+		const creatable = block.creatable
+		if (creatable !== undefined) {
+			if (!Array.isArray(creatable))
+				errors.push(
+					`${where} -> "creatable" must be an array of field names (pass [] for none)`,
+				)
+			else {
+				const dupes = creatable.filter((f, j) => creatable.indexOf(f) !== j)
+				if (dupes.length > 0)
+					errors.push(`${where} -> duplicate creatable field "${dupes[0]}"`)
+				names.push(...creatable)
+			}
+		}
 		if (names.length === 0) continue
 
 		// The heart of #314: naming columns is only meaningful against a backing
@@ -5390,6 +5505,15 @@ function inlineBlockErrors(
 			const refusal = field ? inlineEditRefusal(field) : null
 			if (refusal) errors.push(`${where} -> editable "${name}" ${refusal}`)
 		}
+		// The completeness rule comes with it: an inline `creatable` that omits a
+		// required field is as unsatisfiable inline as it is one op later.
+		if (Array.isArray(creatable) && creatable.length > 0)
+			errors.push(
+				...inlineCreateErrors(entity, creatable)
+					// Unknown names are already reported by the shared loop above.
+					.filter((e) => !e.includes('is not a field of'))
+					.map((e) => `${where} -> creatable ${e.replace(/^field /, '')}`),
+			)
 	}
 	return errors
 }
@@ -6197,6 +6321,47 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				const refusal = inlineEditRefusal(field)
 				if (refusal) errors.push(`${op.op}: field "${name}" ${refusal}`)
 			}
+			break
+		}
+		case 'page.setBlockCreatable': {
+			const { pageId, blockId, creatable } = op.args
+			const page = system.pages.pages.find((p) => p.id === pageId)
+			if (!page) {
+				errors.push(`${op.op}: unknown page "${pageId}"`)
+				break
+			}
+			const block = page.blocks.find((b) => b.id === blockId)
+			if (!block) {
+				errors.push(`${op.op}: no block "${blockId}" in "${pageId}"`)
+				break
+			}
+			// A silently ignored capability declaration reads as "adding rows from
+			// this list is on" to whoever approved it, and it is off.
+			if (block.type !== 'table')
+				errors.push(
+					`${op.op}: block "${blockId}" is type "${block.type}", not a list/table block`,
+				)
+			if (!Array.isArray(creatable)) {
+				errors.push(
+					`${op.op}: creatable must be an array of field names (pass [] to clear, never omit it)`,
+				)
+				break
+			}
+			const dupes = creatable.filter((f, i) => creatable.indexOf(f) !== i)
+			if (dupes.length > 0)
+				errors.push(`${op.op}: duplicate field "${dupes[0]}"`)
+			// `[]` is the clear, and it needs no entity to be meaningful.
+			if (creatable.length === 0) break
+			const entity = system.data.entities.find((e) => e.id === page.entityId)
+			if (!entity) {
+				errors.push(
+					`${op.op}: page "${pageId}" has no backing entity whose fields a new row could carry`,
+				)
+				break
+			}
+			errors.push(
+				...inlineCreateErrors(entity, creatable).map((e) => `${op.op}: ${e}`),
+			)
 			break
 		}
 		case 'page.setE2ETests': {
@@ -7387,6 +7552,20 @@ export function diffOp(op: SpecOp): SpecDiff {
 						: `Edit ${editable.join(', ')} in place in block "${blockId}"`,
 			}
 		}
+		case 'page.setBlockCreatable': {
+			const { blockId, pageId, creatable } = op.args
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: blockId,
+				parentId: pageId,
+				summary:
+					creatable.length === 0
+						? `Stop adding rows from block "${blockId}"`
+						: `Add rows from block "${blockId}", collecting ${creatable.join(', ')}`,
+			}
+		}
 		case 'page.setE2ETests': {
 			const { pageId, e2eTests } = op.args
 			return {
@@ -8061,6 +8240,14 @@ export function applyOp(
 			// Copied for the same reason setBlockFields copies: apply is immutable
 			// with respect to its input, so the op's array is never aliased into state.
 			if (block) block.editable = [...op.args.editable]
+			break
+		}
+		case 'page.setBlockCreatable': {
+			const block = next.pages.pages
+				.find((p) => p.id === op.args.pageId)
+				?.blocks.find((b) => b.id === op.args.blockId)
+			// Copied for the same reason setBlockEditable copies.
+			if (block) block.creatable = [...op.args.creatable]
 			break
 		}
 		case 'page.setE2ETests': {

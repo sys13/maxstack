@@ -47,7 +47,7 @@ const entity: SpecOp = {
 
 describe('the vocabulary', () => {
 	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(67)
+		expect(SPEC_OP_NAMES).toHaveLength(68)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -676,72 +676,79 @@ describe('page layer ops', () => {
 	})
 })
 
+/**
+ * Shared by the two blocks below — `page.setBlockEditable` and
+ * `page.setBlockCreatable` apply the same field rule, so they are tested
+ * against the same entity. A second fixture would be the place the two
+ * silently diverge.
+ */
+/** An entity with one field of every shape the rule has an opinion about. */
+const CARD_ENTITY: SpecOp = {
+	op: 'data.addEntity',
+	args: {
+		entity: {
+			id: 'e-card',
+			name: 'Card',
+			fields: [
+				{
+					id: 'fld-title',
+					name: 'title',
+					type: 'string',
+					required: true,
+					provenance: suggested(),
+				},
+				{
+					id: 'fld-status',
+					name: 'status',
+					type: 'enum',
+					required: false,
+					options: [
+						{ label: 'To do', value: 'todo' },
+						{ label: 'Done', value: 'done' },
+					],
+					provenance: suggested(),
+				},
+				{
+					id: 'fld-rank',
+					name: 'boardRank',
+					type: 'string',
+					required: false,
+					rank: true,
+					provenance: suggested(),
+				},
+				{
+					id: 'fld-payload',
+					name: 'payload',
+					type: 'json',
+					required: false,
+					provenance: suggested(),
+				},
+			],
+			provenance: suggested(),
+		},
+	},
+}
+
+const CARDS_PAGE: SpecOp = {
+	op: 'page.addPage',
+	args: {
+		page: {
+			id: 'pg-cards',
+			name: 'Cards',
+			route: '/cards',
+			entityId: 'e-card',
+			blocks: [
+				{ id: 'blk-table', type: 'table', provenance: suggested() },
+				{ id: 'blk-hero', type: 'hero', provenance: suggested() },
+			],
+			provenance: suggested(),
+		},
+	},
+}
+
 describe('inline editing — page.setBlockEditable', () => {
-	/** An entity with one field of every shape the rule has an opinion about. */
-	const mixed: SpecOp = {
-		op: 'data.addEntity',
-		args: {
-			entity: {
-				id: 'e-card',
-				name: 'Card',
-				fields: [
-					{
-						id: 'fld-title',
-						name: 'title',
-						type: 'string',
-						required: true,
-						provenance: suggested(),
-					},
-					{
-						id: 'fld-status',
-						name: 'status',
-						type: 'enum',
-						required: false,
-						options: [
-							{ label: 'To do', value: 'todo' },
-							{ label: 'Done', value: 'done' },
-						],
-						provenance: suggested(),
-					},
-					{
-						id: 'fld-rank',
-						name: 'boardRank',
-						type: 'string',
-						required: false,
-						rank: true,
-						provenance: suggested(),
-					},
-					{
-						id: 'fld-payload',
-						name: 'payload',
-						type: 'json',
-						required: false,
-						provenance: suggested(),
-					},
-				],
-				provenance: suggested(),
-			},
-		},
-	}
-
-	const page: SpecOp = {
-		op: 'page.addPage',
-		args: {
-			page: {
-				id: 'pg-cards',
-				name: 'Cards',
-				route: '/cards',
-				entityId: 'e-card',
-				blocks: [
-					{ id: 'blk-table', type: 'table', provenance: suggested() },
-					{ id: 'blk-hero', type: 'hero', provenance: suggested() },
-				],
-				provenance: suggested(),
-			},
-		},
-	}
-
-	const seeded = () => applyOp(applyOp(base(), mixed, meta(1)), page, meta(2))
+	const seeded = () =>
+		applyOp(applyOp(base(), CARD_ENTITY, meta(1)), CARDS_PAGE, meta(2))
 
 	const editable = (blockId: `blk-${string}`, names: string[]): SpecOp => ({
 		op: 'page.setBlockEditable',
@@ -826,7 +833,7 @@ describe('inline editing — page.setBlockEditable', () => {
 
 	it('refuses the same declaration inline, at the page that declared it', () => {
 		// The inline form must not be the way to dodge the set-op's validation.
-		const s = applyOp(base(), mixed, meta(1))
+		const s = applyOp(base(), CARD_ENTITY, meta(1))
 		const inline = (names: string[]): SpecOp => ({
 			op: 'page.addPage',
 			args: {
@@ -860,6 +867,160 @@ describe('inline editing — page.setBlockEditable', () => {
 		const s = applyOp(seeded(), editable('blk-table', names), meta(3))
 		names.push('mutated')
 		expect(s.pages.pages[0]?.blocks[0]?.editable).toEqual(['title'])
+	})
+})
+
+/**
+ * #444 — adding a row from the list, the one part of stage C that did not exist.
+ *
+ * The sibling of the block above, sharing its `e-card` fixture on purpose: the
+ * *field* rule is the same rule, and a test suite that restated it would be the
+ * place the two silently diverge. What is tested here is the difference —
+ * completeness. `title` is the fixture's one required field, which makes every
+ * one of these cases about whether the declaration could ever produce a record
+ * the server accepts.
+ */
+describe('adding a row from the list — page.setBlockCreatable', () => {
+	const seeded = () =>
+		applyOp(applyOp(base(), CARD_ENTITY, meta(1)), CARDS_PAGE, meta(2))
+
+	const creatable = (blockId: `blk-${string}`, names: string[]): SpecOp => ({
+		op: 'page.setBlockCreatable',
+		args: { pageId: 'pg-cards', blockId, creatable: names },
+	})
+
+	it('declares which fields a new row collects, logged as a `set`', () => {
+		let s = seeded()
+		s = applyOp(s, creatable('blk-table', ['title', 'status']), meta(3))
+		expect(s.pages.pages[0]?.blocks[0]?.creatable).toEqual(['title', 'status'])
+		const last = s.opLog.at(-1)
+		expect(last?.diff.change).toBe('set')
+		expect(last?.diff.layer).toBe('page')
+		expect(last?.diff.summary).toContain('title, status')
+		expect(validateSpecSystem(s)).toBe(s)
+	})
+
+	it('refuses a declaration that omits a required field, by name', () => {
+		// The rule with no analogue in `editable`, and the reason this op exists
+		// separately: a new row must satisfy every constraint at once, so a
+		// `creatable` without `title` describes an affordance whose every use is a
+		// 422 — with no input that makes it work. Refused where a reviewer sees it,
+		// not discovered by somebody clicking Add on a generated page.
+		const s = seeded()
+		const errors = validateOp(s, creatable('blk-table', ['status']))
+		expect(errors[0]).toMatch(/field "title" is required by "e-card"/)
+		expect(errors[0]).toMatch(/name it in creatable/)
+	})
+
+	it('accepts the same declaration once the required field is named', () => {
+		expect(validateOp(seeded(), creatable('blk-table', ['title']))).toEqual([])
+	})
+
+	it('says an entity cannot be added to from a list at all, in one sentence', () => {
+		// A required field that is also uncollectable is not two problems. The two
+		// rules together mean there is no `creatable` for this entity, and saying
+		// that is more use than a pair of instructions that contradict each other.
+		let s = seeded()
+		s = applyOp(
+			s,
+			{
+				op: 'data.addField',
+				args: {
+					entityId: 'e-card',
+					field: {
+						id: 'fld-owner',
+						name: 'owner',
+						type: 'string',
+						required: true,
+						reference: 'e-card',
+						provenance: suggested(),
+					},
+				},
+			},
+			meta(3),
+		)
+		const errors = validateOp(s, creatable('blk-table', ['title']))
+		expect(errors[0]).toMatch(/field "owner" is required and is a reference/)
+		expect(errors[0]).toMatch(/cannot be added to "e-card" from a list at all/)
+	})
+
+	it('refuses a field no row form can collect', () => {
+		const s = seeded()
+		expect(
+			validateOp(s, creatable('blk-table', ['title', 'payload']))[0],
+		).toMatch(/is json/)
+		expect(
+			validateOp(s, creatable('blk-table', ['title', 'boardRank']))[0],
+		).toMatch(/is a rank key/)
+	})
+
+	it('refuses an unknown field, a non-table block, a missing block and a duplicate', () => {
+		const s = seeded()
+		expect(validateOp(s, creatable('blk-table', ['title', 'nope']))).toContain(
+			'page.setBlockCreatable: field "nope" is not a field of "e-card"',
+		)
+		expect(validateOp(s, creatable('blk-hero', ['title']))[0]).toMatch(
+			/not a list\/table block/,
+		)
+		expect(validateOp(s, creatable('blk-missing', ['title']))).toContain(
+			'page.setBlockCreatable: no block "blk-missing" in "pg-cards"',
+		)
+		expect(
+			validateOp(s, creatable('blk-table', ['title', 'title']))[0],
+		).toMatch(/duplicate field "title"/)
+	})
+
+	it('is last-wins, and `[]` takes the capability back', () => {
+		let s = applyOp(seeded(), creatable('blk-table', ['title']), meta(3))
+		s = applyOp(s, creatable('blk-table', ['title', 'status']), meta(4))
+		expect(s.pages.pages[0]?.blocks[0]?.creatable).toEqual(['title', 'status'])
+		// `[]` is the clear, and it needs no completeness check to be meaningful —
+		// a list nobody can add to omits every required field by definition.
+		expect(validateOp(s, creatable('blk-table', []))).toEqual([])
+		s = applyOp(s, creatable('blk-table', []), meta(5))
+		expect(s.pages.pages[0]?.blocks[0]?.creatable).toEqual([])
+		expect(s.opLog.at(-1)?.diff.summary).toMatch(/Stop adding rows/)
+	})
+
+	it('refuses the same declaration inline, at the page that declared it', () => {
+		// Including the completeness rule: the inline form must not be the way to
+		// declare an affordance the set-op would have refused.
+		const s = applyOp(base(), CARD_ENTITY, meta(1))
+		const inline = (names: string[]): SpecOp => ({
+			op: 'page.addPage',
+			args: {
+				page: {
+					id: 'pg-inline-create',
+					name: 'Inline',
+					route: '/inline-create',
+					entityId: 'e-card',
+					blocks: [
+						{
+							id: 'blk-table',
+							type: 'table',
+							creatable: names,
+							provenance: suggested(),
+						},
+					],
+					provenance: suggested(),
+				},
+			},
+		})
+		expect(validateOp(s, inline(['title']))).toEqual([])
+		expect(validateOp(s, inline(['status']))[0]).toMatch(
+			/creatable "title" is required by "e-card"/,
+		)
+		expect(validateOp(s, inline(['title', 'payload']))[0]).toMatch(/is json/)
+		expect(validateOp(s, inline(['title', 'title']))[0]).toMatch(
+			/duplicate creatable field/,
+		)
+	})
+
+	it('copies the array into state rather than aliasing the op', () => {
+		const names = ['title']
+		const s = applyOp(seeded(), creatable('blk-table', names), meta(3))
+		names.push('mutated')
+		expect(s.pages.pages[0]?.blocks[0]?.creatable).toEqual(['title'])
 	})
 })
 

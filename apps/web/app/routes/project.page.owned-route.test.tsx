@@ -149,6 +149,7 @@ const page: ProjectRoute = {
 	variant: 'table',
 	fields: null,
 	editable: ['title'],
+	creatable: [],
 	view: null,
 }
 

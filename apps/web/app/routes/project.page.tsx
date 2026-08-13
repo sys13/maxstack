@@ -64,6 +64,7 @@ import {
 import { type ComponentType, useState } from 'react'
 import { Form, Link, useFetcher, useSearchParams } from 'react-router'
 import { boardMoveValues } from '~/board-move'
+import { inlineCreateValues } from '~/inline-create'
 import { inlineEditValues } from '~/inline-edit'
 import { hasLiveSurface, LiveSurface, withRowIds } from '~/live-surface'
 import { OWNED_ROUTES, OWNED_SLOTS } from '~/owned.generated'
@@ -386,6 +387,10 @@ export default function ProjectListPage({
 		// which is the same thing absence means everywhere else in this layer.
 		actions = [],
 		editable,
+		// Defaulted for `actions`' reason: a payload that predates this key renders
+		// a list nobody can add to, which is what absence means everywhere else in
+		// this layer.
+		creatable = [],
 		filters,
 		sort,
 		referenceOptions,
@@ -428,6 +433,13 @@ export default function ProjectListPage({
 	 * run's reply overwrite a refused edit's banner, and those are different
 	 * problems a person needs to see separately.
 	 */
+	// The add-a-row fetcher. It posts to the page's own create
+	// route, in the same encoding `<DynamicForm>` submits there — so a row added
+	// from the list has no write path of its own to secure, exactly as a cell edit
+	// does not. Its own fetcher rather than the cell-edit one: a refused Add and a
+	// refused edit are different problems a person needs to see separately, and
+	// sharing would make one banner overwrite the other.
+	const rowCreate = useFetcher()
 	const runAction = useFetcher()
 	const [selectedIds, setSelectedIds] = useState<string[]>([])
 
@@ -734,6 +746,35 @@ export default function ProjectListPage({
 	}
 
 	/**
+	 * Add a row from the foot of the list (#444).
+	 *
+	 * The create half of `onCellSave`, and deliberately its mirror image: the
+	 * draft becomes plain values, and those values are posted to the page's
+	 * **existing create route** — the same action, method and encoding the New
+	 * form submits to. There is no inline-create endpoint, which is the security
+	 * property rather than a promise: `opCreate` runs its own permission check,
+	 * its own validation, its own value limits and its own audit entry, and it
+	 * would refuse this exactly as it refuses a garbage form post.
+	 *
+	 * `await`ing the fetcher's submission is what lets the row clear only on
+	 * success — `submit` returns once the action has replied, so a 422 leaves the
+	 * draft on screen to be corrected instead of erasing what somebody typed.
+	 *
+	 * Lifted out of the JSX for `onCellSave`'s reason: an ejected page is handed
+	 * the identical handler, so owning the page does not quietly cost you the
+	 * ability to add rows from it.
+	 */
+	const onRowCreate = async (draft: Record<string, unknown>) => {
+		const values = inlineCreateValues(columns, creatable, draft)
+		if (!values) return
+		await rowCreate.submit(values as Parameters<typeof rowCreate.submit>[0], {
+			method: 'post',
+			action: pagePath(page.slug, 'new'),
+			encType: ROW_EDIT_ENCTYPE,
+		})
+	}
+
+	/**
 	 * The arranged surface's props, built here for the same reason the list's
 	 * are: a page the runtime draws as a board is a page an owned module has to
 	 * be able to draw as a board (#349 stage 2).
@@ -798,13 +839,21 @@ export default function ProjectListPage({
 		return (
 			<ProjectFrame pages={nav} title={title} theme={theme} demoRows={demoRows}>
 				<OwnedRoute
-					list={{ ...listProps, editable, can, onCellSave }}
+					list={{
+						...listProps,
+						editable,
+						can,
+						onCellSave,
+						creatable,
+						onRowCreate,
+					}}
 					{...(viewProps ? { view: viewProps } : {})}
 					newHref={newHref}
 					toolbar={toolbar}
 					Link={link}
 				/>
 				<WriteRefusal data={cellEdit.data} />
+				<WriteRefusal data={rowCreate.data} />
 				<WriteRefusal data={move.data} />
 				<ActionResult data={runAction.data} />
 			</ProjectFrame>
@@ -930,8 +979,14 @@ export default function ProjectListPage({
 							// editor whose every save would be refused.
 							can={can}
 							onCellSave={onCellSave}
+							// Adding a row is the table's alone for the same reason editing a
+							// cell is: a card and a feed row are compositions, and there is no
+							// rectangle under a header for a new value to go in.
+							creatable={creatable}
+							onRowCreate={onRowCreate}
 						/>
 						<WriteRefusal data={cellEdit.data} />
+						<WriteRefusal data={rowCreate.data} />
 					</>
 				)}
 

@@ -150,6 +150,7 @@ const LIST_TUNING_OPS = new Set([
 	'page.setBlockOrder',
 	'page.setBlockFields',
 	'page.setBlockEditable',
+	'page.setBlockCreatable',
 ])
 
 function shadowedListWarning(

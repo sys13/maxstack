@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 67 typed operations that can change a project spec — the whole
+The 68 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -55,6 +55,7 @@ keys or nothing.
 | [`page.setBlockVariant`](#pagesetblockvariant) | `page` | Set a list/table block’s presentation: table (default admin grid) \| cards (responsive card grid) \| feed (stacked title/description/date rows). A filled replace-mode slot on the same page supersedes sibling block presentation — it renders INSTEAD of this list, so on such a page this op changes the spec and nothing a user can see. |
 | [`page.setBlockFields`](#pagesetblockfields) | `page` | Choose which entity fields a list/table block renders, in order (first = the title column). Overrides the zero-config column picks. |
 | [`page.setBlockEditable`](#pagesetblockeditable) | `page` | Name the fields a list/table block edits IN PLACE — click a cell, type, done, no trip to the form. The cell submits to the record’s own edit route, so an inline edit runs the same validation, permission check, value limits and audit entry as the form; the list gets no write path of its own. References, files, json and rank keys are refused — a cell editor cannot represent them. Last-wins; pass [] to make the list read-only again. |
+| [`page.setBlockCreatable`](#pagesetblockcreatable) | `page` | Name the fields a NEW ROW added from the list collects — type across the bottom row, hit Add, no trip to the New form. The row posts to the resource’s own create route, so it runs the same validation, permission check, value limits and audit entry as the form; the list gets no write path of its own. Stricter than setBlockEditable in one way: every REQUIRED field of the entity must be named, or the create could never succeed and the op is refused. References, files, json and rank keys are refused — a row form cannot collect them. Last-wins; pass [] to take the affordance away again. |
 | [`page.setE2ETests`](#pagesete2etests) | `page` | Set a page’s natural-language e2e tests — one sentence per behaviour. `run_generator e2e-tests` scaffolds a Playwright spec per sentence and `run_checks` runs them, which is the cheap verification path. |
 | [`page.addCalendar`](#pageaddcalendar) | `page` | Add a calendar block: the page’s rows arranged by one of its date fields, as a month grid, a week grid, or a density heatmap. |
 | [`page.addTimeline`](#pageaddtimeline) | `page` | Add a timeline (Gantt) block: the page’s rows as bars across a start/end date range, with optional dependency arrows from a self-referencing field. |
@@ -476,6 +477,16 @@ Name the fields a list/table block edits IN PLACE — click a cell, type, done, 
 - `pageId` — `string` · **required** · page id, prefix "pg-".
 - `blockId` — `string` · **required** · block id, prefix "blk-".
 - `editable` — `array` · **required** · entity FIELD NAMES (not ids) whose cells edit in place. Simple types only: string, number, boolean, enum (with options), date. This array REPLACES the block’s current list; pass [] to clear.
+
+### `page.setBlockCreatable`
+
+Name the fields a NEW ROW added from the list collects — type across the bottom row, hit Add, no trip to the New form. The row posts to the resource’s own create route, so it runs the same validation, permission check, value limits and audit entry as the form; the list gets no write path of its own. Stricter than setBlockEditable in one way: every REQUIRED field of the entity must be named, or the create could never succeed and the op is refused. References, files, json and rank keys are refused — a row form cannot collect them. Last-wins; pass [] to take the affordance away again.
+
+**Arguments**
+
+- `pageId` — `string` · **required** · page id, prefix "pg-".
+- `blockId` — `string` · **required** · block id, prefix "blk-".
+- `creatable` — `array` · **required** · entity FIELD NAMES (not ids) the new-row form collects. Simple types only: string, number, boolean, enum (with options), date — and every required field of the entity must appear. This array REPLACES the block’s current list; pass [] to clear.
 
 ### `page.setE2ETests`
 

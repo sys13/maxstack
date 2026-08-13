@@ -991,6 +991,33 @@ export interface BlockSpec extends Provenanced {
 	 */
 	editable?: string[]
 	/**
+	 * For `table`/list blocks: which entity fields a **new row added from the
+	 * list** collects. Undefined or empty = none, so a list gains no way to add a
+	 * row until someone declares one.
+	 *
+	 * The sibling of {@link editable}, and it inherits both of that field's lines
+	 * unchanged. There is no inline-create endpoint: the row is posted to the
+	 * resource's **existing create route**, in the same encoding the New form
+	 * posts, so it runs the identical validation, permission check, value limits
+	 * and audit entry. And the capability is declared rather than defaulted —
+	 * "this list can be added to, collecting these fields" is a line a reviewer
+	 * reads.
+	 *
+	 * Where it is stricter than `editable`, and why. An inline edit writes one
+	 * field of a row that already satisfies its own constraints; a new row has to
+	 * satisfy all of them at once. So a field the entity marks `required` must be
+	 * named here, or the row form cannot produce a record the server will accept —
+	 * and that is refused **at validate**, by name, rather than left to become a
+	 * 422 the first time somebody clicks Add. (A rank key needs no exception: it
+	 * already cannot be declared `required`, being stamped by the database.)
+	 *
+	 * Names are entity field names (not ids), validated against the page's backing
+	 * entity and against what a row form can collect — the same refusals `editable`
+	 * carries, for the same reason. Ignored by non-list block types. Set via the
+	 * `page.setBlockCreatable` op.
+	 */
+	creatable?: string[]
+	/**
 	 * For `slot:<name>` blocks: whether the slot's owned component renders
 	 * *below* the page's default list (`append`, the default) or *instead of* it
 	 * (`replace`).

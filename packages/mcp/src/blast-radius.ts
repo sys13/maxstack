@@ -521,12 +521,17 @@ const MODELLED_OP_PREFIXES = ['data.', 'page.', 'portals.', 'provenance.']
  * honest report is "the inventory is unchanged and says nothing about what a
  * user sees" — not "the built application is unchanged", which a `modelled`
  * classification would make this op claim, falsely.
+ *
+ * `page.setBlockCreatable` is here for exactly that reason, one word over: the
+ * new row posts to the resource's existing *create* route, so the inventory is
+ * as blind to it as it is to an inline edit.
  */
 const PRESENTATION_OPS = new Set([
 	'page.setBlockOrder',
 	'page.setBlockVariant',
 	'page.setBlockFields',
 	'page.setBlockEditable',
+	'page.setBlockCreatable',
 	'theme.set',
 ])
 

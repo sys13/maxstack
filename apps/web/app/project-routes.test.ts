@@ -61,6 +61,7 @@ describe('getRoutes', () => {
 				variant: 'table',
 				fields: null,
 				editable: [],
+				creatable: [],
 				view: null,
 			},
 			{
@@ -76,6 +77,7 @@ describe('getRoutes', () => {
 				variant: 'table',
 				fields: null,
 				editable: [],
+				creatable: [],
 				view: null,
 			},
 		])

@@ -36,7 +36,8 @@ export interface OwnedRouteProps {
 	 * Exactly the props the framework's own list would have rendered this page
 	 * with: rows (live-merged), the introspected resource shape, resolved FK
 	 * titles and signed file URLs, the empty state, demo-row marks, filled field
-	 * slots, capabilities, the inline-editable field list and its save handler.
+	 * slots, capabilities, the inline-editable field list and its save handler,
+	 * and the new-row field list and its create handler.
 	 *
 	 * Spread it and override what you want — `<ResourceList {...list} />` is the
 	 * generated body, and `<ResourceList {...list} selectable />` is a one-word
