@@ -43,8 +43,18 @@
  * removed is a breaking change for anyone who filled it. `maxstack slots
  * --json` reports it so a project can tell which vocabulary it was authored
  * against.
+ *
+ * Bump it for a **props** change too. `maxstack drift` reads it to say *"the
+ * props a slot is called with may have changed"* — which is exactly what a v1
+ * `list` fill needs to hear, even though nothing about it broke.
+ *
+ * - **v2** — the `list` slot became a controller (#398): it is now handed the
+ *   declared actions and their runner, the selection, the ordering the loader
+ *   honoured, and the inline edit/create handlers, alongside the rows it
+ *   already got. Purely additive; a v1 fill keeps working and keeps ignoring
+ *   them, which is the point of telling its author.
  */
-export const BLOCK_SLOT_ROLES_VERSION = 1
+export const BLOCK_SLOT_ROLES_VERSION = 2
 
 /** A slot-bearing block role. */
 export type BlockSlotRole = 'header' | 'list' | 'row' | 'field' | 'empty'
@@ -85,7 +95,7 @@ export const BLOCK_SLOT_ROLES: readonly BlockSlotRoleDef[] = [
 		role: 'list',
 		parameterized: false,
 		description:
-			'The whole list region — a bespoke player, board, or widget in place of the generated table/cards/feed. Rows, references and files arrive already resolved.',
+			'The whole list region — a bespoke player, board, or widget in place of the generated table/cards/feed. Rows, references and files arrive already resolved, and so do the declared actions, the selection, the ordering and the inline edit/create handlers: you replace the rendering, not the write path.',
 		props: 'ListSlotProps',
 	},
 	{
