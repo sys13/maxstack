@@ -2,10 +2,30 @@
  * Access control. See the reference design.
  *
  * Vocabulary: 'public' | 'authenticated' | 'admin' | 'owner', or a custom
- * predicate. Enforcement is **open by default** — an action with no rule is
- * allowed (matches the specbase original; a deliberate, documented choice, not
- * an oversight). Owner checks match `user.id` against the conventional owner
+ * predicate. Owner checks match `user.id` against the conventional owner
  * columns and require a row.
+ *
+ * Enforcement is **open by default** — an action with no rule is allowed
+ * (matches the specbase original; a deliberate, documented choice, not an
+ * oversight) — *unless the app has declared otherwise*. That last clause is
+ * new. The four strings above describe the **object** of a rule; they have
+ * never been able to describe its **subject** beyond one hard-coded `admin`.
+ * The `access` spec namespace declares roles, and {@link AccessPolicy} is how
+ * that declaration reaches this module: a policy carries what an ungoverned
+ * action does and what each declared role grants.
+ *
+ * Two properties keep the addition from being a new hole:
+ *
+ *   1. **It only ever widens, and only where nothing else spoke.** A role grant
+ *      is consulted for exactly one case — an action with *no* rule, under a
+ *      `deny` default. It cannot override a rule that denied, and it cannot
+ *      loosen {@link scopeGrants} or {@link portalGrants}, both of which run
+ *      first and stay closed by default.
+ *   2. **It is registered, not threaded.** See {@link setAccessPolicy}. An
+ *      optional per-call argument would mean any call site that forgot it fails
+ *      *open* under a `deny` default — which is issue #186's finding wearing a
+ *      new hat, since `/mcp` and the admin loaders reach this module by paths
+ *      nobody remembers to audit.
  */
 
 import type { PortalAudience } from './portals.ts'
@@ -85,7 +105,22 @@ export interface PortalIdentity {
 
 export interface SproutUser {
 	id: string
+	/**
+	 * The single conventional role string the auth and members bundles already
+	 * set. Still the input to the `admin` shortcut, and — since the `access`
+	 * namespace landed — **also read as a held role key**, so a declared role
+	 * whose key matches it works with no change to how an app builds its session.
+	 * That is the composition answer: the identity model those bundles supply is
+	 * the one this layer names, rather than a second one beside it.
+	 */
 	role?: string | null
+	/**
+	 * Additional role keys this identity holds, for the case one string cannot
+	 * express. Unioned with {@link role}; order is not significant. Set from
+	 * binding rows by the app, exactly as `orgId` is — this layer declares the
+	 * shape of a role, never who holds one.
+	 */
+	roles?: string[] | null
 	/** Active organization for tenant-scoped resources (d-tenancy-model). Set
 	 * per-request by the app (org switcher + membership check), never by the
 	 * client directly. */
@@ -282,10 +317,146 @@ export function portalGrants(
 	return portal.writes.some((w) => w.action === action)
 }
 
+// ===========================================================================
+// The declared access policy
+// ===========================================================================
+
+/**
+ * What an action **no rule governs** does. Mirrors the spec's `AccessDefault`,
+ * restated here rather than imported so this module keeps its property of
+ * depending on nothing — see {@link setAccessPolicy}.
+ */
+export type AccessDefaultPosture = 'open' | 'deny'
+
+/**
+ * The declared access vocabulary, flattened for enforcement: what an ungoverned
+ * action does, and what each role key grants.
+ *
+ * `grants` is already *expanded* — role-to-role bindings are resolved when the
+ * policy is built, so a lookup here is one map read rather than a graph walk on
+ * the hot path. It is also already *grounded*: resource names, not spec entity
+ * ids, on the same argument `PortalIdentity` makes — a translation performed at
+ * enforcement time is a second place the projection could be wrong.
+ */
+export interface AccessPolicy {
+	default: AccessDefaultPosture
+	/** role key → resource name → the actions that role grants on it. */
+	grants: Record<string, Record<string, SproutAction[]>>
+}
+
+/**
+ * The policy an app has before it declares one: the historical behaviour, which
+ * is what every already-generated app relies on.
+ */
+export const OPEN_ACCESS_POLICY: AccessPolicy = { default: 'open', grants: {} }
+
+/**
+ * The registered policy.
+ *
+ * A module-level `let` with no initializer beyond a literal, deliberately, and
+ * this module imports nothing but a type. Both are the same decision. The
+ * standing posture of an access system has to be resolvable at boot, and a
+ * bootstrap that participates in an import cycle is a bootstrap the cycle can
+ * deny — this codebase has already shipped that failure once, as a module-level
+ * const spreading a cross-package binding that died in its temporal dead zone.
+ */
+let registeredPolicy: AccessPolicy = OPEN_ACCESS_POLICY
+
+/**
+ * Register the app's declared access policy. Called once at boot, from the one
+ * place that has the spec.
+ *
+ * **Registered rather than passed.** Every other narrowing in this module rides
+ * on the identity, so it reaches the chokepoint no matter which of the fifteen
+ * call sites got there. A policy has nothing to ride on — it is a property of
+ * the app, not of the caller — and the alternative, an optional argument on
+ * `authorize`, would mean any call site that forgot it fails **open** under a
+ * `deny` default. That is exactly the shape of issue #186's finding: `/mcp` and
+ * the admin loaders reach this module without passing anything a route arranged.
+ * A global that cannot be forgotten beats a parameter that can.
+ *
+ * The cost is honest and worth naming: this is process-wide mutable state, so a
+ * test that sets it must clear it — {@link resetAccessPolicy}.
+ */
+export function setAccessPolicy(policy: AccessPolicy): void {
+	registeredPolicy = policy
+}
+
+/** The registered policy — {@link OPEN_ACCESS_POLICY} until one is set. */
+export function getAccessPolicy(): AccessPolicy {
+	return registeredPolicy
+}
+
+/** Restore the open default. For tests, and for an app tearing down a runtime. */
+export function resetAccessPolicy(): void {
+	registeredPolicy = OPEN_ACCESS_POLICY
+}
+
+/**
+ * The role keys an identity holds: the conventional `role` string plus any
+ * explicit `roles`, de-duplicated.
+ *
+ * Reading `role` here is what makes the namespace compose with the auth and
+ * members bundles instead of competing with them — `role: 'admin'` has always
+ * been a role, it just had nowhere to be declared.
+ */
+export function heldRoles(user: SproutUser | null | undefined): string[] {
+	const held = new Set<string>()
+	if (user?.role) held.add(user.role)
+	for (const key of user?.roles ?? []) held.add(key)
+	return [...held]
+}
+
+/**
+ * Does a role this identity holds grant `action` on `resource`?
+ *
+ * The **grant** side of the module, and the only one. Everything else here
+ * narrows; this widens, and it is consulted in exactly one place — an action
+ * with no rule of its own, under a `deny` default. It can therefore never be
+ * the reason a rule that said no was overridden.
+ *
+ * A portal identity holds no roles by construction: it is a synthetic identity
+ * built for a URL, and it must not pick up authority from a `role` string an
+ * app happened to stamp on it. Its own narrowing has already run and is closed
+ * by default; this refuses it a second time, in the same spirit as
+ * `portalGrants` refusing `delete` twice.
+ */
+export function policyGrants(
+	user: SproutUser | null | undefined,
+	resource: string,
+	action: SproutAction,
+	policy: AccessPolicy = registeredPolicy,
+): boolean {
+	if (user?.portal) return false
+	for (const role of heldRoles(user)) {
+		if (policy.grants[role]?.[resource]?.includes(action)) return true
+	}
+	return false
+}
+
+/**
+ * Is an action **no rule governs** allowed for this identity?
+ *
+ * One function rather than the same three lines in `canPerformAction` and
+ * `authorize`. Those two already duplicate the narrowing calls, and duplicating
+ * the *default posture* as well would be the place the UI's read of what a
+ * session may do drifts from what the server enforces.
+ */
+function ungovernedAllowed(
+	user: SproutUser | null | undefined,
+	resource: string,
+	action: SproutAction,
+): boolean {
+	if (registeredPolicy.default === 'open') return true
+	return policyGrants(user, resource, action)
+}
+
 /**
  * Resolve whether an action is allowed. Open by default: no rule → allowed
  * (but see {@link scopeGrants} and {@link portalGrants} — an api-key identity and
- * a portal identity are both closed by default).
+ * a portal identity are both closed by default; and see
+ * {@link setAccessPolicy} — an app that has declared `deny` refuses an
+ * ungoverned action unless a role the identity holds grants it).
  *
  * `resourceName` is required rather than optional precisely because the scope
  * gate lives here: an optional argument would make forgetting it fail *open*.
@@ -299,7 +470,8 @@ export async function canPerformAction(
 	if (!scopeGrants(ctx.user, resourceName, action)) return false
 	if (!portalGrants(ctx.user, resourceName, action)) return false
 	const rule = access?.[action]
-	if (rule === undefined) return true
+	if (rule === undefined)
+		return ungovernedAllowed(ctx.user, resourceName, action)
 	try {
 		return await toRule(rule)(ctx)
 	} catch {
@@ -343,8 +515,9 @@ export async function resourceCapabilities(
  *
  * Three gates, and the order matters only for which one you see in the message:
  * the api-key scope (a narrowing, closed by default), the portal narrowing
- * (also closed by default), and then the resource's own rule (open
- * by default). All three must pass. Every mutation and read in `operations.ts`
+ * (also closed by default), and then the resource's own rule — open by default,
+ * or, where the app declared `deny`, granted by a role the identity holds. All
+ * three must pass. Every mutation and read in `operations.ts`
  * funnels through here, which is why both narrowings live at this depth rather
  * than in the REST routes that used to own the first one — the MCP endpoint and
  * the admin loaders reach `operations.ts` without passing any route-level gate
@@ -363,7 +536,11 @@ export async function authorize(
 		throw new PermissionError(resourceName, action)
 	}
 	const rule = access?.[action]
-	if (rule === undefined) return
+	if (rule === undefined) {
+		if (!ungovernedAllowed(ctx.user, resourceName, action))
+			throw new PermissionError(resourceName, action)
+		return
+	}
 	const allowed = await toRule(rule)(ctx)
 	if (!allowed) throw new PermissionError(resourceName, action)
 }

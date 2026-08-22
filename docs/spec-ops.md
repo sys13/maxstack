@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 69 typed operations that can change a project spec — the whole
+The 75 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -65,6 +65,12 @@ keys or nothing.
 | [`pricing.addTier`](#pricingaddtier) | `pricing` | Add a pricing tier. |
 | [`theme.set`](#themeset) | `theme` | Set the app’s visual theme: a curated preset (zinc \| ocean \| forest \| sunset \| mono \| rose \| amber) plus optional accent (#hex), radius (sm\|md\|lg\|full), density (comfortable\|compact), font (sans\|serif\|mono\|rounded\|humanist), typeScale (compact\|default\|relaxed). Last-wins — replaces the whole theme. |
 | [`site.set`](#siteset) | `site` | Set the app’s public identity: domain (origin only — scheme + host, no path, no trailing slash, never localhost), name, plus optional tagline, description, social handles and defaultOgImage. Every canonical, OG card and sitemap entry is built against domain. Last-wins — replaces the whole declaration, so an omitted optional key is cleared. |
+| [`access.defineRole`](#accessdefinerole) | `access` | Declare a role: a key, a description, and the grant set it expands to (resource + actions). Declaring a role confers nothing on its own — it widens only once something is bound to it, and only matters once access.setDefault("deny") makes an ungranted action refused. |
+| [`access.defineGroup`](#accessdefinegroup) | `access` | Declare a group: a named set a binding can point at. Membership is runtime data and is NOT declared here — the group exists so a binding can name something that outlives everyone currently in it. |
+| [`access.grant`](#accessgrant) | `access` | Add actions to a role’s grant on one resource. Merges into any existing line for that resource, so granting the same action twice is idempotent. Grants only ever widen — they never take away what a resource’s own access rule allows, and never loosen an api-key scope or a portal. |
+| [`access.revoke`](#accessrevoke) | `access` | Remove actions from a role’s grant on a resource, or drop the whole line by omitting `actions`. A separate verb from access.grant so a revocation reads as a revocation in the op log. |
+| [`access.bindRole`](#accessbindrole) | `access` | Bind a role to a group, or to another role (which composes: the principal role holds everything the bound role grants). STANDING bindings only — the bootstrap kind that must hold before any row exists. Granting one person a role on a Tuesday is a row, not this op. |
+| [`access.setDefault`](#accesssetdefault) | `access` | Set what an action NO rule governs does: "open" (allowed — the historical behaviour every already-generated app relies on) or "deny" (refused unless a held role grants it). The one op that can refuse traffic a running deployment currently serves, which is why it is per-app and explicit. |
 | [`flags.declare`](#flagsdeclare) | `flags` | Declare a feature flag: a key, a default, and optional targeting (roles \| organizations \| rolloutPercent). Evaluated server-side per viewer; generation never reads a flag’s value. |
 | [`flags.setTargeting`](#flagssettargeting) | `flags` | Replace a flag’s targeting wholesale (last-wins). Omit `targeting` to clear it and return the flag to its bare default — this is how a rollout is ramped, paused, or completed. |
 | [`flags.gate`](#flagsgate) | `flags` | Gate a page or block on a declared flag, or ungate it with flag:null. A gated surface is composed only for viewers the flag is on for; the generated code is identical either way. |
@@ -656,6 +662,93 @@ Set the app’s public identity: domain (origin only — scheme + host, no path,
     - `github` — `string`
     - `mastodon` — `string`
     - `linkedin` — `string`
+
+## Layer: access
+
+### `access.defineRole`
+
+Declare a role: a key, a description, and the grant set it expands to (resource + actions). Declaring a role confers nothing on its own — it widens only once something is bound to it, and only matters once access.setDefault("deny") makes an ungranted action refused.
+
+**Arguments**
+
+- `role` — `object` · **required**
+  - `id` — `string` · **required** · branded id, prefix "rol-".
+  - `key` — `string` · **required** · the stable key a binding names and a session carries, e.g. "support".
+  - `description` — `string` · **required** · what the role is for, in one line.
+  - `grants` — `array` · **required** · what holders may do — at most 200 lines, one per resource.
+    each item:
+    - `resource` — `string` · **required** · the entity name this line is about, e.g. "order".
+    - `actions` — `array` · **required** · what the role may do to the resource.
+  - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
+    - `isSuggested` — `boolean` · **required**
+    - `isAccepted` — `boolean | null` · **required** · null = undecided.
+    - `isAddedManually` — `boolean | null` · **required**
+    - `suggestedDescription` — `string | null` · **required**
+    - `priority` — `string` · **required** · one of `medium`, `high`
+
+### `access.defineGroup`
+
+Declare a group: a named set a binding can point at. Membership is runtime data and is NOT declared here — the group exists so a binding can name something that outlives everyone currently in it.
+
+**Arguments**
+
+- `group` — `object` · **required**
+  - `id` — `string` · **required** · branded id, prefix "grp-".
+  - `key` — `string` · **required** · the stable key a binding names, e.g. "on-call".
+  - `description` — `string` · **required** · who the group is meant to contain, in one line.
+  - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
+    - `isSuggested` — `boolean` · **required**
+    - `isAccepted` — `boolean | null` · **required** · null = undecided.
+    - `isAddedManually` — `boolean | null` · **required**
+    - `suggestedDescription` — `string | null` · **required**
+    - `priority` — `string` · **required** · one of `medium`, `high`
+
+### `access.grant`
+
+Add actions to a role’s grant on one resource. Merges into any existing line for that resource, so granting the same action twice is idempotent. Grants only ever widen — they never take away what a resource’s own access rule allows, and never loosen an api-key scope or a portal.
+
+**Arguments**
+
+- `roleId` — `string` · **required** · role id, prefix "rol-".
+- `resource` — `string` · **required** · the entity name the grant is about, e.g. "order".
+- `actions` — `array` · **required** · what the role may do to the resource.
+
+### `access.revoke`
+
+Remove actions from a role’s grant on a resource, or drop the whole line by omitting `actions`. A separate verb from access.grant so a revocation reads as a revocation in the op log.
+
+**Arguments**
+
+- `roleId` — `string` · **required** · role id, prefix "rol-".
+- `resource` — `string` · **required** · the entity name to revoke on.
+- `actions` — `array` · the actions to remove; omit to remove the whole grant line.
+
+### `access.bindRole`
+
+Bind a role to a group, or to another role (which composes: the principal role holds everything the bound role grants). STANDING bindings only — the bootstrap kind that must hold before any row exists. Granting one person a role on a Tuesday is a row, not this op.
+
+**Arguments**
+
+- `binding` — `object` · **required**
+  - `id` — `string` · **required** · branded id, prefix "bnd-".
+  - `role` — `string` · **required** · the declared role key being conferred.
+  - `principal` — `object` · **required** · who gets it. There is no "user" kind, by design.
+    - `kind` — `string` · **required** · one of `group`, `role`
+    - `key` — `string` · **required** · the declared group key or role key.
+  - `provenance` — `object` · OPTIONAL — best OMITTED; the server stamps the correct default (accepted). If supplied it must be the full 5-key object.
+    - `isSuggested` — `boolean` · **required**
+    - `isAccepted` — `boolean | null` · **required** · null = undecided.
+    - `isAddedManually` — `boolean | null` · **required**
+    - `suggestedDescription` — `string | null` · **required**
+    - `priority` — `string` · **required** · one of `medium`, `high`
+
+### `access.setDefault`
+
+Set what an action NO rule governs does: "open" (allowed — the historical behaviour every already-generated app relies on) or "deny" (refused unless a held role grants it). The one op that can refuse traffic a running deployment currently serves, which is why it is per-app and explicit.
+
+**Arguments**
+
+- `default` — `string` · **required** · one of `open`, `deny` · what an ungoverned action does.
 
 ## Layer: flags
 

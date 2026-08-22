@@ -167,6 +167,41 @@ The manifest records, per file, whether it is generated, ejected or user-written
 plus a content hash. `maxstack drift` reports what you own and how far it has
 moved from what would be derived today.
 
+## Who a rule is about
+
+Access rules have always described the *object* — which resource, which action,
+which field, which row. The `access` spec namespace describes the **subject**:
+a role is a declared, named grant set, a group is a declared name whose
+membership is runtime data, and a standing binding is the bootstrap edge between
+them. Six ops — `access.defineRole`, `defineGroup`, `grant`, `revoke`,
+`bindRole`, `setDefault`.
+
+The split is deliberate and is the answer to "does a role belong in a spec at
+all". What gets **declared** is the vocabulary: which roles exist and what each
+one expands to. What stays **runtime data** is who holds one — putting that in
+the spec would make every personnel change a spec commit. The one exception is
+the standing binding, which exists because deny-by-default has a bootstrap
+problem: under `deny`, the caller who would create the first binding is refused
+by the rule that binding would satisfy.
+
+**Enforcement is still open by default, and an app opts out.**
+`access.setDefault('deny')` makes an action no rule governs refused unless a
+role the caller holds grants it. A spec that has never declared access has no
+`access.json` and behaves exactly as it always has — because every app generated
+before this existed relies on that, and a spec dir written last year must not
+start refusing traffic because a file is absent. The op refuses to set `deny`
+on a spec where nothing is declared or nothing is bound, so the setting cannot
+be the one-line diff that reads like configuration and lands like an outage.
+
+The policy is **registered at the chokepoint, not passed to it**
+(`setAccessPolicy`). An optional argument on `authorize` would mean any call site
+that forgot it fails open under `deny` — which is the same finding as the
+route-level authz removal: `/mcp` and the admin loaders reach the permission
+layer without passing anything a route arranged. It only ever widens, and only
+where nothing else spoke: a role grant cannot override a rule that denied, and
+cannot loosen an api-key scope or a portal, both of which stay closed by
+default.
+
 ## Invariants
 
 These do not bend, and each has a test that fails if it does:

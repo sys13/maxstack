@@ -4,6 +4,7 @@
  * typed spec-op vocabulary, and the aggregate they mutate (§3-L1).
  */
 
+export * from './access.ts'
 export * from './actor.ts'
 export * from './bulk-review.ts'
 export * from './decision-ledger.ts'

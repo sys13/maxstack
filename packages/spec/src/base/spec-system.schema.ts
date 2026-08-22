@@ -9,6 +9,7 @@
  */
 
 import { validatePRD } from '../prd/prd.schema.ts'
+import { ACCESS_KEY_RE, bindingCycleErrors, roleGrantErrors } from './access.ts'
 import { OP_SURFACES, opActorSchema } from './actor.ts'
 import { validateLedger } from './decision-ledger.ts'
 import {
@@ -1936,6 +1937,72 @@ export function collectSpecSystemErrors(system: SpecSystem): string[] {
 	// shape that must never be loadable — it would put a canonical naming an
 	// unreachable host on every page of the app.
 	if (system.site !== undefined) errors.push(...siteErrors('site', system.site))
+
+	// ---- access layer --------------------------------------------------------
+	// Checked at the layer and not only at the op, on the rule every layer below
+	// follows: a spec can also arrive by decoding a directory somebody
+	// hand-edited. Here that rule is load-bearing rather than tidy — a spec whose
+	// `access.json` names a role that no longer exists, under `default: "deny"`,
+	// is an app that refuses requests for a reason nothing in it explains.
+	if (system.access !== undefined) {
+		const access = system.access
+		if (access.default !== 'open' && access.default !== 'deny')
+			errors.push(
+				`access: default must be "open" or "deny", got "${String(access.default)}"`,
+			)
+		const entityNames = new Set(system.data.entities.map((e) => e.name))
+		const roleKeys = new Set<string>()
+		const roleIds = new Set<string>()
+		for (const role of access.roles) {
+			if (roleIds.has(role.id))
+				errors.push(`access: duplicate role id "${role.id}"`)
+			roleIds.add(role.id)
+			if (roleKeys.has(role.key))
+				errors.push(`access: duplicate role key "${role.key}"`)
+			roleKeys.add(role.key)
+			if (!ACCESS_KEY_RE.test(role.key))
+				errors.push(
+					`role ${role.id}: key "${role.key}" must match ${ACCESS_KEY_RE.source}`,
+				)
+			checkProvenance(role.provenance, `role ${role.id}`)
+			errors.push(
+				...roleGrantErrors(`role ${role.id}`, role.grants, entityNames),
+			)
+		}
+		const groupKeys = new Set<string>()
+		const groupIds = new Set<string>()
+		for (const group of access.groups) {
+			if (groupIds.has(group.id))
+				errors.push(`access: duplicate group id "${group.id}"`)
+			groupIds.add(group.id)
+			if (groupKeys.has(group.key))
+				errors.push(`access: duplicate group key "${group.key}"`)
+			groupKeys.add(group.key)
+			if (!ACCESS_KEY_RE.test(group.key))
+				errors.push(
+					`group ${group.id}: key "${group.key}" must match ${ACCESS_KEY_RE.source}`,
+				)
+			checkProvenance(group.provenance, `group ${group.id}`)
+		}
+		const bindingIds = new Set<string>()
+		for (const binding of access.bindings) {
+			if (bindingIds.has(binding.id))
+				errors.push(`access: duplicate binding id "${binding.id}"`)
+			bindingIds.add(binding.id)
+			if (!roleKeys.has(binding.role))
+				errors.push(`binding ${binding.id}: undeclared role "${binding.role}"`)
+			const known =
+				binding.principal.kind === 'group'
+					? groupKeys.has(binding.principal.key)
+					: roleKeys.has(binding.principal.key)
+			if (!known)
+				errors.push(
+					`binding ${binding.id}: undeclared ${binding.principal.kind} "${binding.principal.key}"`,
+				)
+			checkProvenance(binding.provenance, `binding ${binding.id}`)
+		}
+		errors.push(...bindingCycleErrors('access', access.bindings))
+	}
 
 	// ---- flag layer ----------------------------------------------------------
 	// Validated before the page layer so a page's gate can be resolved against
