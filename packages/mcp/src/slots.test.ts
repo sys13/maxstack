@@ -83,7 +83,10 @@ describe('slotInventory', () => {
 		expect(page?.slots.find((s) => s.id === 'exercise__row')?.props).toBe(
 			'RowSlotProps',
 		)
-		expect(inventory.rolesVersion).toBe(1)
+		// v2 since #398 — the `list` slot's props became the controller the
+		// generated list is rendered with. An agent reads this to know which
+		// vocabulary a fill it is looking at was written against.
+		expect(inventory.rolesVersion).toBe(2)
 	})
 
 	/**

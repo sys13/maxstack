@@ -636,6 +636,14 @@ export default function ProjectListPage({
 	// redesign is a spec op, not an eject.
 	const rowHref = (row: Record<string, unknown>) =>
 		pagePath(page.slug, String(row[primaryKey]))
+	// Lifted out of the prop bag so the framework's own list and a filled `list`
+	// slot ask for an ordering the same way (#398). Two copies of this would be
+	// two URL spellings the loader has to keep agreeing with.
+	const onSort = (next: SortState) =>
+		setSearchParams(
+			{ ...filtersToSearchParams(filters), ...sortToSearchParams(next) },
+			{ replace: true, preventScrollReset: true },
+		)
 	const listProps = {
 		resource: resourceShape,
 		rows,
@@ -690,11 +698,7 @@ export default function ProjectListPage({
 				}
 			: {}),
 		sort,
-		onSort: (next: SortState) =>
-			setSearchParams(
-				{ ...filtersToSearchParams(filters), ...sortToSearchParams(next) },
-				{ replace: true, preventScrollReset: true },
-			),
+		onSort,
 	}
 	/**
 	 * The list's control bar — search, the derived facets, CSV export.
@@ -953,15 +957,41 @@ export default function ProjectListPage({
 						<WriteRefusal data={move.data} />
 					</>
 				) : listReplaced ? null : ListSlot ? (
-					<ListSlot
-						resource={resourceShape}
-						columns={columns}
-						rows={rows}
-						references={references}
-						files={files}
-						rowHref={rowHref}
-						emptyState={emptyState}
-					/>
+					/* A bespoke list region, handed the *controller* and not just the
+					   rows (#398). Everything below `emptyState` is something the
+					   generated list is rendered with, and #349's rule applies one rung
+					   down: a slot given a subset would silently cost the project its
+					   declared actions, its ordering, inline edit and inline create —
+					   an eject in all but name, paid for a purely cosmetic change. The
+					   refusal banners come with the handlers, because a write path
+					   whose refusals nobody can see is not a write path anyone should
+					   be handed. */
+					<>
+						<ListSlot
+							resource={resourceShape}
+							columns={columns}
+							rows={rows}
+							references={references}
+							files={files}
+							rowHref={rowHref}
+							emptyState={emptyState}
+							demoIds={demoIds}
+							can={can}
+							actions={actions}
+							runAction={onRunAction}
+							actionBusy={runAction.state !== 'idle'}
+							selectedIds={selectedIds}
+							onSelectedChange={setSelectedIds}
+							sort={sort}
+							onSort={onSort}
+							editable={editable}
+							onCellSave={onCellSave}
+							creatable={creatable}
+							onRowCreate={onRowCreate}
+						/>
+						<WriteRefusal data={cellEdit.data} />
+						<WriteRefusal data={rowCreate.data} />
+					</>
 				) : page.variant === 'cards' ? (
 					<CardGrid
 						{...listProps}

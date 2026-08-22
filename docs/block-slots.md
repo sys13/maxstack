@@ -47,7 +47,7 @@ cannot be told different things:
 
 ```
 $ maxstack slots
-Slots — bespoke UI without ejecting (block roles v1)
+Slots — bespoke UI without ejecting (block roles v2)
 Ids are escaped to legal JS identifiers: - → _d, _ → _u, any other illegal
 character → _z (so reading-item gives reading_ditem__header). The escape is
 reversible rather than a fold, so two differently-spelled resources can never
@@ -119,6 +119,58 @@ export function exercise__row({ row, columns, href, isDemo }: RowSlotProps) {
 Everything around it keeps regenerating: the route, the nav entry, the loader,
 the ordering the spec declares, the links into create/edit, the empty state, the
 sample-data marking.
+
+## The `list` slot is a controller, not a payload
+
+Replacing the whole list region is the biggest thing you can do without
+ejecting, and it is the one place where a read-only prop bag would quietly cost
+you the platform. So `ListSlotProps` hands over everything the generated list
+is rendered with:
+
+| You are given | So that |
+|---|---|
+| `rows`, `references`, `files`, `columns` | FKs are resolved and files are signed — neither is derivable in the browser |
+| `actions`, `runAction`, `actionBusy` | A declared action (`view.addAction`) still runs, through the same audited endpoint REST and MCP use |
+| `selectedIds`, `onSelectedChange` | A selection can drive a bulk run, and a run can clear it |
+| `sort`, `onSort` | The ordering the loader honoured, and a way to ask for another. Sorting is server-side: your rows are one page of a table |
+| `editable`, `onCellSave` | A cell saves through the record's own edit route |
+| `creatable`, `onRowCreate` | A row is added through the page's own create route |
+| `can` | You render no affordance the session is denied |
+| `demoIds`, `rowHref`, `emptyState` | Sample rows stay marked, rows stay linked into CRUD, the empty state stays derived |
+
+The split is the point: the platform keeps deciding *what may be written and by
+whom*, and you decide only what it looks like. There is no write path a slot can
+reach that the framework does not already secure — `runAction` posts the ids and
+nothing else, and `onCellSave` and `onRowCreate` go to the routes the generated
+forms submit to. `BulkActionBar` and `RowActionButtons` are exported from
+`@maxstack/ui` if you want the stock controls back in your own layout.
+
+```tsx
+import { type ListSlotProps, RowActionButtons } from '@maxstack/ui'
+
+export function exercise__list(props: ListSlotProps) {
+	return (
+		<ol className="exercise-reel">
+			{props.rows.map((row) => (
+				<li key={String(row.id)}>
+					<video src={String(row.demoUrl)} autoPlay loop muted />
+					<a href={props.rowHref(row)}>{String(row.name)}</a>
+					<RowActionButtons
+						actions={props.actions}
+						rowId={String(row.id)}
+						onRun={props.runAction}
+						busy={props.actionBusy}
+					/>
+				</li>
+			))}
+		</ol>
+	)
+}
+```
+
+This was v2 of the role vocabulary. A `list` fill written against v1 keeps
+working and simply ignores the new props — `maxstack drift` says which version
+yours was authored against, which is how you find out there is more on offer.
 
 ## Slot ids are a public API
 

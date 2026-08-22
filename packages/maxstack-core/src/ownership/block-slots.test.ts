@@ -232,9 +232,14 @@ describe('the role registry', () => {
 	 * Slot proliferation is the declared risk. The version is what makes growing
 	 * this list a visible event rather than a quiet one, so it is pinned to the
 	 * shape it describes: a role added without a bump fails here.
+	 *
+	 * **v2** (#398) moved it without moving the role list: the `list` slot's
+	 * props became the controller the generated list is rendered with. The
+	 * version covers the props as well as the roles, because a fill authored
+	 * against v1 is the reader `maxstack drift` is telling.
 	 */
 	it('is versioned against the roles it publishes', () => {
-		expect(BLOCK_SLOT_ROLES_VERSION).toBe(1)
+		expect(BLOCK_SLOT_ROLES_VERSION).toBe(2)
 		expect(BLOCK_SLOT_ROLES.map((r) => r.role)).toEqual([
 			'header',
 			'list',

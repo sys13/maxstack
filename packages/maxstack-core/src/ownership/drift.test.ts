@@ -231,7 +231,13 @@ describe('what a file was derived from, per family', () => {
 		// is the only thing compared.
 		expect(slot?.status).toBe('authored')
 		expect(slot?.patch).toBe('')
-		expect(slot?.rolesDrift).toEqual({ authored: 0, current: 1 })
+		// Against the constant, not a literal: what this test is about is that a
+		// version *difference* is reported, and pinning the current one here would
+		// make every future bump — v2 was #398's — look like a drift regression.
+		expect(slot?.rolesDrift).toEqual({
+			authored: 0,
+			current: BLOCK_SLOT_ROLES_VERSION,
+		})
 		expect(slot?.explanation).toContain('block-slot roles v0')
 		expect(report.rolesDriftCount).toBe(1)
 		expect(report.driftedCount).toBe(0)
