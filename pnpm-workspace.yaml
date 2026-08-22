@@ -12,10 +12,16 @@ overrides:
   # GHSA-2v37-7h3g-55p8 — a custom alphabet can make the generator loop
   # indefinitely. Reachable only through postcss > vite, which still resolves
   # the 3.x line; nothing here depends on nanoid directly, and no id we mint
-  # passes a custom alphabet. Patched in 3.3.17, so the override is a floor on
-  # the same major. Bounded to 3.x deliberately: an unbounded `>=3.3.17`
-  # resolves to 6.x, which is not what postcss declares.
-  nanoid@<3.3.17: '^3.3.17'
+  # passes a custom alphabet. Bounded to 3.x deliberately: an unbounded
+  # `>=3.3.18` resolves to 6.x, which is not what postcss declares.
+  #
+  # The floor moved 3.3.17 → 3.3.18 when the advisory was re-scored: the fix in
+  # 3.3.17 was incomplete, so the range this override was written against no
+  # longer describes the patched line. Worth noting for the next one — an
+  # override pinned to a patched version is a claim that can go stale without
+  # anything here changing, which is why `pnpm audit` runs in CI rather than
+  # this file being taken at its word.
+  nanoid@<3.3.18: '^3.3.18'
 
 allowBuilds:
   esbuild: true
