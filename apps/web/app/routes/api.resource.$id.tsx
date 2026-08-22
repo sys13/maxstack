@@ -10,8 +10,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return withRequestObservability(request, ctx.user, async () => {
 		const denied = checkApiKeyScope(ctx, params.resource, request.method)
 		if (denied) return denied
-		const { status, body } = await getHandler(ctx, params.resource, params.id)
-		return Response.json(body, { status })
+		const { status, body, headers } = await getHandler(
+			ctx,
+			params.resource,
+			params.id,
+		)
+		return Response.json(body, { status, headers })
 	})
 }
 
@@ -24,22 +28,22 @@ export async function action({ request, params }: Route.ActionArgs) {
 		const denied = checkApiKeyScope(ctx, params.resource, request.method)
 		if (denied) return denied
 		if (request.method === 'DELETE') {
-			const { status, body } = await deleteHandler(
+			const { status, body, headers } = await deleteHandler(
 				ctx,
 				params.resource,
 				params.id,
 			)
-			return Response.json(body, { status })
+			return Response.json(body, { status, headers })
 		}
 		if (request.method === 'PUT' || request.method === 'PATCH') {
 			const data = (await request.json()) as Record<string, unknown>
-			const { status, body } = await updateHandler(
+			const { status, body, headers } = await updateHandler(
 				ctx,
 				params.resource,
 				params.id,
 				data,
 			)
-			return Response.json(body, { status })
+			return Response.json(body, { status, headers })
 		}
 		return Response.json({ error: 'Unsupported method' }, { status: 405 })
 	})

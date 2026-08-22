@@ -176,16 +176,65 @@ export type ResourceAccess = Partial<Record<SproutAction, Access>>
  * access checks use, instead of re-declaring it. */
 export const OWNER_FIELDS = ['userId', 'authorId', 'owner', 'ownerId'] as const
 
+/**
+ * Which of the gates refused — the `rule` half of #450's refusal envelope.
+ *
+ * Four gates can produce an identical `403` today, and the caller's next move
+ * differs for each: a key needs its scope widened, a portal link needs a
+ * different one, a rule needs the row's owner, and a `deny` default needs a role
+ * bound. Naming the gate is what turns "no" into "no, by *this*".
+ */
+export type PermissionGate =
+	/** The api key's scope map does not grant this action on this resource. */
+	| 'api-key-scope'
+	/** The portal's narrowing does not grant it — closed by default. */
+	| 'portal-scope'
+	/** The resource's own declared rule for this action evaluated false. */
+	| 'access-rule'
+	/** No rule governs it and the app declared `deny`; no held role grants it. */
+	| 'access-default'
+
 // No parameter properties: strip-only type stripping (see operations.ts).
 export class PermissionError extends Error {
 	readonly resource: string
 	readonly action: SproutAction
+	/**
+	 * Which gate said no. Optional because `operations.ts` throws this class from
+	 * a dozen places that are narrowings of their own rather than one of the four
+	 * gates below; those read as `access-rule`, which is what they are.
+	 */
+	readonly gate: PermissionGate
 
-	constructor(resource: string, action: SproutAction) {
+	constructor(
+		resource: string,
+		action: SproutAction,
+		gate: PermissionGate = 'access-rule',
+	) {
 		super(`Permission denied: ${action} on ${resource}`)
 		this.name = 'PermissionError'
 		this.resource = resource
 		this.action = action
+		this.gate = gate
+	}
+
+	/**
+	 * The refusal's `rule` id: what refused, named the way the spec names it.
+	 *
+	 * A string rather than a structure because it crosses to clients that will
+	 * only ever log or display it, and because the gate and the resource are both
+	 * already on the error for anything that wants to branch.
+	 */
+	get rule(): string {
+		switch (this.gate) {
+			case 'api-key-scope':
+				return `api-key.scope.${this.resource}.${this.action}`
+			case 'portal-scope':
+				return `portal.scope.${this.resource}.${this.action}`
+			case 'access-default':
+				return 'access.default'
+			default:
+				return `access.${this.resource}.${this.action}`
+		}
 	}
 }
 
@@ -530,17 +579,17 @@ export async function authorize(
 	ctx: AccessContext,
 ): Promise<void> {
 	if (!scopeGrants(ctx.user, resourceName, action)) {
-		throw new PermissionError(resourceName, action)
+		throw new PermissionError(resourceName, action, 'api-key-scope')
 	}
 	if (!portalGrants(ctx.user, resourceName, action)) {
-		throw new PermissionError(resourceName, action)
+		throw new PermissionError(resourceName, action, 'portal-scope')
 	}
 	const rule = access?.[action]
 	if (rule === undefined) {
 		if (!ungovernedAllowed(ctx.user, resourceName, action))
-			throw new PermissionError(resourceName, action)
+			throw new PermissionError(resourceName, action, 'access-default')
 		return
 	}
 	const allowed = await toRule(rule)(ctx)
-	if (!allowed) throw new PermissionError(resourceName, action)
+	if (!allowed) throw new PermissionError(resourceName, action, 'access-rule')
 }

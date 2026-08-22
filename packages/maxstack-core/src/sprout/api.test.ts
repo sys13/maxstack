@@ -40,6 +40,7 @@ import {
 	registerSpecEntities,
 	type SpecEntityShape,
 } from './from-spec.ts'
+import { mcpFail } from './mcp.ts'
 import {
 	LimitExceededError,
 	NotFoundError,
@@ -175,9 +176,15 @@ describe('a driver failure is reported, not republished', () => {
 		const res = await getHandler(ctx, 'book', ABSENT_ID)
 
 		expect(res.status).toBe(500)
+		// Still exact rather than a subset match — this is the assertion that
+		// fails if a driver string ever reaches a body, and a `objectContaining`
+		// here would stop catching that. Every field #450 added is derived from
+		// the *code*, so none of it can carry anything the request or the driver
+		// said; that is what makes widening this expectation safe.
 		expect(res.body).toEqual({
 			error: 'Internal error',
 			errorId: expect.stringMatching(/^err_/),
+			...INTERNAL_ENVELOPE,
 		})
 		expectNoStatementLeak(res.body)
 	})
@@ -224,6 +231,7 @@ describe('a driver failure is reported, not republished', () => {
 				expect(res.body, name).toEqual({
 					error: 'Internal error',
 					errorId: expect.stringMatching(/^err_/),
+					...INTERNAL_ENVELOPE,
 				})
 			}
 		}
@@ -243,6 +251,20 @@ describe('a driver failure is reported, not republished', () => {
 		expect(a.errorId).not.toBe(b.errorId)
 	})
 })
+
+/**
+ * The refusal envelope a 500 carries (#450), spelled out so the two exact-body
+ * assertions above stay exact. `fault: 'platform'` is the fact the fixed string
+ * could not carry: an agent reading `Internal error` cannot tell "your request
+ * was wrong" from "come back later", and retried both.
+ */
+const INTERNAL_ENVELOPE = {
+	code: 'internal',
+	message: 'Internal error',
+	fault: 'platform',
+	retry: { retryable: true },
+	next: expect.stringContaining('Nothing you can change'),
+}
 
 describe('a refusal we constructed still says what it means', () => {
 	/**
@@ -331,5 +353,120 @@ describe('a refusal we constructed still says what it means', () => {
 		)
 		expect(res.status).toBe(404)
 		expectNoStatementLeak(res.body)
+	})
+})
+
+/**
+ * #450 — the same refusal, on two surfaces, saying the same thing.
+ *
+ * The gap this closes is not that either surface said nothing; it is that they
+ * did not agree, and neither said enough. A declared action emits the admin UI,
+ * `POST /api/:resource/actions/:key` and the MCP `run_action` tool from one
+ * declaration, so a refusal one of them can act on and another cannot is a bug
+ * in the derivation rather than a difference of taste.
+ */
+describe('the refusal envelope reaches every surface (#450)', () => {
+	function ctxThrowing(error: unknown): OpContext {
+		const registry = new ResourceRegistry()
+		registerSpecEntities(registry, [BOOK])
+		return { registry, store: throwingStore(error), user: admin }
+	}
+
+	it('a 403 names which of the four gates refused', async () => {
+		// Before this, all four produced a byte-identical body, and the caller's
+		// next move differs for every one of them.
+		const gates = [
+			{
+				error: new PermissionError('book', 'read', 'api-key-scope'),
+				rule: 'api-key.scope.book.read',
+			},
+			{
+				error: new PermissionError('book', 'read', 'portal-scope'),
+				rule: 'portal.scope.book.read',
+			},
+			{
+				error: new PermissionError('book', 'read', 'access-rule'),
+				rule: 'access.book.read',
+			},
+			{
+				error: new PermissionError('book', 'read', 'access-default'),
+				rule: 'access.default',
+			},
+		]
+		for (const gate of gates) {
+			const res = await listHandler(ctxThrowing(gate.error), 'book')
+			expect(res.status).toBe(403)
+			const body = res.body as { rule: string; fault: string; code: string }
+			expect(body.code).toBe('forbidden')
+			expect(body.fault).toBe('policy')
+			expect(body.rule).toBe(gate.rule)
+		}
+	})
+
+	it('a spent budget sets Retry-After from the envelope, not beside it', async () => {
+		const res = await listHandler(
+			ctxThrowing(new RateLimitedError('book', 'submit', 5)),
+			'book',
+		)
+		expect(res.status).toBe(429)
+		const body = res.body as { fault: string; retry: { after: number } }
+		// Policy fault *and* retryable — the pair that a status code alone cannot
+		// express, and the reason a client used to give up on a refusal that lifts.
+		expect(body.fault).toBe('policy')
+		expect(body.retry.after).toBe(3600)
+		expect(res.headers?.['Retry-After']).toBe('3600')
+	})
+
+	it('a refusal that does not clear sets no Retry-After', async () => {
+		const res = await listHandler(
+			ctxThrowing(new PermissionError('book', 'read')),
+			'book',
+		)
+		expect(res.headers?.['Retry-After']).toBeUndefined()
+	})
+
+	it('keeps the per-refusal detail clients already read', async () => {
+		// The envelope is an addition to the body. `fieldErrors` and friends are
+		// shapes clients walk today, and moving them inside it would have been a
+		// break for the sake of tidiness.
+		const res = await listHandler(
+			ctxThrowing(new ValidationError({ title: ['Required'] })),
+			'book',
+		)
+		const body = res.body as {
+			error: string
+			fieldErrors: Record<string, string[]>
+			code: string
+		}
+		expect(body.fieldErrors.title).toEqual(['Required'])
+		expect(body.error).toBeTruthy()
+		expect(body.code).toBe('validation_failed')
+	})
+
+	it('the MCP surface carries the same fault and rule as the REST body', async () => {
+		const error = new PermissionError('book', 'update', 'access-default')
+		const rest = await listHandler(ctxThrowing(error), 'book')
+		const mcp = mcpFail(error, { resource: 'book', operation: 'list' })
+
+		const body = rest.body as { fault: string; rule: string }
+		const text = mcp.content.map((c) => c.text).join('\n')
+		expect(mcp.isError).toBe(true)
+		// The message stays first and stays unchanged — several MCP refusal
+		// messages *are* the repair instruction.
+		expect(text.startsWith(error.message)).toBe(true)
+		expect(text).toContain(`fault=${body.fault}`)
+		expect(text).toContain(`rule=${body.rule}`)
+		expect(text).toContain('retry=no')
+	})
+
+	it('tells an agent a spent budget clears, instead of leaving it to guess', async () => {
+		const text = mcpFail(new RateLimitedError('book', 'submit', 5), {
+			resource: 'book',
+			operation: 'create',
+		})
+			.content.map((c) => c.text)
+			.join('\n')
+		expect(text).toContain('retry=after 3600s')
+		expect(text).toContain('rule=portal.submit.rateLimit')
 	})
 })
