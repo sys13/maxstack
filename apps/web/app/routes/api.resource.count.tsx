@@ -18,11 +18,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 	return withRequestObservability(request, ctx.user, async () => {
 		const denied = checkApiKeyScope(ctx, params.resource, request.method)
 		if (denied) return denied
-		const { status, body } = await countHandler(
+		const { status, body, headers } = await countHandler(
 			ctx,
 			params.resource,
 			parseFilterQuery(new URL(request.url)),
 		)
-		return Response.json(body, { status })
+		return Response.json(body, { status, headers })
 	})
 }

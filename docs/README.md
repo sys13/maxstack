@@ -58,6 +58,9 @@ adds a verb, flag or op without regenerating them.
 - [**flags-and-preferences.md**](flags-and-preferences.md) — feature flags and
   per-user preferences.
 
+- [**refusals.md**](refusals.md) — the error envelope every surface returns:
+  whose rule refused, and whether it clears by itself.
+
 ## Operating an app
 
 - [**deploy.md**](deploy.md) — Docker and Fly.
