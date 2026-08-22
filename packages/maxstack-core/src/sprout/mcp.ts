@@ -139,6 +139,8 @@ import {
 	type SproutUser,
 } from './permissions.ts'
 import { opQuery, parseQuerySpec, QUERY_LIMITS, queryEdges } from './query.ts'
+import type { RefusalCode } from './refusal.ts'
+import { formatRefusal, refusal } from './refusal.ts'
 import type { RegisteredResource, ResourceRegistry } from './registry.ts'
 import type { SproutColumn } from './types.ts'
 
@@ -908,6 +910,28 @@ function err(message: string): McpToolResult {
 }
 
 /**
+ * A refusal, as an MCP tool error: the message the throwing site wrote, then
+ * the envelope's three deciding facts on the line after it (#450).
+ *
+ * The message stays first and stays unchanged. Several of these messages *are*
+ * the repair instruction — the cap that was exceeded, the options that may be
+ * chosen, the field that failed — and burying them under a JSON envelope would
+ * have traded the thing an agent acts on for the thing it classifies by.
+ *
+ * This is the surface where a bare status cost the most. An agent reading
+ * `Permission denied: update on book` can retry, give up, or invent a reason;
+ * reading `fault=policy rule=access.book.update retry=no` it can do the only
+ * correct thing, which is stop and say who to ask.
+ */
+function refused(
+	code: RefusalCode,
+	message: string,
+	options: { rule?: string } = {},
+): McpToolResult {
+	return err(`${message}\n${formatRefusal(refusal(code, message, options))}`)
+}
+
+/**
  * How reachable the transport carrying this tool call is — a property of the
  * **host**, declared by the host, never inferred here.
  *
@@ -971,47 +995,75 @@ export function mcpFail(
 	// it a 400 rather than a 422: it rejects no field, so its `fieldErrors` is
 	// `{}` — the line below would answer an agent that mistyped a field name with
 	// the string "{}". The whole repair instruction is in the message.
-	if (e instanceof EmptyUpdateError) return err(e.message)
+	if (e instanceof EmptyUpdateError) return refused('empty_update', e.message)
 	// Repair instructions, machine-readably — the same contract the 422 body
 	// carries, so an agent and a browser client act on one shape.
-	if (e instanceof ValidationError) return err(JSON.stringify(e.fieldErrors))
-	if (
-		// A declared WIP limit. An agent driving MCP hits the same rule as a person
-		// dragging a card, and gets told which column is full and by how much
-		// rather than a generic failure.
-		e instanceof LimitExceededError ||
-		// A duplicate, or any other integrity violation, already classified by
-		// SQLSTATE at the store boundary (`constraints.ts`, #352). The constructed
-		// error carries the resource, the constraint identifier and the *declared*
-		// columns — never the driver's `message`, `detail`, `query` or `params`.
-		// `ConflictError` is a subclass of `ConstraintViolationError`, so testing
-		// them together is safe here where the REST side has to order them.
-		e instanceof ConstraintViolationError ||
-		e instanceof ConflictError ||
-		e instanceof PermissionError ||
-		e instanceof NotFoundError ||
-		// An undeclared index, reported as the sentence saying so rather than as an
-		// empty result an agent would read as "nothing matched".
-		e instanceof UnsupportedOperationError ||
-		e instanceof UnknownResourceError ||
-		// A spent portal budget. "Try again later" is addressed to the caller and
-		// is the one thing that stops an agent retrying immediately.
-		e instanceof RateLimitedError ||
-		// The three list-action refusals. Named explicitly, because every one of
-		// them is a repair instruction an agent can act on — the cap it exceeded,
-		// the options it may choose from, the action that does not exist — and the
-		// generic fallback below would turn each into "Internal error", which an
-		// agent retries verbatim.
-		e instanceof SelectionTooLargeError ||
-		e instanceof InvalidActionChoiceError ||
-		e instanceof UnknownActionError
-	) {
-		return err(e.message)
+	// The one refusal whose MCP text is *already* machine-readable: it is a JSON
+	// object of field → problems, and clients `JSON.parse` it. So the envelope is
+	// merged into that object rather than appended after it — a trailing prose
+	// line would have turned a parseable reply into a `SyntaxError` for every
+	// existing agent, which is the opposite of what #450 is for.
+	//
+	// Under `_refusal` rather than at the top level, because the top level is a
+	// namespace of the app's own field names and this must not be able to shadow
+	// one. A leading underscore is not a legal field id, so the key is reserved by
+	// construction.
+	if (e instanceof ValidationError) {
+		return err(
+			JSON.stringify({
+				...e.fieldErrors,
+				_refusal: refusal('validation_failed', e.message),
+			}),
+		)
 	}
+	// A declared WIP limit. An agent driving MCP hits the same rule as a person
+	// dragging a card, and gets told which column is full and by how much rather
+	// than a generic failure.
+	if (e instanceof LimitExceededError) {
+		return refused('limit_exceeded', e.message, { rule: `limit.${e.field}` })
+	}
+	// A duplicate, or any other integrity violation, already classified by
+	// SQLSTATE at the store boundary (`constraints.ts`, #352). The constructed
+	// error carries the resource, the constraint identifier and the *declared*
+	// columns — never the driver's `message`, `detail`, `query` or `params`.
+	// `ConflictError` is a subclass of `ConstraintViolationError`, so it is
+	// tested first here for the same reason the REST side orders them.
+	if (e instanceof ConflictError) return refused('conflict', e.message)
+	if (e instanceof ConstraintViolationError)
+		return refused('constraint_violation', e.message)
+	// The four gates behind one 403, told apart at last — see PermissionGate.
+	if (e instanceof PermissionError)
+		return refused('forbidden', e.message, { rule: e.rule })
+	if (e instanceof NotFoundError) return refused('not_found', e.message)
+	// An undeclared index, reported as the sentence saying so rather than as an
+	// empty result an agent would read as "nothing matched".
+	if (e instanceof UnsupportedOperationError)
+		return refused('unsupported_operation', e.message)
+	if (e instanceof UnknownResourceError)
+		return refused('unknown_resource', e.message)
+	// A spent portal budget — the one refusal here that clears by itself, and the
+	// one where `retry=after 3600s` replaces an agent's guess with a fact.
+	if (e instanceof RateLimitedError) {
+		return refused('rate_limited', e.message, {
+			rule: `portal.${e.portalKey}.rateLimit`,
+		})
+	}
+	// The three list-action refusals. Named individually, because every one of
+	// them is a repair instruction an agent can act on — the cap it exceeded, the
+	// options it may choose from, the action that does not exist — and the
+	// generic fallback below would turn each into "Internal error", which an
+	// agent retries verbatim.
+	if (e instanceof SelectionTooLargeError)
+		return refused('selection_too_large', e.message)
+	if (e instanceof InvalidActionChoiceError)
+		return refused('invalid_action_choice', e.message)
+	if (e instanceof UnknownActionError)
+		return refused('unknown_action', e.message)
 	const errorId = nextErrorId()
 	reportInternalError(e, errorId, context)
 	const detail = e instanceof Error ? e.message : String(e)
-	return err(
+	return refused(
+		'internal',
 		exposure === 'local'
 			? `Internal error [${errorId}]: ${detail}`
 			: `Internal error [${errorId}]. The detail is on the server's stderr under this id.`,

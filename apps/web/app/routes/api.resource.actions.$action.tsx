@@ -71,22 +71,21 @@ export async function action({ request, params }: Route.ActionArgs) {
 				{ status: 400 },
 			)
 
-		const { status, body: result } = await runActionHandler(
-			ctx,
-			params.resource,
-			params.action,
-			{
-				ids: body.ids.map(String),
-				...(typeof body.choice === 'string' ? { choice: body.choice } : {}),
-				// Caller-supplied when given, so a client can find its own run in the
-				// audit log; minted here otherwise, because the batch entry is
-				// worthless without something correlating it to its per-row entries.
-				batchId:
-					typeof body.batchId === 'string' && body.batchId
-						? body.batchId
-						: crypto.randomUUID(),
-			},
-		)
-		return Response.json(result, { status })
+		const {
+			status,
+			body: result,
+			headers,
+		} = await runActionHandler(ctx, params.resource, params.action, {
+			ids: body.ids.map(String),
+			...(typeof body.choice === 'string' ? { choice: body.choice } : {}),
+			// Caller-supplied when given, so a client can find its own run in the
+			// audit log; minted here otherwise, because the batch entry is
+			// worthless without something correlating it to its per-row entries.
+			batchId:
+				typeof body.batchId === 'string' && body.batchId
+					? body.batchId
+					: crypto.randomUUID(),
+		})
+		return Response.json(result, { status, headers })
 	})
 }

@@ -211,9 +211,19 @@ describe('the classifier reads the code, never the prose', () => {
 		stderr.mockRestore()
 
 		expect(res.status).toBe(500)
+		// Exact, not a subset match: this is the assertion that fails if the
+		// impostor's prose ever reaches a body. Every field #450 added is derived
+		// from the refusal *code*, so none of it can carry anything the driver
+		// said — `fault: 'platform'` is the whole addition, and it is the fact
+		// that tells an agent this one is not its request to fix.
 		expect(res.body).toEqual({
 			error: 'Internal error',
 			errorId: expect.stringMatching(/^err_/),
+			code: 'internal',
+			message: 'Internal error',
+			fault: 'platform',
+			retry: { retryable: true },
+			next: expect.stringContaining('Nothing you can change'),
 		})
 	})
 

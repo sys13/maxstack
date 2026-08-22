@@ -27,16 +27,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		const idsParam = url.searchParams.get('ids')
 		if (idsParam !== null) {
 			const ids = idsParam.split(',').filter(Boolean)
-			const { status, body } = await getManyHandler(ctx, params.resource, ids)
-			return Response.json(body, { status })
+			const { status, body, headers } = await getManyHandler(
+				ctx,
+				params.resource,
+				ids,
+			)
+			return Response.json(body, { status, headers })
 		}
 
-		const { status, body } = await listHandler(
+		const { status, body, headers } = await listHandler(
 			ctx,
 			params.resource,
 			parseListQuery(url),
 		)
-		return Response.json(body, { status })
+		return Response.json(body, { status, headers })
 	})
 }
 
@@ -62,7 +66,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 		const denied = checkApiKeyScope(ctx, params.resource, request.method)
 		if (denied) return denied
 		const data = (await request.json()) as Record<string, unknown>
-		const { status, body } = await createHandler(ctx, params.resource, data)
-		return Response.json(body, { status })
+		const { status, body, headers } = await createHandler(
+			ctx,
+			params.resource,
+			data,
+		)
+		return Response.json(body, { status, headers })
 	})
 }

@@ -40,7 +40,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 		// unchanged, so a facet a caller already knows how to set keeps working
 		// alongside `?q=`. Its `search` key is ignored here — `q` is the query.
 		const listQuery = parseFilterQuery(url)
-		const { status, body } = await searchHandler(
+		const { status, body, headers } = await searchHandler(
 			ctx,
 			params.resource,
 			url.searchParams.get('q') ?? '',
@@ -55,6 +55,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 				),
 			},
 		)
-		return Response.json(body, { status })
+		return Response.json(body, { status, headers })
 	})
 }

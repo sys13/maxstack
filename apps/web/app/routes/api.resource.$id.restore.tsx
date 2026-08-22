@@ -39,11 +39,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 		if (unauthenticated) return unauthenticated
 		const denied = checkApiKeyScope(ctx, params.resource, request.method)
 		if (denied) return denied
-		const { status, body } = await restoreHandler(
+		const { status, body, headers } = await restoreHandler(
 			ctx,
 			params.resource,
 			params.id,
 		)
-		return Response.json(body, { status })
+		return Response.json(body, { status, headers })
 	})
 }

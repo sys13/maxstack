@@ -223,8 +223,15 @@ describe('the refusals a caller can act on still come back verbatim', () => {
 		})
 		expect(res.isError).toBe(true)
 		expect(text(res)).not.toContain('Internal error')
-		// The class `mcpFail` lets through, spelled by the op itself.
-		expect(text(res)).toBe(new NotFoundError('book', ABSENT_ID).message)
+		// The class `mcpFail` lets through, spelled by the op itself — still the
+		// first line, unchanged, because several of these messages *are* the
+		// repair instruction and #450 adds to them rather than replacing them.
+		const [first, ...rest] = text(res).split('\n')
+		expect(first).toBe(new NotFoundError('book', ABSENT_ID).message)
+		// And the facts a bare message could not carry: whose refusal it was, and
+		// whether an agent should come back.
+		expect(rest.join('\n')).toContain('fault=caller')
+		expect(rest.join('\n')).toContain('retry=no')
 	})
 
 	it('reports a validation refusal as its field errors', async () => {
@@ -234,8 +241,14 @@ describe('the refusals a caller can act on still come back verbatim', () => {
 			data: {},
 		})
 		expect(res.isError).toBe(true)
+		// Still parseable JSON: this reply is the machine-readable one, so the
+		// envelope is merged into the object rather than appended after it.
 		const fieldErrors = JSON.parse(text(res)) as Record<string, unknown>
 		expect(fieldErrors).toHaveProperty('title')
+		expect(fieldErrors._refusal).toMatchObject({
+			code: 'validation_failed',
+			fault: 'caller',
+		})
 	})
 
 	it('reports an unknown resource as one', async () => {

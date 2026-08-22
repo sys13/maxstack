@@ -32,11 +32,20 @@ import {
 	ValidationError,
 } from './operations.ts'
 import { PermissionError } from './permissions.ts'
+import type { Refusal, RefusalCode } from './refusal.ts'
+import { refusal, refusalStatus, retryAfterHeader } from './refusal.ts'
 import type { ListOptions, Row } from './store.ts'
 
 export interface ApiResponse<T = unknown> {
 	status: number
 	body: T
+	/**
+	 * Response headers the adapter must set. Present only where a header carries
+	 * something the body cannot: today that is `Retry-After` on a refusal whose
+	 * envelope says when it clears. An adapter that ignores it degrades to the
+	 * pre-#450 behaviour rather than serving something wrong.
+	 */
+	headers?: Record<string, string>
 }
 
 /**
@@ -56,6 +65,35 @@ export interface ApiResponse<T = unknown> {
  * type added later is generic until someone deliberately maps it here, which is
  * the safe direction to fail.
  */
+/**
+ * Build the refusal response for a code: the envelope, the status it maps to,
+ * `Retry-After` where the envelope can name a delay, and whatever per-refusal
+ * detail this particular class already returned.
+ *
+ * The status comes from `refusal.ts`'s table rather than being written here, so
+ * the statuses this file returns and the ones the envelope's `fault`/`retry`
+ * were chosen against cannot drift apart. `detail` is spread *beside* the
+ * envelope and never inside it — `fieldErrors`, `conflict`, `options` are
+ * shapes clients already read, and moving them would have been a break for the
+ * sake of tidiness.
+ */
+function refuse(
+	code: RefusalCode,
+	message: string,
+	detail: Record<string, unknown> = {},
+	options: { rule?: string; retryAfter?: number } = {},
+): ApiResponse {
+	const envelope: Refusal = refusal(code, message, options)
+	const after = retryAfterHeader(envelope)
+	return {
+		status: refusalStatus(code),
+		// `error` stays first and stays the message: every existing client reads
+		// it, and #450 is an addition to the body, not a replacement of it.
+		body: { error: message, ...detail, ...envelope },
+		...(after === undefined ? {} : { headers: { 'Retry-After': after } }),
+	}
+}
+
 function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// An update body with nothing writable in it (#388). **400, not the 422 every
 	// other validation refusal gets, and above `ValidationError` because it is a
@@ -66,15 +104,11 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// repair instruction: they say which of the keys the caller sent were
 	// dropped, and why.
 	if (e instanceof EmptyUpdateError) {
-		return {
-			status: 400,
-			body: {
-				error: e.message,
-				fieldErrors: e.fieldErrors,
-				unknownFields: e.unknownFields,
-				immutableFields: e.immutableFields,
-			},
-		}
+		return refuse('empty_update', e.message, {
+			fieldErrors: e.fieldErrors,
+			unknownFields: e.unknownFields,
+			immutableFields: e.immutableFields,
+		})
 	}
 	if (e instanceof ValidationError) {
 		// Every 422 is repair instructions: `error` names the
@@ -82,19 +116,19 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 		// per field what was expected, what arrived and an example that works; and
 		// `fields` carries the same contract machine-readably, so a client can act
 		// on it without parsing prose.
-		return {
-			status: 422,
-			body: { error: e.message, fieldErrors: e.fieldErrors, fields: e.fields },
-		}
+		return refuse('validation_failed', e.message, {
+			fieldErrors: e.fieldErrors,
+			fields: e.fields,
+		})
 	}
 	// A declared WIP limit. 422 with `fieldErrors`, exactly like a
 	// validation refusal — it *is* one, just one whose rule is about the other
 	// rows rather than about this one — plus the numbers a UI wants to render.
 	if (e instanceof LimitExceededError) {
-		return {
-			status: 422,
-			body: {
-				error: e.message,
+		return refuse(
+			'limit_exceeded',
+			e.message,
+			{
 				fieldErrors: e.fieldErrors,
 				limit: {
 					field: e.field,
@@ -103,7 +137,10 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 					current: e.current,
 				},
 			},
-		}
+			// A declared WIP limit is a rule with a name, so the envelope can point
+			// at the declaration rather than at the wall.
+			{ rule: `limit.${e.field}` },
+		)
 	}
 	// A duplicate. The one driver failure that is a fact about the *caller's own
 	// request* rather than about the platform, so it is the one that must not be
@@ -121,14 +158,10 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// driver's `detail` (which quotes the conflicting row's value) stay on the
 	// original error, which never reaches a body.
 	if (e instanceof ConflictError) {
-		return {
-			status: 409,
-			body: {
-				error: e.message,
-				fieldErrors: e.fieldErrors,
-				conflict: { fields: e.fields, constraint: e.constraint },
-			},
-		}
+		return refuse('conflict', e.message, {
+			fieldErrors: e.fieldErrors,
+			conflict: { fields: e.fields, constraint: e.constraint },
+		})
 	}
 	// Every other integrity violation — a foreign key that points nowhere, a
 	// check the row breaks, a NOT NULL column left empty. 422 with `fieldErrors`,
@@ -137,26 +170,24 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// layer. Below `ConflictError` because that is a subclass — reordering these
 	// two would turn every 409 into a 422.
 	if (e instanceof ConstraintViolationError) {
-		return {
-			status: 422,
-			body: {
-				error: e.message,
-				fieldErrors: e.fieldErrors,
-				constraint: { kind: e.kind, name: e.constraint, fields: e.fields },
-			},
-		}
+		return refuse('constraint_violation', e.message, {
+			fieldErrors: e.fieldErrors,
+			constraint: { kind: e.kind, name: e.constraint, fields: e.fields },
+		})
 	}
 	if (e instanceof PermissionError) {
-		return { status: 403, body: { error: e.message } }
+		// `rule` is the whole point on this branch: four gates produce this same
+		// 403 and the caller's next move differs for each. See PermissionGate.
+		return refuse('forbidden', e.message, {}, { rule: e.rule })
 	}
 	if (e instanceof NotFoundError) {
-		return { status: 404, body: { error: e.message } }
+		return refuse('not_found', e.message)
 	}
 	if (e instanceof UnknownResourceError) {
-		return { status: 404, body: { error: e.message } }
+		return refuse('unknown_resource', e.message)
 	}
 	if (e instanceof UnsupportedOperationError) {
-		return { status: 422, body: { error: e.message } }
+		return refuse('unsupported_operation', e.message)
 	}
 	// A declared portal's hourly write budget, spent. Constructed by
 	// `opCreate`/`opUpdate` and addressed to the caller ("try again later"), so it
@@ -164,39 +195,46 @@ function fail(e: unknown, context: ErrorContext): ApiResponse {
 	// because the generic fallback below would otherwise turn a rate-limit refusal
 	// into an unactionable 500 the caller retries immediately.
 	if (e instanceof RateLimitedError) {
-		return { status: 429, body: { error: e.message } }
+		// The one refusal that is policy *and* clears by itself. The declared
+		// budget is per hour, so the wait is bounded and the envelope says so —
+		// and `Retry-After` on the response is that field, projected.
+		return refuse(
+			'rate_limited',
+			e.message,
+			{},
+			{ rule: `portal.${e.portalKey}.rateLimit` },
+		)
 	}
 	// A run aimed at more rows than the declaration allows, or at none. 400
 	// rather than 422: no value was wrong, the *size* of the request was, so
 	// `fieldErrors` would be empty and a client walking it would be told nothing —
 	// `EmptyUpdateError`'s reasoning, applied to the selection instead of the body.
 	if (e instanceof SelectionTooLargeError) {
-		return {
-			status: 400,
-			body: {
-				error: e.message,
-				requested: e.requested,
-				maxSelection: e.maxSelection,
-			},
-		}
+		return refuse('selection_too_large', e.message, {
+			requested: e.requested,
+			maxSelection: e.maxSelection,
+		})
 	}
 	// A chosen value outside the declared options. 400 with the options, so the
 	// refusal is a repair instruction rather than a "no".
 	if (e instanceof InvalidActionChoiceError) {
-		return {
-			status: 400,
-			body: { error: e.message, column: e.column, options: e.options },
-		}
+		return refuse('invalid_action_choice', e.message, {
+			column: e.column,
+			options: e.options,
+		})
 	}
 	// An action this resource does not declare. 404 rather than 403 — an action
 	// key is a declaration, not a secret, and "there is no such operation" is the
 	// honest answer.
 	if (e instanceof UnknownActionError) {
-		return { status: 404, body: { error: e.message } }
+		return refuse('unknown_action', e.message)
 	}
 	const errorId = nextErrorId()
 	reportInternalError(e, errorId, context)
-	return { status: 500, body: { error: 'Internal error', errorId } }
+	// The fallback keeps the fixed string and the correlation id (#336) and adds
+	// only what the envelope is for: `fault: 'platform'` says this one is not the
+	// caller's to fix, which is the fact a retrying agent was missing.
+	return refuse('internal', 'Internal error', { errorId })
 }
 
 export async function listHandler(
