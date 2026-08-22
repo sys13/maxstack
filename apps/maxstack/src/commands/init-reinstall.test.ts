@@ -236,18 +236,35 @@ describe('a lockfile-driven reinstall keeps the runtime whole', () => {
 	)
 
 	it(
-		'is the override doing the work — without it the reinstall still prunes',
+		'records that upstream stopped pruning — the override is now belt, not braces',
 		async () => {
-			// The guard on the guard. Should npm or better-auth ever stop producing
-			// the prunable tree, the test above would pass for a reason unrelated to
-			// the fix and deleting the override would look safe. This fails loudly at
-			// that moment instead, by asserting the bug is still there to be fixed.
+			// The guard on the guard, and it has already done its job once.
+			//
+			// It used to assert `hoisted(second)` was `null`: that without the
+			// override the reinstall still pruned, so the test above could not be
+			// passing for some unrelated reason. It fired — upstream fixed the prune,
+			// and the unpinned reinstall now keeps a resolvable copy.
+			//
+			// So the assertion is inverted rather than deleted, because the fact it
+			// watches is still worth watching and is now interesting in **both**
+			// directions:
+			//
+			//  - Staying truthy means the override is redundant. It is kept anyway —
+			//    it costs a line in a scaffolded manifest and pins the copy the
+			//    runtime ships, and a redundant pin is cheaper than rediscovering
+			//    this failure mode in somebody's generated project.
+			//  - Going back to `null` means the prune returned and the override
+			//    became load-bearing again. That would fail here, which is the
+			//    whole point of keeping the case.
+			//
+			// Deleting it would leave the test above passing with nothing saying
+			// whether the override or the ecosystem is the reason.
 			const { first, second } = await installTwice(
 				'maxstack-reinstall-unpinned-',
 				false,
 			)
 			expect(await hoisted(first)).toBeTruthy()
-			expect(await hoisted(second)).toBeNull()
+			expect(await hoisted(second)).toBeTruthy()
 		},
 		CASE_TIMEOUT_MS,
 	)
