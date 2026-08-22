@@ -25,6 +25,12 @@
 
 import { minimalPRD } from '../prd/minimal.ts'
 import type { PRD } from '../prd/prd.types.ts'
+import type {
+	AccessBinding,
+	AccessSpec,
+	GroupSpec,
+	RoleSpec,
+} from './access.ts'
 import type { OpActor } from './actor.ts'
 import type { DecisionLedger } from './decision-ledger.ts'
 import type { DocumentsSpec, DocumentTemplateSpec } from './documents.ts'
@@ -130,6 +136,19 @@ export const SPEC_DIR_FILES = {
 	 * every page.
 	 */
 	site: 'site.json',
+	/**
+	 * Written only once an `access.*` op has landed; absent = nothing declared
+	 * and the historical open default.
+	 *
+	 * The absence is load-bearing here in the opposite direction from
+	 * `portals.json`, and the difference is worth stating rather than inferring.
+	 * A missing `portals.json` means the *safe* thing (no outside). A missing
+	 * `access.json` means the *historical* thing — an action no rule governs is
+	 * allowed — because that is what every already-generated app relies on, and
+	 * a spec dir written before this layer existed must not start refusing
+	 * traffic because a file is not there.
+	 */
+	access: 'access.json',
 } as const
 
 /**
@@ -158,6 +177,7 @@ export const OPTIONAL_SPEC_DIR_FILES: readonly string[] = [
 	SPEC_DIR_FILES.portals,
 	SPEC_DIR_FILES.live,
 	SPEC_DIR_FILES.view,
+	SPEC_DIR_FILES.access,
 	SPEC_DIR_FILES.site,
 ]
 
@@ -340,6 +360,39 @@ function decodeFlags(raw: Record<string, unknown>): FlagsSpec {
 	return {
 		flags: ((raw.flags ?? []) as Record<string, unknown>[]).map((f) =>
 			decodeDerived<FlagSpec>(f),
+		),
+	}
+}
+
+/**
+ * Access — same rule as flags: only provenance is compacted, on each of the
+ * three declared lists. `default` is a plain string and rides through untouched.
+ *
+ * Decode fills every key rather than trusting the file, so a hand-edited
+ * `access.json` missing `bindings` decodes to a spec with no bindings instead of
+ * one whose `bindings` is `undefined` — the second would make every reader
+ * responsible for a case the type says cannot happen.
+ */
+function encodeAccess(access: AccessSpec): unknown {
+	return {
+		default: access.default,
+		roles: access.roles.map(encodeDerived),
+		groups: access.groups.map(encodeDerived),
+		bindings: access.bindings.map(encodeDerived),
+	}
+}
+
+function decodeAccess(raw: Record<string, unknown>): AccessSpec {
+	return {
+		default: raw.default === 'deny' ? 'deny' : 'open',
+		roles: ((raw.roles ?? []) as Record<string, unknown>[]).map((r) =>
+			decodeDerived<RoleSpec>(r),
+		),
+		groups: ((raw.groups ?? []) as Record<string, unknown>[]).map((g) =>
+			decodeDerived<GroupSpec>(g),
+		),
+		bindings: ((raw.bindings ?? []) as Record<string, unknown>[]).map((b) =>
+			decodeDerived<AccessBinding>(b),
 		),
 	}
 }
@@ -742,6 +795,8 @@ export function encodeSpecSystem(spec: SpecSystem): SpecDir {
 	// Same absence rule again.
 	if (spec.schedules !== undefined)
 		dir[SPEC_DIR_FILES.schedules] = jsonFile(encodeSchedules(spec.schedules))
+	if (spec.access !== undefined)
+		dir[SPEC_DIR_FILES.access] = jsonFile(encodeAccess(spec.access))
 	if (spec.sources !== undefined)
 		dir[SPEC_DIR_FILES.sources] = jsonFile(encodeSources(spec.sources))
 	if (spec.search !== undefined)
@@ -801,6 +856,11 @@ export function decodeSpecSystem(dir: SpecDir): SpecSystem {
 	if (schedulesRaw !== undefined && schedulesRaw.trim().length > 0)
 		state.schedules = decodeSchedules(
 			JSON.parse(schedulesRaw) as Record<string, unknown>,
+		)
+	const accessRaw = dir[SPEC_DIR_FILES.access]
+	if (accessRaw !== undefined && accessRaw.trim().length > 0)
+		state.access = decodeAccess(
+			JSON.parse(accessRaw) as Record<string, unknown>,
 		)
 	const sourcesRaw = dir[SPEC_DIR_FILES.sources]
 	if (sourcesRaw !== undefined && sourcesRaw.trim().length > 0)

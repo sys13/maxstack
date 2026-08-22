@@ -1,14 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { accessPolicyFromSpec } from './from-spec.ts'
 import {
+	type AccessPolicy,
 	authorize,
 	canPerformAction,
 	createAccessContext,
 	expandShortcut,
+	getAccessPolicy,
+	heldRoles,
+	OPEN_ACCESS_POLICY,
 	PermissionError,
+	policyGrants,
 	type ResourceAccess,
+	resetAccessPolicy,
 	resourceCapabilities,
 	type SproutUser,
 	scopeGrants,
+	setAccessPolicy,
 } from './permissions.ts'
 
 const admin: SproutUser = { id: 'u-admin', role: 'admin' }
@@ -201,5 +209,208 @@ describe('api-key scope', () => {
 		expect(
 			await resourceCapabilities('post', access, createAccessContext(adminKey)),
 		).toEqual({ read: true, create: true, update: false, delete: false })
+	})
+})
+
+/**
+ * The declared access policy — the subject axis.
+ *
+ * Every test here is about one of two things: that an app which has declared
+ * nothing behaves exactly as it always has, and that an app which declared
+ * `deny` cannot be reached through a path that forgot about it.
+ */
+describe('the declared access policy', () => {
+	const support: SproutUser = { id: 'u-2', role: 'support' }
+	const denyPolicy: AccessPolicy = {
+		default: 'deny',
+		grants: { support: { invoice: ['read'] } },
+	}
+
+	afterEach(() => {
+		resetAccessPolicy()
+	})
+
+	it('is open until an app registers one', () => {
+		expect(getAccessPolicy()).toBe(OPEN_ACCESS_POLICY)
+	})
+
+	it('leaves an ungoverned action allowed under the historical default', async () => {
+		expect(
+			await canPerformAction('invoice', undefined, 'delete', {
+				user: member,
+			}),
+		).toBe(true)
+	})
+
+	it('refuses an ungoverned action under deny', async () => {
+		setAccessPolicy(denyPolicy)
+		expect(
+			await canPerformAction('invoice', undefined, 'read', { user: member }),
+		).toBe(false)
+		await expect(
+			authorize('invoice', undefined, 'read', { user: member }),
+		).rejects.toThrow(PermissionError)
+	})
+
+	it('allows it for a role that grants it', async () => {
+		setAccessPolicy(denyPolicy)
+		expect(
+			await canPerformAction('invoice', undefined, 'read', { user: support }),
+		).toBe(true)
+		await expect(
+			authorize('invoice', undefined, 'read', { user: support }),
+		).resolves.toBeUndefined()
+	})
+
+	it('grants only the action and resource named, not the neighbours', async () => {
+		setAccessPolicy(denyPolicy)
+		expect(
+			await canPerformAction('invoice', undefined, 'delete', { user: support }),
+		).toBe(false)
+		expect(
+			await canPerformAction('payment', undefined, 'read', { user: support }),
+		).toBe(false)
+	})
+
+	it('reads the conventional role string, so the auth bundle composes unchanged', async () => {
+		setAccessPolicy(denyPolicy)
+		// `support` holds the role by its plain `role` string alone — nothing about
+		// how an app builds a session had to change.
+		expect(heldRoles(support)).toEqual(['support'])
+		expect(heldRoles({ id: 'u-3', roles: ['support'] })).toEqual(['support'])
+		expect(
+			heldRoles({ id: 'u-4', role: 'support', roles: ['support', 'lead'] }),
+		).toEqual(['support', 'lead'])
+	})
+
+	it('never overrides a rule that said no', async () => {
+		setAccessPolicy(denyPolicy)
+		const access: ResourceAccess = { read: () => false }
+		// The grant covers invoice:read, but a rule exists and it refused. A
+		// mechanism that could move the decision in both directions would make the
+		// answer depend on evaluation order.
+		expect(
+			await canPerformAction('invoice', access, 'read', { user: support }),
+		).toBe(false)
+	})
+
+	it('never loosens an api-key scope, which stays closed by default', async () => {
+		setAccessPolicy(denyPolicy)
+		const keyed: SproutUser = {
+			id: 'u-2',
+			role: 'support',
+			apiKeyScope: { payment: ['read'] },
+		}
+		expect(
+			await canPerformAction('invoice', undefined, 'read', { user: keyed }),
+		).toBe(false)
+	})
+
+	it('confers nothing on a portal identity, whose role string is not authority', async () => {
+		setAccessPolicy(denyPolicy)
+		const visitor: SproutUser = {
+			id: 'ptl-public:tok',
+			role: 'support',
+			portal: {
+				portalKey: 'public',
+				resource: 'invoice',
+				audience: 'public',
+				readFields: ['id'],
+				writes: [],
+				scope: 'collection',
+			},
+		}
+		expect(policyGrants(visitor, 'invoice', 'read')).toBe(false)
+	})
+
+	it('refuses an anonymous caller under deny', async () => {
+		setAccessPolicy(denyPolicy)
+		expect(
+			await canPerformAction('invoice', undefined, 'read', { user: null }),
+		).toBe(false)
+	})
+
+	it('keeps the UI capability read in step with what the server enforces', async () => {
+		setAccessPolicy(denyPolicy)
+		expect(
+			await resourceCapabilities('invoice', undefined, { user: support }),
+		).toEqual({ read: true, create: false, update: false, delete: false })
+	})
+})
+
+describe('accessPolicyFromSpec', () => {
+	afterEach(() => {
+		resetAccessPolicy()
+	})
+
+	it('is the open policy for a spec that declared nothing', () => {
+		expect(accessPolicyFromSpec(undefined)).toBe(OPEN_ACCESS_POLICY)
+	})
+
+	it('flattens a role’s grants', () => {
+		expect(
+			accessPolicyFromSpec({
+				default: 'deny',
+				roles: [
+					{
+						key: 'support',
+						grants: [{ resource: 'invoice', actions: ['read'] }],
+					},
+				],
+				bindings: [],
+			}),
+		).toEqual({ default: 'deny', grants: { support: { invoice: ['read'] } } })
+	})
+
+	it('expands role-to-role bindings transitively', () => {
+		const policy = accessPolicyFromSpec({
+			default: 'deny',
+			roles: [
+				{
+					key: 'support',
+					grants: [{ resource: 'invoice', actions: ['read'] }],
+				},
+				{ key: 'lead', grants: [{ resource: 'invoice', actions: ['update'] }] },
+				{ key: 'director', grants: [] },
+			],
+			bindings: [
+				{ role: 'support', principal: { kind: 'role', key: 'lead' } },
+				{ role: 'lead', principal: { kind: 'role', key: 'director' } },
+			],
+		})
+		expect(policy.grants.lead?.invoice?.sort()).toEqual(['read', 'update'])
+		expect(policy.grants.director?.invoice?.sort()).toEqual(['read', 'update'])
+		expect(policy.grants.support?.invoice).toEqual(['read'])
+	})
+
+	it('terminates on a cycle a hand-edited spec could hold', () => {
+		const policy = accessPolicyFromSpec({
+			default: 'deny',
+			roles: [
+				{ key: 'a', grants: [{ resource: 'invoice', actions: ['read'] }] },
+				{ key: 'b', grants: [{ resource: 'invoice', actions: ['update'] }] },
+			],
+			bindings: [
+				{ role: 'a', principal: { kind: 'role', key: 'b' } },
+				{ role: 'b', principal: { kind: 'role', key: 'a' } },
+			],
+		})
+		expect(policy.grants.a?.invoice?.sort()).toEqual(['read', 'update'])
+	})
+
+	it('does not flatten a group binding, because it cannot know who is in one', () => {
+		const policy = accessPolicyFromSpec({
+			default: 'deny',
+			roles: [
+				{
+					key: 'support',
+					grants: [{ resource: 'invoice', actions: ['read'] }],
+				},
+			],
+			bindings: [
+				{ role: 'support', principal: { kind: 'group', key: 'on-call' } },
+			],
+		})
+		expect(Object.keys(policy.grants)).toEqual(['support'])
 	})
 })

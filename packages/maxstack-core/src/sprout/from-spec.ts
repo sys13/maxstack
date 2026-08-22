@@ -43,6 +43,8 @@ import type { DocumentPlan } from './documents.ts'
 import type { ImportPlanShape } from './imports.ts'
 import type { LivePlan } from './live.ts'
 import {
+	type AccessPolicy,
+	OPEN_ACCESS_POLICY,
 	type ResourceAccess,
 	type SproutAction,
 	toAccessRule,
@@ -588,6 +590,96 @@ export function specSchemaDdl(entities: readonly SpecEntityShape[]): string {
 			statements.push(searchIndexDdl(entity.name, entity.search))
 	}
 	return statements.join('\n')
+}
+
+/**
+ * A spec's declared `access` namespace, structurally — `@maxstack/core` does not
+ * depend on `@maxstack/spec`, so the bridge takes the shape rather than the
+ * type, exactly as it does for entities. `@maxstack/spec`'s `AccessSpec`
+ * satisfies it.
+ */
+export interface AccessDeclarationShape {
+	default: 'open' | 'deny'
+	roles: readonly {
+		key: string
+		grants: readonly { resource: string; actions: readonly SproutAction[] }[]
+	}[]
+	bindings: readonly {
+		role: string
+		principal: { kind: 'group' | 'role'; key: string }
+	}[]
+}
+
+/**
+ * Flatten a declared `access` namespace into the {@link AccessPolicy} the
+ * permission layer enforces — the one place the spec's declared vocabulary and
+ * the runtime's four actions meet.
+ *
+ * Two things happen here rather than at enforcement time, both for the same
+ * reason — a check on the hot path should be a map read, not a graph walk:
+ *
+ *  1. **Role-to-role bindings are expanded.** A binding says *principal holds
+ *     role*, so if `admin` holds `support`, the `admin` entry ends up carrying
+ *     `support`'s grants too, transitively. The visited set bounds the walk, so
+ *     a cycle in a hand-edited spec terminates rather than hanging — the spec
+ *     layer rejects cycles at op time, and this tolerates one anyway, because an
+ *     evaluator that hangs on bad data is worse than one that answers a
+ *     defensible thing.
+ *  2. **Group bindings are deliberately NOT expanded.** A group's membership is
+ *     runtime data this layer does not own; the app resolves which groups an
+ *     identity is in and puts the resulting role keys on `user.roles`. A group
+ *     binding is therefore a fact about *how the app should populate roles*, not
+ *     a fact the policy can flatten — and pretending otherwise would produce a
+ *     policy that silently grants nothing while looking complete.
+ *
+ * An absent declaration yields {@link OPEN_ACCESS_POLICY}: the historical
+ * behaviour, which is what every app generated before this namespace existed
+ * relies on.
+ */
+export function accessPolicyFromSpec(
+	access: AccessDeclarationShape | undefined,
+): AccessPolicy {
+	if (!access) return OPEN_ACCESS_POLICY
+	const own = new Map<string, Record<string, SproutAction[]>>()
+	for (const role of access.roles) {
+		const byResource: Record<string, SproutAction[]> = {}
+		for (const grant of role.grants)
+			byResource[grant.resource] = [
+				...(byResource[grant.resource] ?? []),
+				...grant.actions.filter(
+					(a) => !byResource[grant.resource]?.includes(a),
+				),
+			]
+		own.set(role.key, byResource)
+	}
+	// principal role key → the role keys it directly holds.
+	const holds = new Map<string, string[]>()
+	for (const binding of access.bindings) {
+		if (binding.principal.kind !== 'role') continue
+		holds.set(binding.principal.key, [
+			...(holds.get(binding.principal.key) ?? []),
+			binding.role,
+		])
+	}
+	const grants: Record<string, Record<string, SproutAction[]>> = {}
+	for (const key of own.keys()) {
+		const merged: Record<string, SproutAction[]> = {}
+		const seen = new Set<string>()
+		const queue = [key]
+		while (queue.length > 0) {
+			const next = queue.shift()
+			if (next === undefined || seen.has(next)) continue
+			seen.add(next)
+			for (const [resource, actions] of Object.entries(own.get(next) ?? {}))
+				merged[resource] = [
+					...(merged[resource] ?? []),
+					...actions.filter((a) => !merged[resource]?.includes(a)),
+				]
+			queue.push(...(holds.get(next) ?? []))
+		}
+		grants[key] = merged
+	}
+	return { default: access.default, grants }
 }
 
 /**

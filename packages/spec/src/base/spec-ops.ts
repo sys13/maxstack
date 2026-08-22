@@ -39,6 +39,22 @@
  */
 
 import type { Metric, Requirement, Risk, ScopeItem } from '../prd/prd.types.ts'
+import {
+	ACCESS_ACTIONS,
+	ACCESS_KEY_RE,
+	type AccessAction,
+	type AccessBinding,
+	type AccessDefault,
+	bindingCycleErrors,
+	describeBinding,
+	describeRole,
+	emptyAccess,
+	type GroupSpec,
+	MAX_ROLE_GRANTS,
+	type RoleGrant,
+	type RoleSpec,
+	roleGrantErrors,
+} from './access.ts'
 import type { OpActor } from './actor.ts'
 import {
 	assertAppendOnly,
@@ -83,6 +99,7 @@ import type {
 	OpId,
 	PageId,
 	PortalId,
+	RoleId,
 	ScheduleId,
 	SearchIndexId,
 	SourceId,
@@ -407,6 +424,32 @@ export type LiveSubscriptionSpecInput = WithOptionalProvenance<
  */
 export type ActionSpecInput = WithOptionalProvenance<
 	Omit<ActionSpec, 'declaredAt'>
+> & { declaredAt?: ISODate }
+
+/**
+ * A role as an op author writes it — `declaredAt` stamped by `applyOp`, on the
+ * same argument every input above makes.
+ *
+ * `grants` stays required rather than defaulting to `[]`. A role declared with
+ * no grants is a legitimate thing to want (declare the name, fill it in under
+ * review), but it has to be *said*, because the difference between "grants
+ * nothing yet" and "somebody forgot the grants" is the difference between a
+ * reviewed decision and an accident, and only one of them should be reachable by
+ * omission.
+ */
+export type RoleSpecInput = WithOptionalProvenance<
+	Omit<RoleSpec, 'declaredAt'>
+> & { declaredAt?: ISODate }
+
+/** A group as an op author writes it — `declaredAt` stamped by `applyOp`. */
+export type GroupSpecInput = WithOptionalProvenance<
+	Omit<GroupSpec, 'declaredAt'>
+> & { declaredAt?: ISODate }
+
+/** A standing binding as an op author writes it — `declaredAt` stamped by
+ * `applyOp`. */
+export type AccessBindingInput = WithOptionalProvenance<
+	Omit<AccessBinding, 'declaredAt'>
 > & { declaredAt?: ISODate }
 
 /** What a `flags.gate` op points at — a page, or a block within a page. */
@@ -957,6 +1000,68 @@ export type SpecOp =
 			 */
 			op: 'site.set'
 			args: { site: SiteSpec }
+	  }
+	| {
+			/**
+			 * Declare a role — a named grant set. Declaring one changes nothing on
+			 * its own: it confers authority only once something is bound to it, and
+			 * only widens once `access.setDefault('deny')` has made the absence of a
+			 * grant mean anything.
+			 */
+			op: 'access.defineRole'
+			args: { role: RoleSpecInput }
+	  }
+	| {
+			/**
+			 * Declare a group — a named set a binding can point at, whose membership
+			 * is runtime data this layer does not own. Declared so that a binding can
+			 * name something that outlives everyone currently in it.
+			 */
+			op: 'access.defineGroup'
+			args: { group: GroupSpecInput }
+	  }
+	| {
+			/**
+			 * Add a grant to a role: a resource and the actions the role may take on
+			 * it. Merges into any existing line for that resource rather than
+			 * replacing it, so granting `read` twice is idempotent and granting
+			 * `update` after `read` leaves both.
+			 */
+			op: 'access.grant'
+			args: { roleId: RoleId; resource: string; actions: AccessAction[] }
+	  }
+	| {
+			/**
+			 * Remove actions from a role's grant on a resource, or the whole line
+			 * with `actions` omitted. The one op in this namespace that can *reduce*
+			 * what somebody may do, which is why it is a separate verb rather than a
+			 * spelling of `access.grant` with a shorter list — a revocation should be
+			 * legible as a revocation in the op log.
+			 */
+			op: 'access.revoke'
+			args: { roleId: RoleId; resource: string; actions?: AccessAction[] }
+	  }
+	| {
+			/**
+			 * Bind a role to a group or to another role — a **standing** binding, the
+			 * bootstrap kind that has to hold before any row exists. Not the way a
+			 * person gets a role on a Tuesday; see `access.ts`.
+			 */
+			op: 'access.bindRole'
+			args: { binding: AccessBindingInput }
+	  }
+	| {
+			/**
+			 * Set what an action **no rule governs** does: `'open'` (allowed — the
+			 * historical behaviour every generated app relies on) or `'deny'`
+			 * (refused unless a held role grants it).
+			 *
+			 * The single op in the vocabulary that can refuse traffic an existing
+			 * deployment currently serves. It is per-app and explicit for exactly
+			 * that reason.
+			 */
+			op: 'access.setDefault'
+			args: { default: AccessDefault }
 	  }
 	| {
 			/**
@@ -1525,6 +1630,12 @@ export const SPEC_OP_NAMES = [
 	'pricing.addTier',
 	'theme.set',
 	'site.set',
+	'access.defineRole',
+	'access.defineGroup',
+	'access.grant',
+	'access.revoke',
+	'access.bindRole',
+	'access.setDefault',
 	'flags.declare',
 	'flags.setTargeting',
 	'flags.gate',
@@ -1620,6 +1731,30 @@ const PROVENANCE_PROP: OpArgProperty = {
 		'suggestedDescription',
 		'priority',
 	],
+}
+
+/** The four actions a grant may name — shared by `access.grant`/`access.revoke`
+ * and the `grants` array inside `access.defineRole`, so the three cannot drift. */
+const ACCESS_ACTIONS_PROP: OpArgProperty = {
+	type: 'array',
+	description: 'what the role may do to the resource.',
+	items: { type: 'string', enum: [...ACCESS_ACTIONS] },
+}
+
+const ACCESS_GRANTS_PROP: OpArgProperty = {
+	type: 'array',
+	description: `what holders may do — at most ${MAX_ROLE_GRANTS} lines, one per resource.`,
+	items: {
+		type: 'object',
+		properties: {
+			resource: {
+				type: 'string',
+				description: 'the entity name this line is about, e.g. "order".',
+			},
+			actions: ACCESS_ACTIONS_PROP,
+		},
+		required: ['resource', 'actions'],
+	},
 }
 
 const RATIONALE_PROP: OpArgProperty = {
@@ -3375,6 +3510,159 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['site'],
+		},
+	},
+	'access.defineRole': {
+		name: 'access.defineRole',
+		layer: 'access',
+		summary:
+			'Declare a role: a key, a description, and the grant set it expands to (resource + actions). Declaring a role confers nothing on its own — it widens only once something is bound to it, and only matters once access.setDefault("deny") makes an ungranted action refused.',
+		args: {
+			type: 'object',
+			properties: {
+				role: {
+					type: 'object',
+					properties: {
+						id: { type: 'string', description: 'branded id, prefix "rol-".' },
+						key: {
+							type: 'string',
+							pattern: ACCESS_KEY_RE.source,
+							description:
+								'the stable key a binding names and a session carries, e.g. "support".',
+						},
+						description: {
+							type: 'string',
+							description: 'what the role is for, in one line.',
+						},
+						grants: ACCESS_GRANTS_PROP,
+						provenance: PROVENANCE_PROP,
+					},
+					required: ['id', 'key', 'description', 'grants'],
+				},
+			},
+			required: ['role'],
+		},
+	},
+	'access.defineGroup': {
+		name: 'access.defineGroup',
+		layer: 'access',
+		summary:
+			'Declare a group: a named set a binding can point at. Membership is runtime data and is NOT declared here — the group exists so a binding can name something that outlives everyone currently in it.',
+		args: {
+			type: 'object',
+			properties: {
+				group: {
+					type: 'object',
+					properties: {
+						id: { type: 'string', description: 'branded id, prefix "grp-".' },
+						key: {
+							type: 'string',
+							pattern: ACCESS_KEY_RE.source,
+							description: 'the stable key a binding names, e.g. "on-call".',
+						},
+						description: {
+							type: 'string',
+							description: 'who the group is meant to contain, in one line.',
+						},
+						provenance: PROVENANCE_PROP,
+					},
+					required: ['id', 'key', 'description'],
+				},
+			},
+			required: ['group'],
+		},
+	},
+	'access.grant': {
+		name: 'access.grant',
+		layer: 'access',
+		summary:
+			'Add actions to a role’s grant on one resource. Merges into any existing line for that resource, so granting the same action twice is idempotent. Grants only ever widen — they never take away what a resource’s own access rule allows, and never loosen an api-key scope or a portal.',
+		args: {
+			type: 'object',
+			properties: {
+				roleId: { type: 'string', description: 'role id, prefix "rol-".' },
+				resource: {
+					type: 'string',
+					description: 'the entity name the grant is about, e.g. "order".',
+				},
+				actions: ACCESS_ACTIONS_PROP,
+			},
+			required: ['roleId', 'resource', 'actions'],
+		},
+	},
+	'access.revoke': {
+		name: 'access.revoke',
+		layer: 'access',
+		summary:
+			'Remove actions from a role’s grant on a resource, or drop the whole line by omitting `actions`. A separate verb from access.grant so a revocation reads as a revocation in the op log.',
+		args: {
+			type: 'object',
+			properties: {
+				roleId: { type: 'string', description: 'role id, prefix "rol-".' },
+				resource: {
+					type: 'string',
+					description: 'the entity name to revoke on.',
+				},
+				actions: {
+					...ACCESS_ACTIONS_PROP,
+					description:
+						'the actions to remove; omit to remove the whole grant line.',
+				},
+			},
+			required: ['roleId', 'resource'],
+		},
+	},
+	'access.bindRole': {
+		name: 'access.bindRole',
+		layer: 'access',
+		summary:
+			'Bind a role to a group, or to another role (which composes: the principal role holds everything the bound role grants). STANDING bindings only — the bootstrap kind that must hold before any row exists. Granting one person a role on a Tuesday is a row, not this op.',
+		args: {
+			type: 'object',
+			properties: {
+				binding: {
+					type: 'object',
+					properties: {
+						id: { type: 'string', description: 'branded id, prefix "bnd-".' },
+						role: {
+							type: 'string',
+							description: 'the declared role key being conferred.',
+						},
+						principal: {
+							type: 'object',
+							description: 'who gets it. There is no "user" kind, by design.',
+							properties: {
+								kind: { type: 'string', enum: ['group', 'role'] },
+								key: {
+									type: 'string',
+									description: 'the declared group key or role key.',
+								},
+							},
+							required: ['kind', 'key'],
+						},
+						provenance: PROVENANCE_PROP,
+					},
+					required: ['id', 'role', 'principal'],
+				},
+			},
+			required: ['binding'],
+		},
+	},
+	'access.setDefault': {
+		name: 'access.setDefault',
+		layer: 'access',
+		summary:
+			'Set what an action NO rule governs does: "open" (allowed — the historical behaviour every already-generated app relies on) or "deny" (refused unless a held role grants it). The one op that can refuse traffic a running deployment currently serves, which is why it is per-app and explicit.',
+		args: {
+			type: 'object',
+			properties: {
+				default: {
+					type: 'string',
+					enum: ['open', 'deny'],
+					description: 'what an ungoverned action does.',
+				},
+			},
+			required: ['default'],
 		},
 	},
 	'flags.declare': {
@@ -5917,6 +6205,46 @@ function viewBlockErrors(
  * stored: it reads like a rollout, changes no outcome, and is exactly the shape
  * a half-finished rollout leaves behind. Turning the default off is the fix.
  */
+/**
+ * Every entity name in the spec — what an `access` grant is checked against.
+ *
+ * Names rather than {@link EntityId}s because that is what a grant carries and
+ * what `permissions.ts` enforces against; see the note on {@link RoleGrant}. An
+ * empty set disables the existence check downstream, so this returning nothing
+ * for a spec with no entities is the correct behaviour rather than a hole: a
+ * grant in a spec that declares no data has nothing to be wrong about yet.
+ */
+function entityNames(system: SpecSystem): Set<string> {
+	return new Set(system.data.entities.map((e) => e.name))
+}
+
+/**
+ * A role's grants with `actions` merged into the line for `resource` (adding
+ * the line if absent). Shared by `access.grant`'s validator and its applier so
+ * the cap is checked against exactly the list that will be written — validating
+ * the increment instead would let 200 be walked past one action at a time.
+ */
+function mergeGrant(
+	grants: readonly RoleGrant[],
+	resource: string,
+	actions: readonly AccessAction[],
+): RoleGrant[] {
+	const existing = grants.find((g) => g.resource === resource)
+	if (!existing)
+		return [...grants, { resource, actions: [...new Set(actions)] }]
+	return grants.map((g) =>
+		g.resource === resource
+			? {
+					resource,
+					actions: [
+						...g.actions,
+						...actions.filter((a) => !g.actions.includes(a)),
+					],
+				}
+			: g,
+	)
+}
+
 function flagTargetingErrors(
 	opName: SpecOpName,
 	targeting: FlagTargeting | undefined,
@@ -6628,6 +6956,163 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 						errors.push(
 							`${op.op}: unknown site key "${key}" (expected: ${[...known].join(', ')})`,
 						)
+			}
+			break
+		}
+		case 'access.defineRole': {
+			const { role } = op.args
+			const access = system.access ?? emptyAccess()
+			dup(
+				access.roles.some((r) => r.id === role.id),
+				role.id,
+				'role',
+			)
+			if (access.roles.some((r) => r.key === role.key))
+				errors.push(`${op.op}: role key "${role.key}" already exists`)
+			if (typeof role.key !== 'string' || !ACCESS_KEY_RE.test(role.key))
+				errors.push(
+					`${op.op}: key "${String(role.key)}" must match ${ACCESS_KEY_RE.source} (lowercase, digits, dashes)`,
+				)
+			if (!role.description?.trim())
+				errors.push(
+					`${op.op}: role "${role.id}" needs a description — a role nobody can explain is a role nobody can decide to bind`,
+				)
+			errors.push(
+				...roleGrantErrors(op.op, role.grants, entityNames(system)),
+				...provenanceShapeErrors(op.op, [
+					{ what: `role "${role.id}"`, provenance: role.provenance },
+				]),
+			)
+			break
+		}
+		case 'access.defineGroup': {
+			const { group } = op.args
+			const access = system.access ?? emptyAccess()
+			dup(
+				access.groups.some((g) => g.id === group.id),
+				group.id,
+				'group',
+			)
+			if (access.groups.some((g) => g.key === group.key))
+				errors.push(`${op.op}: group key "${group.key}" already exists`)
+			if (typeof group.key !== 'string' || !ACCESS_KEY_RE.test(group.key))
+				errors.push(
+					`${op.op}: key "${String(group.key)}" must match ${ACCESS_KEY_RE.source} (lowercase, digits, dashes)`,
+				)
+			if (!group.description?.trim())
+				errors.push(
+					`${op.op}: group "${group.id}" needs a description — a binding pointing at a group nobody can describe is how an access model stops matching the organisation`,
+				)
+			errors.push(
+				...provenanceShapeErrors(op.op, [
+					{ what: `group "${group.id}"`, provenance: group.provenance },
+				]),
+			)
+			break
+		}
+		case 'access.grant': {
+			const { roleId, resource, actions } = op.args
+			const role = (system.access ?? emptyAccess()).roles.find(
+				(r) => r.id === roleId,
+			)
+			if (!role) {
+				errors.push(`${op.op}: unknown role "${roleId}"`)
+				break
+			}
+			// Validated as the merged result rather than the increment, so the cap
+			// cannot be walked past one grant at a time.
+			const merged = mergeGrant(role.grants, resource, actions ?? [])
+			errors.push(...roleGrantErrors(op.op, merged, entityNames(system)))
+			break
+		}
+		case 'access.revoke': {
+			const { roleId, resource, actions } = op.args
+			const role = (system.access ?? emptyAccess()).roles.find(
+				(r) => r.id === roleId,
+			)
+			if (!role) {
+				errors.push(`${op.op}: unknown role "${roleId}"`)
+				break
+			}
+			const line = role.grants.find((g) => g.resource === resource)
+			if (!line) {
+				errors.push(
+					`${op.op}: role "${role.key}" has no grant on "${resource}"`,
+				)
+				break
+			}
+			for (const action of actions ?? [])
+				if (!line.actions.includes(action))
+					errors.push(
+						`${op.op}: role "${role.key}" does not grant "${action}" on "${resource}" — revoking it would read, in the op log, as having taken something away that was never held`,
+					)
+			break
+		}
+		case 'access.bindRole': {
+			const { binding } = op.args
+			const access = system.access ?? emptyAccess()
+			dup(
+				access.bindings.some((b) => b.id === binding.id),
+				binding.id,
+				'binding',
+			)
+			if (!access.roles.some((r) => r.key === binding.role))
+				errors.push(
+					`${op.op}: undeclared role "${binding.role}" — declare it with access.defineRole first`,
+				)
+			if (binding.principal?.kind === 'group') {
+				if (!access.groups.some((g) => g.key === binding.principal.key))
+					errors.push(
+						`${op.op}: undeclared group "${binding.principal.key}" — declare it with access.defineGroup first`,
+					)
+			} else if (binding.principal?.kind === 'role') {
+				if (!access.roles.some((r) => r.key === binding.principal.key))
+					errors.push(`${op.op}: undeclared role "${binding.principal.key}"`)
+			} else {
+				errors.push(
+					`${op.op}: principal kind must be "group" or "role" — there is deliberately no "user" kind, because naming a person in the spec makes every leaver a spec commit`,
+				)
+			}
+			if (
+				access.bindings.some(
+					(b) =>
+						b.role === binding.role &&
+						b.principal.kind === binding.principal?.kind &&
+						b.principal.key === binding.principal?.key,
+				)
+			)
+				errors.push(`${op.op}: ${describeBinding(binding)} already`)
+			errors.push(
+				...bindingCycleErrors(op.op, [...access.bindings, binding]),
+				...provenanceShapeErrors(op.op, [
+					{ what: `binding "${binding.id}"`, provenance: binding.provenance },
+				]),
+			)
+			break
+		}
+		case 'access.setDefault': {
+			const next = op.args.default
+			if (next !== 'open' && next !== 'deny') {
+				errors.push(
+					`${op.op}: default must be "open" or "deny", got "${String(next)}"`,
+				)
+				break
+			}
+			// Tightening with nothing declared to reopen it is refused, not warned
+			// about. The failure mode is an app that deploys and refuses every
+			// request it used to serve, and the op log would show one line that
+			// reads like a setting rather than an outage.
+			if (next === 'deny') {
+				const access = system.access ?? emptyAccess()
+				const granting = access.roles.filter((r) => r.grants.length > 0)
+				if (granting.length === 0)
+					errors.push(
+						`${op.op}: no declared role grants anything, so "deny" would refuse every action on every resource that has no explicit access rule — declare and grant a role first`,
+					)
+				else if (access.bindings.length === 0)
+					errors.push(
+						`${op.op}: ${granting.length} role(s) grant, but nothing is bound to any of them — under "deny" the grants would reach nobody. Bind one with access.bindRole first`,
+					)
 			}
 			break
 		}
@@ -7829,6 +8314,53 @@ export function diffOp(op: SpecOp): SpecDiff {
 				summary: `Set site identity to ${describeSite(op.args.site)}`,
 			}
 		}
+		case 'access.defineRole':
+			return add(op.args.role.id, `Declare role ${describeRole(op.args.role)}`)
+		case 'access.defineGroup':
+			return add(op.args.group.id, `Declare group "${op.args.group.key}"`)
+		case 'access.grant': {
+			const { roleId, resource, actions } = op.args
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: roleId,
+				summary: `Grant ${actions.join(', ')} on "${resource}" to role "${roleId}"`,
+			}
+		}
+		case 'access.revoke': {
+			const { roleId, resource, actions } = op.args
+			return {
+				op: op.op,
+				layer,
+				// A revocation is a `remove`, not a `set`. It is the one op here that
+				// takes something away, and a reviewer scanning changes by kind has to
+				// see it as one.
+				change: 'remove',
+				targetId: roleId,
+				summary: actions
+					? `Revoke ${actions.join(', ')} on "${resource}" from role "${roleId}"`
+					: `Revoke all access to "${resource}" from role "${roleId}"`,
+			}
+		}
+		case 'access.bindRole':
+			return add(
+				op.args.binding.id,
+				`Bind: ${describeBinding(op.args.binding)}`,
+			)
+		case 'access.setDefault':
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: 'access',
+				// The consequence leads, not the value. "Set default to deny" reads
+				// like a setting; what it does is refuse traffic.
+				summary:
+					op.args.default === 'deny'
+						? 'Set access default to deny — an action no rule governs is refused unless a held role grants it'
+						: 'Set access default to open — an action no rule governs is allowed',
+			}
 		case 'flags.declare':
 			return add(
 				op.args.flag.id,
@@ -8525,6 +9057,70 @@ export function applyOp(
 				provenance: op.args.tier.provenance ?? defaultProvenance(meta),
 			}
 			next.pricing.tiers.push(tier)
+			break
+		}
+		case 'access.defineRole': {
+			const role: RoleSpec = {
+				...op.args.role,
+				// Stamped, not authored — same rule as a flag. "Is anybody still using
+				// this role" starts with how long it has been there.
+				declaredAt: op.args.role.declaredAt ?? meta.appliedAt,
+				provenance: op.args.role.provenance ?? defaultProvenance(meta),
+			}
+			const access = next.access ?? emptyAccess()
+			next.access = { ...access, roles: [...access.roles, role] }
+			break
+		}
+		case 'access.defineGroup': {
+			const group: GroupSpec = {
+				...op.args.group,
+				declaredAt: op.args.group.declaredAt ?? meta.appliedAt,
+				provenance: op.args.group.provenance ?? defaultProvenance(meta),
+			}
+			const access = next.access ?? emptyAccess()
+			next.access = { ...access, groups: [...access.groups, group] }
+			break
+		}
+		case 'access.grant': {
+			const { roleId, resource, actions } = op.args
+			const role = next.access?.roles.find((r) => r.id === roleId)
+			// Merged through the same helper the validator priced, so what lands is
+			// exactly what was checked against the cap.
+			if (role) role.grants = mergeGrant(role.grants, resource, actions)
+			break
+		}
+		case 'access.revoke': {
+			const { roleId, resource, actions } = op.args
+			const role = next.access?.roles.find((r) => r.id === roleId)
+			if (role) {
+				if (actions === undefined) {
+					role.grants = role.grants.filter((g) => g.resource !== resource)
+				} else {
+					role.grants = role.grants.flatMap((g) => {
+						if (g.resource !== resource) return [g]
+						const kept = g.actions.filter((a) => !actions.includes(a))
+						// A grant line with no actions left is removed rather than kept
+						// empty: `roleGrantErrors` rejects an empty `actions`, so leaving
+						// one would write a spec its own validator refuses.
+						return kept.length > 0 ? [{ resource, actions: kept }] : []
+					})
+				}
+			}
+			break
+		}
+		case 'access.bindRole': {
+			const binding: AccessBinding = {
+				...op.args.binding,
+				declaredAt: op.args.binding.declaredAt ?? meta.appliedAt,
+				provenance: op.args.binding.provenance ?? defaultProvenance(meta),
+			}
+			const access = next.access ?? emptyAccess()
+			next.access = { ...access, bindings: [...access.bindings, binding] }
+			break
+		}
+		case 'access.setDefault': {
+			const access = next.access ?? emptyAccess()
+			next.access = { ...access, default: op.args.default }
 			break
 		}
 		case 'flags.declare': {

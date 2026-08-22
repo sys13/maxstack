@@ -146,6 +146,32 @@ export type LiveId = `lv-${string}`
  */
 export type ActionId = `act-${string}`
 
+// ---- access layer ---------------------------------------------------------
+/**
+ * A declared role — a named grant set. Disjoint from every prefix above,
+ * including the product layer's `r-` (RequirementId): the template-literal type
+ * requires the character after the stem to be `-`, and `rol-x`'s second
+ * character is `o`. As everywhere else the role's *key* (what a session carries,
+ * what an audit line quotes, what a person says out loud) is separate from the
+ * spec-internal handle — relabelling a role must never move anybody's authority.
+ */
+export type RoleId = `rol-${string}`
+
+/**
+ * A declared group — a named set whose membership is runtime data. Disjoint
+ * from every prefix above; no other layer uses `grp`. The group's *key* is the
+ * durable name a binding points at, which is the whole reason a group exists
+ * rather than a list of people.
+ */
+export type GroupId = `grp-${string}`
+
+/**
+ * A standing (bootstrap) role binding. Disjoint from every prefix above; no
+ * other layer uses `bnd`. Unlike a role or a group it has no key — a binding is
+ * never named by anything, it *is* the edge between two things that are.
+ */
+export type AccessBindingId = `bnd-${string}`
+
 // ---- system-level ---------------------------------------------------------
 /** A single applied spec-op instance in the op log. */
 export type OpId = `op-${string}`
@@ -153,6 +179,7 @@ export type OpId = `op-${string}`
 /** The layer an id belongs to — used by diffs and the op vocabulary metadata. */
 export type SpecLayer =
 	| 'product'
+	| 'access'
 	| 'data'
 	| 'page'
 	| 'pricing'

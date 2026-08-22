@@ -22,6 +22,7 @@
  */
 
 import type { PRD } from '../prd/prd.types.ts'
+import type { AccessSpec } from './access.ts'
 import type { DecisionLedger } from './decision-ledger.ts'
 import type { DocumentsSpec } from './documents.ts'
 import type { FlagsSpec } from './flags.ts'
@@ -1394,6 +1395,27 @@ export interface SpecSystem extends AutoAcceptPolicy {
 	 * access rule already admits. See `site.ts`.
 	 */
 	site?: SiteSpec
+	/**
+	 * The declared access vocabulary — roles, groups, standing bindings, and what
+	 * an ungoverned action does. Optional on the same absence-means-nothing rule
+	 * as the layers above: a project that has never declared one grows no
+	 * `access.json`, so pre-#447 spec dirs round-trip byte-identical.
+	 *
+	 * Here the absence means the *historical* default rather than the safe one,
+	 * and that is the single most load-bearing sentence in this interface. Absent
+	 * reads as `default: 'open'` — an action no rule governs is allowed — because
+	 * that is what `permissions.ts` has always done and what every already-generated
+	 * app relies on. Making the safe reading the absent one would silently refuse
+	 * traffic in apps whose specs were written before this namespace existed.
+	 *
+	 * Declaring a role therefore changes nothing on its own. The flip is a
+	 * separate, explicit `access.setDefault('deny')` on a project that has decided
+	 * to price it. See `access.ts`, and note that this layer only ever *widens* —
+	 * a grant cannot take away what a resource's own rule allows, and cannot
+	 * loosen an api-key scope or a portal narrowing, both of which stay closed by
+	 * default regardless of anything declared here.
+	 */
+	access?: AccessSpec
 	/** Append-only decision ledger (§3-L1). */
 	ledger: DecisionLedger
 	/** The applied-op audit trail — every mutation is logged and diffable. */
