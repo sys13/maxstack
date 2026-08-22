@@ -15,6 +15,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+	BLOCK_SLOT_ROLES_VERSION,
 	exportedSlotNames,
 	MANIFEST_FILENAME,
 	parseManifest,
@@ -299,7 +300,9 @@ describe('maxstack slots fill (#390)', () => {
 		const entry = m.entries.find((e) => e.file === 'routes/note.slots.tsx')
 		expect(entry).toBeDefined()
 		expect(entry?.ownership).toBe('user')
-		expect(entry?.rolesVersion).toBe(1)
+		// The version the fill was authored against, not a literal: a bump (v2 was
+		// #398) is a fact about the vocabulary, not a regression in this command.
+		expect(entry?.rolesVersion).toBe(BLOCK_SLOT_ROLES_VERSION)
 		// The registration that decides whether the fill *executes*: without it
 		// `OWNED_SLOTS` has no entry and the app renders the generated block.
 		const route = m.entries.find((e) => e.file === 'routes/note.tsx')
