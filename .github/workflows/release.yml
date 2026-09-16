@@ -135,7 +135,7 @@ jobs:
           version: 11.7.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
@@ -182,7 +182,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - uses: actions/download-artifact@v4
         with:
           name: npm-tarballs
@@ -223,7 +223,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
       # Trusted publishing (OIDC) landed in npm 11.5.1; the bundled npm on the
       # runner may be older, and an older npm silently falls back to looking for
@@ -260,7 +260,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           registry-url: 'https://registry.npmjs.org'
       - run: npm install -g npm@^11.5.1
         working-directory: .
@@ -306,7 +306,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - name: npm view both packages
         working-directory: .
         run: |
@@ -390,7 +390,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - name: Report the registry state and how to recover
         working-directory: .
         run: |
