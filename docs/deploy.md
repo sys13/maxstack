@@ -77,7 +77,7 @@ Build args:
 | arg | default | meaning |
 |-----|---------|---------|
 | `SPEC_DIR` | `spec` | project spec directory (at the vendored-tree root) to bake as `/data/spec` |
-| `NODE_VERSION` | `22-slim` | base Node image tag |
+| `NODE_VERSION` | `24-slim` | base Node image tag |
 
 Runtime env:
 

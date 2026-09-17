@@ -13,7 +13,7 @@
 #
 # Postgres in prod: pass -e DATABASE_URL=postgres://… (task 22). Without it the
 # app runs on pglite over the baked /data dir (ephemeral on a fresh container).
-ARG NODE_VERSION=22-slim
+ARG NODE_VERSION=24-slim
 
 # ---- base: pnpm on Node ------------------------------------------------------
 FROM node:${NODE_VERSION} AS base

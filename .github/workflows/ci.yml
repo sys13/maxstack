@@ -45,7 +45,7 @@ jobs:
           version: 11.7.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate --skip=test
@@ -96,7 +96,7 @@ jobs:
           version: 11.7.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Fails fast if the service is unreachable — before the tests rather than
@@ -155,7 +155,7 @@ jobs:
       # No install needed — the checkers are dependency-free Node.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - run: node scripts/check-boundaries.mjs
       # Nothing a browser loads may reach a compiler. Same job because it is the
       # same kind of rule and the same dependency-free Node — an import-graph
@@ -190,7 +190,7 @@ jobs:
           version: 11.7.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @maxstack/web exec playwright install --with-deps chromium
