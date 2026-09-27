@@ -50,4 +50,63 @@ describe('Show', () => {
 		)
 		expect(screen.getByTestId('ov')).toHaveTextContent('~Hello')
 	})
+
+	it('says who last wrote a cell with a merge policy, and that a hand edit is kept (#460)', () => {
+		const stamped: IntrospectedResource = {
+			name: 'book',
+			primaryKey: 'id',
+			columns: [
+				{ name: 'id', type: 'uuid', meta: {} },
+				{ name: 'title', type: 'string', meta: {} },
+				{
+					name: 'coverUrl',
+					type: 'string',
+					meta: { label: 'Cover', merge: { humanEditWins: true } },
+				},
+				{
+					name: 'isbn',
+					type: 'string',
+					meta: { merge: { humanEditWins: true } },
+				},
+				{
+					name: '_maxstack_provenance',
+					type: 'json',
+					meta: { hidden: true, readOnly: true, cellProvenance: true },
+				},
+			],
+		}
+		render(
+			<Show
+				resource={stamped}
+				record={{
+					id: 'b1',
+					title: 'Dune',
+					coverUrl: 'https://covers.example/dune.jpg',
+					isbn: '978',
+					_maxstack_provenance: {
+						coverUrl: {
+							by: 'u-host',
+							origin: 'session',
+							at: '2026-09-01T10:00:00.000Z',
+						},
+						isbn: {
+							by: 'service:sync',
+							origin: 'system',
+							source: 'openlibrary',
+							at: '2026-09-02T10:00:00.000Z',
+						},
+					},
+				}}
+			/>,
+		)
+		expect(screen.getByText('edited by hand · kept from sync')).toHaveAttribute(
+			'title',
+			'u-host · 2026-09-01T10:00:00.000Z',
+		)
+		expect(screen.getByText('synced from openlibrary')).toBeInTheDocument()
+		// The stamps column itself is hidden, never rendered as a field.
+		expect(screen.queryByText('Cell provenance')).not.toBeInTheDocument()
+		// A column with no policy carries no line at all.
+		expect(document.querySelectorAll('[data-cell-writer]')).toHaveLength(2)
+	})
 })

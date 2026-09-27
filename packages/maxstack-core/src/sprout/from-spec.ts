@@ -38,6 +38,7 @@ import {
 import { createDrizzleStore } from '../demo/store.ts'
 import type { ActionPlan } from './actions.ts'
 import type { StoreBackend } from './backend.ts'
+import { CELL_PROVENANCE_COLUMN } from './cell-provenance.ts'
 import type { ComputedShape, RollupShape } from './derived.ts'
 import type { DocumentPlan } from './documents.ts'
 import type { ImportPlanShape } from './imports.ts'
@@ -151,6 +152,18 @@ export interface SpecFieldShape {
 		filterable?: boolean
 		operators?: string[]
 	}
+	/**
+	 * The field's declared merge policy — the spec's `field.merge` (#460).
+	 * Carried into `meta.merge`, where `opCreate`/`opUpdate` read it; and its
+	 * presence on any field is what gives the entity a
+	 * {@link CELL_PROVENANCE_COLUMN} to keep stamps in.
+	 */
+	merge?: { humanEditWins?: boolean }
+}
+
+/** Whether an entity keeps per-cell stamps — any field declaring a policy. */
+function keepsCellProvenance(entity: SpecEntityShape): boolean {
+	return entity.fields.some((f) => f.merge !== undefined)
 }
 
 /**
@@ -308,6 +321,9 @@ function columnFor(
 		if (field.filter.operators?.length)
 			meta.filterOperators = [...field.filter.operators]
 	}
+	// A declared merge policy (#460). On the column for `valueLimits`' reason:
+	// the ops that enforce it read the resource, not the spec.
+	if (field.merge) meta.merge = { ...field.merge }
 	// A rank key is a text column with a database default, hidden and
 	// read-only in the UI: it is written by moving a row, never by typing.
 	// `readOnly` is a rendering hint only — the validation schema still accepts the
@@ -385,6 +401,19 @@ export function tableFromSpecEntity(entity: SpecEntityShape): PgTable {
 		if (field.name === 'id') continue
 		columns[field.name] = columnFor(field, entity.name)
 	}
+	// The per-cell writer record (#460) — only on an entity that declared a
+	// policy, so every other table is exactly what it was. Hidden and read-only
+	// so no surface renders or offers it; `cellProvenance` is what takes it out
+	// of every input schema, since `readOnly` alone is a rendering hint.
+	if (keepsCellProvenance(entity))
+		columns[CELL_PROVENANCE_COLUMN] = withMeta(jsonb(CELL_PROVENANCE_COLUMN), {
+			label: 'Cell provenance',
+			description:
+				'Who last wrote each field that declares a merge policy: {field: {by, origin, source?, importer?, at}}. Written by the platform on every write; never accepted from a caller.',
+			hidden: true,
+			readOnly: true,
+			cellProvenance: true,
+		})
 	return pgTable(entity.name, columns)
 }
 
@@ -581,6 +610,13 @@ export function specSchemaDdl(entities: readonly SpecEntityShape[]): string {
 					reconcileReferenceColumn(entity.name, field.name, sqlType),
 				)
 		}
+		// The per-cell writer record (#460), additive like every column above: a
+		// policy declared on a live table adds an empty column and backfills
+		// nothing, because a cell nobody stamped is a cell nobody claimed.
+		if (keepsCellProvenance(entity))
+			statements.push(
+				`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${quote(CELL_PROVENANCE_COLUMN)} jsonb;`,
+			)
 		// The search index last, after every column it names exists.
 		// Additive in both directions: `CREATE INDEX IF NOT EXISTS` adds no column
 		// and rewrites no table, and the `DROP INDEX IF EXISTS` an `indexed: false`

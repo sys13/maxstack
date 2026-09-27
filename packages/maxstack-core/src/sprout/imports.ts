@@ -146,6 +146,14 @@ export interface ImportResult {
 	 * them would be this module inventing the delete path it does not have.
 	 */
 	failed: { line: number; reason: string }[]
+	/**
+	 * Cells an upsert named and did not overwrite, because a person's edit holds
+	 * them (#460, `humanEditWins`). The row still counts as updated — its other
+	 * cells landed — so this is beside the counts, not one of them, and
+	 * {@link reconciles} is unchanged. Reported so a re-import that "did
+	 * nothing" to a column says why rather than looking like a bug.
+	 */
+	held: { line: number; fields: string[] }[]
 }
 
 /** Every count in a result adds up to the plan it came from. Cheap, and load-bearing. */

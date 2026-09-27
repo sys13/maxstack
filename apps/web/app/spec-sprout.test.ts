@@ -1,7 +1,11 @@
-import { specSchemaDdl } from '@maxstack/core'
+import {
+	CELL_PROVENANCE_COLUMN as CORE_CELL_PROVENANCE_COLUMN,
+	specSchemaDdl,
+} from '@maxstack/core'
 import { bundle } from '@maxstack/features'
 import {
 	accept,
+	CELL_PROVENANCE_COLUMN,
 	type DocumentSection,
 	type EntitySpec,
 	type FieldSpec,
@@ -889,5 +893,28 @@ describe('groundedEntityShapes — importers', () => {
 				{ ...guid, provenance: { ...suggested(), isAccepted: false } },
 			]
 		expect(groundedEntityShapes(spec)[0]).not.toHaveProperty('importers')
+	})
+})
+
+describe('a declared merge policy (#460)', () => {
+	it('is grounded onto the field, and gives the entity its stamps column', () => {
+		const book: EntitySpec = {
+			...readingItem,
+			fields: [titleField, { ...urlField, merge: { humanEditWins: true } }],
+		}
+		const [shape] = groundedEntityShapes(specWith([book]))
+		expect(shape?.fields.find((f) => f.name === 'url')?.merge).toEqual({
+			humanEditWins: true,
+		})
+		expect(specSchemaDdl(shape ? [shape] : [])).toContain(
+			`ADD COLUMN IF NOT EXISTS "${CELL_PROVENANCE_COLUMN}" jsonb`,
+		)
+	})
+
+	it('reserves in the spec the same column name core writes', () => {
+		// Core cannot import the spec, so the literal lives in both. The spec's
+		// copy is the one that refuses a field of that name; if the two drifted,
+		// a field could take the name of the column the stamps are written to.
+		expect(CELL_PROVENANCE_COLUMN).toBe(CORE_CELL_PROVENANCE_COLUMN)
 	})
 })

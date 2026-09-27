@@ -861,6 +861,10 @@ export function groundedEntityShapes(
 				// here would leave `data.setFieldFilter` writing to a spec nothing
 				// reads, and REST would keep honouring a filter the spec refuses.
 				filter: field.filter,
+				// A field's declared merge policy (#460). Dropped here, it would be
+				// the worst kind of no-op: `data.setFieldMergePolicy` would read as
+				// protecting a hand edit while every sync went on reverting it.
+				merge: field.merge,
 				reference: field.reference
 					? groundReference(entities, field.reference, options.installedBundles)
 					: undefined,

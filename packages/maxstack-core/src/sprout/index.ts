@@ -15,6 +15,7 @@
 export * from './actions.ts'
 export * from './api.ts'
 export * from './api-contract.ts'
+export * from './cell-provenance.ts'
 export * from './constraints.ts'
 export * from './coordination.ts'
 export * from './derived.ts'

@@ -122,7 +122,7 @@ import {
 	opRenderDocument,
 	opRunAction,
 	opSearch,
-	opUpdate,
+	opUpdateDetailed,
 	planImport,
 	RateLimitedError,
 	SelectionTooLargeError,
@@ -218,6 +218,8 @@ function fieldColumns(
 	return entry.resource.columns.filter((c) => {
 		if (c.isPrimaryKey) return false
 		if (TIMESTAMP_NAMES.has(c.name) && c.hasDefault) return false
+		// Written by the ops only (#460) — never an input an agent is offered.
+		if (c.meta.cellProvenance === true) return false
 		// In create mode, columns with a DB default are optional inputs.
 		if (mode === 'create' && c.hasDefault) return false
 		return true
@@ -1348,8 +1350,28 @@ export async function executeMCPTool(
 				return ok(await opGet(ctx, resourceName, String(args.id)))
 			case 'create':
 				return ok(await opCreate(ctx, resourceName, data))
-			case 'update':
-				return ok(await opUpdate(ctx, resourceName, String(args.id), data))
+			case 'update': {
+				const { row, held } = await opUpdateDetailed(
+					ctx,
+					resourceName,
+					String(args.id),
+					data,
+				)
+				if (held.length === 0) return ok(row)
+				// Said, not buried in the row (#460). An agent is exactly the writer a
+				// held cell is held *against*, and one that is not told re-sends the
+				// value on every turn believing the write was lost. The row stays the
+				// first item, unchanged, so a caller that reads only it still works.
+				return {
+					content: [
+						{ type: 'text', text: JSON.stringify(row) },
+						{
+							type: 'text',
+							text: `Not written: ${held.join(', ')} — a person edited ${held.length === 1 ? 'this field' : 'these fields'} and ${held.length === 1 ? 'it declares' : 'they declare'} humanEditWins (data.setFieldMergePolicy), so a machine write does not overwrite ${held.length === 1 ? 'it' : 'them'}. Every other field in the update landed. Do not retry; ask a person to change ${held.length === 1 ? 'it' : 'them'} if the value is wrong.`,
+						},
+					],
+				}
+			}
 			case 'delete':
 				return ok({
 					success: await opDelete(ctx, resourceName, String(args.id)),

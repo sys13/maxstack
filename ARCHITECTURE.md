@@ -202,6 +202,28 @@ where nothing else spoke: a role grant cannot override a rule that denied, and
 cannot loosen an api-key scope or a portal, both of which stay closed by
 default.
 
+## Who wrote a cell
+
+Provenance used to stop at the spec — who *proposed* an entity or a field.
+`data.setFieldMergePolicy` takes it one layer down, onto a value: a field that
+declares `humanEditWins` keeps what a **person** wrote (a session, a portal form)
+when a **machine** writes it next — a declared source run, an import, an agent
+over MCP, an api key. The machine's other fields still land; the held one is
+reported back (in the audit entry, the import report and the MCP tool result)
+rather than refused, because one corrected cell is not a reason to reject a sync
+the rest of its row.
+
+The rule is enforced in `opCreate`/`opUpdate`, so every surface meets it, and the
+stamps live **in the row**, in a `_maxstack_provenance` jsonb column the runtime
+adds only to an entity that declares a policy. In the row rather than a shadow
+table because the store has no transaction: a stamp written after its value is
+a window in which a hand edit lands unstamped, and that window is exactly the
+bug. Only declared fields are stamped, so the cost scales with what somebody
+asked about rather than with the table's width, and a cell a person merely
+re-saved unchanged is not claimed. Precedence between several sources, and an
+expiry on a held edit, are not declarable yet — an unknown key is refused
+rather than ignored, so a spec cannot say something the runtime does not do.
+
 ## Invariants
 
 These do not bend, and each has a test that fails if it does:

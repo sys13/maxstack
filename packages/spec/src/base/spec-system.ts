@@ -332,6 +332,71 @@ export interface FieldSpec extends Provenanced {
 	 * operators. See {@link FieldFilterSpec}.
 	 */
 	filter?: FieldFilterSpec
+	/**
+	 * Who may overwrite this field's value once somebody has written it — and,
+	 * as a consequence of declaring anything here, a per-cell record of who last
+	 * did. See {@link FieldMergeSpec}.
+	 */
+	merge?: FieldMergeSpec
+}
+
+/**
+ * The column a row's per-cell writer stamps live in (#460), on the entity's own
+ * table. Reserved: a field may not be called this, because the runtime adds it
+ * to any entity that declares a {@link FieldMergeSpec} on one of its fields.
+ *
+ * Exported from the spec layer as well as from core because the refusal lives
+ * here (`data.addField`, `data.setFieldMergePolicy`) and the column is emitted
+ * there; `@maxstack/core` cannot import this package, so it carries the same
+ * literal and `apps/web`'s grounding test pins the two together.
+ */
+export const CELL_PROVENANCE_COLUMN = '_maxstack_provenance'
+
+/**
+ * How a field's value is reconciled when more than one kind of writer sets it —
+ * #460, the cell-level half of provenance.
+ *
+ * ## The failure it exists for
+ *
+ * "A human corrected this field; stop overwriting it" is the universal failure
+ * of every sync integration. An app with both a machine writer (a declared
+ * source, an importer with an upsert key, an agent over MCP) and an edit form
+ * silently reverts every hand edit on the next run, and nothing in the row says
+ * a person ever touched it. Provenance in this platform was about who proposed
+ * a *spec* row; nothing recorded who wrote a *cell*.
+ *
+ * ## What declaring it does
+ *
+ *  - **It turns on the stamp.** Every write that changes this field records who
+ *    made it — the identity, its origin (a session, an agent, a source run, an
+ *    import) and when — in the row itself. Stamps are kept only for fields that
+ *    declare a policy, which is the answer to the storage question the issue
+ *    left open: the cost scales with the fields somebody asked about, not with
+ *    the width of the table.
+ *  - {@link humanEditWins} `true` — a value a *person* wrote is not overwritten
+ *    by a machine: a source run, an import, an agent, an api key or a system
+ *    job. The machine's other fields still land; this one is left alone and
+ *    reported back as held. A later human edit still replaces it, because the
+ *    rule is about who outranks whom, not about freezing the cell.
+ *
+ * Absent, every write is last-wins exactly as before, and no stamp is kept.
+ *
+ * ## What it deliberately is not (yet)
+ *
+ * The issue's full shape also asks for per-source `precedence` and
+ * `preferComplete`, which only mean something once an entity can be fed by more
+ * than one declared source. Neither is spellable here, and an unknown key is
+ * refused rather than ignored, so a spec cannot come to *say* a precedence the
+ * runtime does not apply. A held edit also does not expire: the stamp carries
+ * its time, so an expiry is a later, additive declaration rather than a
+ * migration.
+ */
+export interface FieldMergeSpec {
+	/**
+	 * A value a person wrote outranks a later machine write. `false` (or absent)
+	 * keeps last-wins while still stamping who wrote the cell.
+	 */
+	humanEditWins?: boolean
 }
 
 /**
