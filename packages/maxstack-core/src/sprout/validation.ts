@@ -210,6 +210,11 @@ function baseFieldSchema(column: SproutColumn): z.ZodType {
  * are excluded (matches the specbase original). */
 function includeColumn(column: SproutColumn): boolean {
 	if (column.isPrimaryKey) return false
+	// The per-cell writer record (#460) is written by the ops and never by a
+	// caller: a stamp a client could send is a client that could claim to be the
+	// person whose edit outranks the next sync. Out of the schema, so it is
+	// stripped like any unknown key and named "not writable" by an empty update.
+	if (column.meta.cellProvenance === true) return false
 	if (TIMESTAMP_NAMES.has(column.name) && column.hasDefault) return false
 	return true
 }

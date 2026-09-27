@@ -116,6 +116,19 @@ export interface ColumnMetadata {
 	 * `FilterOperator`; the op validator is what keeps the values honest.
 	 */
 	filterOperators?: string[]
+	/**
+	 * The field's declared merge policy — the spec's `field.merge` (#460). Its
+	 * presence turns on the per-cell writer stamp for this column; `humanEditWins`
+	 * makes `opCreate`/`opUpdate` hold a person's value against a machine write.
+	 * Enforced in the ops, never in a surface, for `valueLimits`' reason.
+	 */
+	merge?: { humanEditWins?: boolean }
+	/**
+	 * This column is the row's per-cell writer record (`_maxstack_provenance`,
+	 * #460): written only by the ops, never accepted from a caller, and left out
+	 * of every input schema. See `cell-provenance.ts`.
+	 */
+	cellProvenance?: boolean
 	// relational
 	reference?: SproutColumnReference
 	/**

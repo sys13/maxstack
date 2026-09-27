@@ -46,8 +46,8 @@ const entity: SpecOp = {
 }
 
 describe('the vocabulary', () => {
-	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + data.setFieldFilter + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + the access ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(75)
+	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + data.setFieldFilter + data.setFieldMergePolicy + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + the access ops + provenance.review, one metadata entry each', () => {
+		expect(SPEC_OP_NAMES).toHaveLength(76)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -4811,5 +4811,137 @@ describe('list filter controls — data.setFieldFilter', () => {
 			'Filter field "fld-invoice-year": not a filter control, and not searched',
 		)
 		expect(diffOp(setFilter({})).summary).toMatch(/falls back to inference/)
+	})
+})
+
+describe('cell provenance — data.setFieldMergePolicy (#460)', () => {
+	const book: SpecOp = {
+		op: 'data.addEntity',
+		args: {
+			entity: {
+				id: 'e-book',
+				name: 'Book',
+				fields: [
+					{
+						id: 'fld-book-title',
+						name: 'title',
+						type: 'string',
+						required: true,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-book-cover',
+						name: 'coverUrl',
+						type: 'string',
+						required: false,
+						provenance: suggested(),
+					},
+				],
+				provenance: suggested(),
+			},
+		},
+	}
+	const withBook = () => applyOp(base(), book, meta(1))
+	const setMerge = (
+		merge: Record<string, unknown>,
+		fieldId = 'fld-book-cover',
+	): SpecOp =>
+		({
+			op: 'data.setFieldMergePolicy',
+			args: { entityId: 'e-book', fieldId, merge },
+		}) as SpecOp
+	const find = (spec: SpecSystem, fieldId = 'fld-book-cover') =>
+		spec.data.entities
+			.find((e) => e.id === 'e-book')
+			?.fields.find((f) => f.id === fieldId)
+
+	it('declares that a hand edit outranks a machine write', () => {
+		const s = applyOp(withBook(), setMerge({ humanEditWins: true }), meta(2))
+		expect(find(s)?.merge).toEqual({ humanEditWins: true })
+		expect(validateSpecSystem(s)).toBe(s)
+	})
+
+	it('is last-wins, and {} clears the declaration', () => {
+		const held = applyOp(withBook(), setMerge({ humanEditWins: true }), meta(2))
+		// `false` is a declaration in its own right — last-wins, but stamped —
+		// so it is stored rather than collapsed into "nothing declared".
+		const stamped = applyOp(held, setMerge({ humanEditWins: false }), meta(3))
+		expect(find(stamped)?.merge).toEqual({ humanEditWins: false })
+		const cleared = applyOp(stamped, setMerge({}), meta(4))
+		// Deleted rather than stored as `{}`, so a field returned to last-wins
+		// encodes byte-for-byte as it did before anything was declared on it.
+		const back = find(cleared)
+		expect(back && 'merge' in back).toBe(false)
+	})
+
+	it('refuses a policy the runtime does not apply, rather than ignoring it', () => {
+		// `precedence` is in the issue's sketch. Accepting it silently would be a
+		// spec that says a source outranks another while the app does last-wins.
+		expect(
+			validateOp(
+				withBook(),
+				setMerge({ precedence: ['openlibrary', 'googlebooks'] }),
+			).join(),
+		).toMatch(/merge\.precedence is not a merge policy this platform applies/)
+		expect(
+			validateOp(withBook(), setMerge({ humanEditWins: 'yes' })).join(),
+		).toMatch(/merge\.humanEditWins must be a boolean/)
+	})
+
+	it('names an unknown entity or field rather than failing silently', () => {
+		expect(
+			validateOp(withBook(), setMerge({ humanEditWins: true }, 'fld-nope')),
+		).toContain('data.setFieldMergePolicy: unknown field "fld-nope" on e-book')
+	})
+
+	it('reserves the column the stamps live in', () => {
+		// The runtime adds `_maxstack_provenance` to any entity with a merge
+		// policy, so a field of that name would be one column holding two things.
+		expect(
+			validateOp(withBook(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-book',
+					field: {
+						id: 'fld-book-stamps',
+						name: '_maxstack_provenance',
+						type: 'json',
+						required: false,
+					},
+				},
+			}).join(),
+		).toMatch(/the name "_maxstack_provenance" is reserved/)
+	})
+
+	it('validates a policy declared inline on data.addField', () => {
+		expect(
+			validateOp(withBook(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-book',
+					field: {
+						id: 'fld-book-isbn',
+						name: 'isbn',
+						type: 'string',
+						required: false,
+						merge: { preferComplete: true } as never,
+					},
+				},
+			}).join(),
+		).toMatch(/merge\.preferComplete is not a merge policy/)
+	})
+
+	it('round-trips through the spec directory codec', () => {
+		const s = applyOp(withBook(), setMerge({ humanEditWins: true }), meta(2))
+		const back = decodeSpecSystem(encodeSpecSystem(s))
+		expect(find(back)?.merge).toEqual({ humanEditWins: true })
+		expect(find(back, 'fld-book-title')?.merge).toBeUndefined()
+	})
+
+	it('summarizes the declaration in the diff', () => {
+		expect(diffOp(setMerge({ humanEditWins: true })).summary).toBe(
+			'Keep hand edits to field "fld-book-cover": a value a person wrote is not overwritten by a source, import or agent',
+		)
+		expect(diffOp(setMerge({})).summary).toMatch(/last-wins and unrecorded/)
 	})
 })

@@ -58,6 +58,11 @@ export interface FieldMetaLike {
 	 * spoken about.
 	 */
 	filterOperators?: string[]
+	/** A declared merge policy (#460) — structurally `ColumnMetadata.merge`. Its
+	 * presence means the row carries a writer stamp for this column. */
+	merge?: { humanEditWins?: boolean }
+	/** This column is the row's per-cell writer record (#460), not a field. */
+	cellProvenance?: boolean
 	/** The "many" side of a reference (task 38): this column holds an array of
 	 * foreign keys. Structurally a `SproutColumnReference`. */
 	arrayReference?: FieldReferenceLike

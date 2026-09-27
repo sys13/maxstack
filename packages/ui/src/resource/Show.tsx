@@ -13,6 +13,7 @@
  */
 
 import type { ReactNode } from 'react'
+import { cellStampOf, describeCellWriter } from '../fields/cell-writer.ts'
 import { humanizeLabel } from '../fields/field-semantics.ts'
 import { Field } from '../fields/fields.tsx'
 import { FileProvider, type FileResolution } from '../fields/file-context.tsx'
@@ -86,6 +87,14 @@ export function Show({
 									) : (
 										<Field value={value} column={column} />
 									)}
+									{column.meta?.merge ? (
+										<CellWriter
+											resource={resource}
+											record={record}
+											column={column.name}
+											held={column.meta.merge.humanEditWins === true}
+										/>
+									) : null}
 								</dd>
 							</div>
 						)
@@ -93,6 +102,38 @@ export function Show({
 				</dl>
 			</FileProvider>
 		</ReferenceProvider>
+	)
+}
+
+/**
+ * Who last wrote this cell, under its value (#460) — only on a column that
+ * declares a merge policy, because only those are stamped. "Kept from sync"
+ * is the sentence a maintainer needs when a nightly run seems to have ignored a
+ * field: it did, on purpose, because a person corrected it.
+ */
+function CellWriter({
+	resource,
+	record,
+	column,
+	held,
+}: {
+	resource: IntrospectedResource
+	record: Row
+	column: string
+	held: boolean
+}): ReactNode {
+	const stamp = cellStampOf(resource.columns, record, column)
+	if (!stamp) return null
+	const { text, human } = describeCellWriter(stamp)
+	return (
+		<span
+			className="mt-0.5 block text-xs text-muted-foreground"
+			title={`${stamp.by} · ${stamp.at}`}
+			data-cell-writer={human ? 'human' : 'machine'}
+		>
+			{text}
+			{human && held ? ' · kept from sync' : ''}
+		</span>
 	)
 }
 

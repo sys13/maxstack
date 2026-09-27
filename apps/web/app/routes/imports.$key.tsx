@@ -88,6 +88,7 @@ type ActionData =
 			updated: number
 			skipped: number
 			failed: { line: number; reason: string }[]
+			held: { line: number; fields: string[] }[]
 	  }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -359,6 +360,26 @@ export default function ImportPage({
 								{result.failed.map((f) => (
 									<li key={f.line}>
 										line {f.line}: {f.reason}
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{/* Cells a person's edit held (#460). Not a failure — the row's
+					    other cells landed — so it is said plainly rather than in red,
+					    and said at all so a column the file "did not change" reads as a
+					    rule rather than a bug. */}
+					{result.held.length > 0 ? (
+						<div className="mt-3 rounded-md border p-3">
+							<p className="text-sm text-muted-foreground">
+								{result.held.length} row(s) kept a value a person had edited by
+								hand, because the field declares humanEditWins. The rest of each
+								row landed.
+							</p>
+							<ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+								{result.held.map((h) => (
+									<li key={h.line}>
+										line {h.line}: {h.fields.join(', ')}
 									</li>
 								))}
 							</ul>

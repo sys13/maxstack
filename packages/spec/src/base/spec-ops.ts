@@ -236,6 +236,7 @@ import {
 	type BoardSpec,
 	CALENDAR_DISPLAYS,
 	type CalendarSpec,
+	CELL_PROVENANCE_COLUMN,
 	COMPUTED_OPERATORS,
 	type ComputedFieldSpec,
 	type EntitySpec,
@@ -245,6 +246,7 @@ import {
 	FILTER_OPERATORS,
 	type FieldDisplaySpec,
 	type FieldFilterSpec,
+	type FieldMergeSpec,
 	type FieldOption,
 	type FieldSpec,
 	isAcceptPattern,
@@ -808,6 +810,29 @@ export type SpecOp =
 				entityId: EntityId
 				fieldId: FieldId
 				filter: FieldFilterSpec
+			}
+	  }
+	| {
+			/**
+			 * Declare how a field's value is reconciled between writers (#460):
+			 * `humanEditWins` keeps a value a person wrote from being overwritten
+			 * by a source run, an import, an agent or an api key. Declaring any
+			 * policy also turns on the per-cell writer stamp for the field.
+			 *
+			 * On the *field*, in the `data` layer, rather than on a source as the
+			 * issue sketched (`sources.setFieldPolicy`): the writers it arbitrates
+			 * between are not only sources — an importer with an upsert key and an
+			 * agent over MCP revert a hand edit just as silently — so a rule that
+			 * lived on one source would be one the other two walk past. Same
+			 * argument that put a WIP limit on the field rather than on the board.
+			 *
+			 * Last-wins, and `{}` clears the declaration.
+			 */
+			op: 'data.setFieldMergePolicy'
+			args: {
+				entityId: EntityId
+				fieldId: FieldId
+				merge: FieldMergeSpec
 			}
 	  }
 	| {
@@ -1613,6 +1638,7 @@ export const SPEC_OP_NAMES = [
 	'data.setFieldLimits',
 	'data.setFieldDisplay',
 	'data.setFieldFilter',
+	'data.setFieldMergePolicy',
 	'data.addComputed',
 	'data.addRollup',
 	'page.addPage',
@@ -2920,6 +2946,37 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['entityId', 'fieldId', 'filter'],
+		},
+	},
+	'data.setFieldMergePolicy': {
+		name: 'data.setFieldMergePolicy',
+		layer: 'data',
+		summary:
+			"Say who may OVERWRITE a field once somebody has written it. humanEditWins:true keeps a value a PERSON wrote (a form, an inline edit, a portal) from being overwritten by a MACHINE — a declared source run, an import, an agent over MCP, an api key, a system job. The machine's other fields still land; this one is left alone and reported back as held, and a later human edit still replaces it. Declaring any policy also records, per row, who last wrote this field and when, so a maintainer can see why a cell holds what it holds. Without one, every write is last-wins and nothing is recorded. Only cells written after the declaration carry a stamp. Last-wins; {} clears the declaration.",
+		args: {
+			type: 'object',
+			properties: {
+				entityId: {
+					type: 'string',
+					description: 'entity that owns the field, prefix "e-".',
+				},
+				fieldId: {
+					type: 'string',
+					description:
+						'the field to declare a merge policy for, prefix "fld-".',
+				},
+				merge: {
+					type: 'object',
+					properties: {
+						humanEditWins: {
+							type: 'boolean',
+							description:
+								'true = a value a person wrote outranks every later machine write. false = last-wins, but still record who wrote each cell.',
+						},
+					},
+				},
+			},
+			required: ['entityId', 'fieldId', 'merge'],
 		},
 	},
 	'data.addComputed': {
@@ -5659,6 +5716,49 @@ function fieldFilterErrors(
 	return errors
 }
 
+/** The keys a {@link FieldMergeSpec} may carry. */
+const FIELD_MERGE_KEYS = new Set(['humanEditWins'])
+
+/**
+ * Issue #460 — a field's declared merge policy, and the one name a field may not
+ * take because of it.
+ *
+ *  - **An unknown key is refused, not ignored.** The issue's full shape names
+ *    `precedence` and `preferComplete`, and an author who writes either will
+ *    expect it to do something. The runtime applies neither yet (they need an
+ *    entity fed by more than one source), so accepting one silently would be a
+ *    spec that says something the app does not do.
+ *  - **The reserved column name.** Declaring a policy adds
+ *    {@link CELL_PROVENANCE_COLUMN} to the entity's table, so a field of that
+ *    name would be the same column holding two things. Refused on every field,
+ *    not only on entities that declare a policy today, because the policy can
+ *    arrive later and the field would already be there.
+ */
+function fieldMergeErrors(
+	field: { id: string; name: string; merge?: unknown },
+	opName: SpecOpName,
+): string[] {
+	const where = `${opName}: field "${field.id}"`
+	const errors: string[] = []
+	if (field.name === CELL_PROVENANCE_COLUMN)
+		errors.push(
+			`${where} -> the name "${CELL_PROVENANCE_COLUMN}" is reserved: it is the column that records who last wrote each cell of a field with a merge policy`,
+		)
+	const raw = field.merge
+	if (raw === undefined) return errors
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return [...errors, `${where} -> "merge" must be an object`]
+	for (const [key, value] of Object.entries(raw)) {
+		if (!FIELD_MERGE_KEYS.has(key))
+			errors.push(
+				`${where} -> merge.${key} is not a merge policy this platform applies (only humanEditWins is) — per-source precedence needs an entity fed by more than one source, which cannot be declared yet`,
+			)
+		else if (value !== undefined && typeof value !== 'boolean')
+			errors.push(`${where} -> merge.${key} must be a boolean`)
+	}
+	return errors
+}
+
 /** The values an enum field's options declare, or `undefined` when it has none
  * (a permissive text column — there is nothing to check a limit against). */
 function optionValuesOf(field: {
@@ -6380,6 +6480,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				errors.push(...fieldFileErrors(f, op.op))
 				errors.push(...fieldDisplayErrors(f, op.op))
 				errors.push(...fieldFilterErrors(f, op.op))
+				errors.push(...fieldMergeErrors(f, op.op))
 			}
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -6411,6 +6512,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(...fieldRankErrors(op.args.field, op.op))
 			errors.push(...fieldDisplayErrors(op.args.field, op.op))
 			errors.push(...fieldFilterErrors(op.args.field, op.op))
+			errors.push(...fieldMergeErrors(op.args.field, op.op))
 			errors.push(
 				...fieldLimitsErrors(
 					op.args.field,
@@ -6522,6 +6624,27 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(
 				...fieldFilterErrors(
 					{ id: op.args.fieldId, type: field.type, filter: op.args.filter },
+					op.op,
+				),
+			)
+			break
+		}
+		case 'data.setFieldMergePolicy': {
+			const entity = system.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			if (!entity) {
+				errors.push(`${op.op}: unknown entity "${op.args.entityId}"`)
+				break
+			}
+			if (!field) {
+				errors.push(
+					`${op.op}: unknown field "${op.args.fieldId}" on ${op.args.entityId}`,
+				)
+				break
+			}
+			errors.push(
+				...fieldMergeErrors(
+					{ id: op.args.fieldId, name: field.name, merge: op.args.merge },
 					op.op,
 				),
 			)
@@ -8119,6 +8242,22 @@ export function diffOp(op: SpecOp): SpecDiff {
 					: `Clear the declared display of field "${op.args.fieldId}" — it falls back to inference from the field's name`,
 			}
 		}
+		case 'data.setFieldMergePolicy': {
+			const { humanEditWins } = op.args.merge
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.fieldId,
+				parentId: op.args.entityId,
+				summary:
+					humanEditWins === true
+						? `Keep hand edits to field "${op.args.fieldId}": a value a person wrote is not overwritten by a source, import or agent`
+						: humanEditWins === false
+							? `Record who writes field "${op.args.fieldId}", last write wins`
+							: `Clear the merge policy of field "${op.args.fieldId}" — every write is last-wins and unrecorded`,
+			}
+		}
 		case 'data.setFieldFilter': {
 			const { filterable, operators } = op.args.filter
 			const said = [
@@ -8875,6 +9014,22 @@ export function applyOp(
 				) as FieldDisplaySpec
 				if (Object.keys(declared).length === 0) delete field.display
 				else field.display = declared
+			}
+			break
+		}
+		case 'data.setFieldMergePolicy': {
+			const entity = next.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			// Last-wins and `{}` clears, as `data.setFieldFilter` below. Clearing
+			// stops the runtime *consulting* the stamps; it does not erase the ones
+			// already on rows, which stay true statements about who wrote what and
+			// apply again if the policy is re-declared.
+			if (field) {
+				const declared = Object.fromEntries(
+					Object.entries(op.args.merge).filter(([, v]) => v !== undefined),
+				) as FieldMergeSpec
+				if (Object.keys(declared).length === 0) delete field.merge
+				else field.merge = declared
 			}
 			break
 		}

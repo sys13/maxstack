@@ -16,6 +16,12 @@ import {
 	findActionPlan,
 } from './actions.ts'
 import {
+	CELL_PROVENANCE_COLUMN,
+	type CellWriteVia,
+	mergeCellWrite,
+	stampFor,
+} from './cell-provenance.ts'
+import {
 	compileDocument,
 	type DocumentBlock,
 	type DocumentData,
@@ -1751,7 +1757,12 @@ export async function opApplyImport(
 		updated: 0,
 		skipped: 0,
 		failed: [],
+		held: [],
 	}
+	// An import is a machine write even when a person pressed the button: the
+	// cells are the file's, and a re-import is exactly the writer #460 found
+	// reverting hand edits. Named on every write so the stamp says which importer.
+	const via: CellWriteVia = { importer: plan.key }
 	for (const row of plan.rows) {
 		if (row.action === 'invalid' || !row.data) {
 			result.skipped++
@@ -1759,10 +1770,17 @@ export async function opApplyImport(
 		}
 		try {
 			if (row.action === 'update' && row.matchedId) {
-				await opUpdate(ctx, plan.resource, row.matchedId, row.data)
+				const { held } = await opUpdateDetailed(
+					ctx,
+					plan.resource,
+					row.matchedId,
+					row.data,
+					via,
+				)
 				result.updated++
+				if (held.length > 0) result.held.push({ line: row.line, fields: held })
 			} else {
-				await opCreate(ctx, plan.resource, row.data)
+				await opCreate(ctx, plan.resource, row.data, via)
 				result.created++
 			}
 		} catch (error) {
@@ -1779,6 +1797,7 @@ export async function opCreate(
 	ctx: OpContext,
 	resource: string,
 	data: Row,
+	via: CellWriteVia = {},
 ): Promise<Row> {
 	const { registry, store, user } = ctx
 	const entry = resolve(registry, resource)
@@ -1822,7 +1841,16 @@ export async function opCreate(
 		tenant,
 		softField,
 	)
-	const created = await store.create(resource, validated.data as Row)
+	// Stamp the cells of any field with a declared merge policy (#460). On a
+	// create nothing can be held — there is no earlier writer — so this only
+	// records who supplied each non-empty value.
+	const { data: toCreate } = mergeCellWrite({
+		columns: entry.resource.columns,
+		existing: null,
+		data: validated.data as Row,
+		stamp: stampFor(user, via),
+	})
+	const created = await store.create(resource, toCreate)
 	const createdId = String(created[entry.resource.primaryKey])
 	await record(ctx, { action: 'create', resource, resourceId: createdId })
 	// After the commit, never before: a channel must not announce a row that a
@@ -1831,12 +1859,41 @@ export async function opCreate(
 	return created
 }
 
+/**
+ * What an update did, beyond the row it left: the columns it named and did not
+ * write because a person's value holds them (#460). See {@link opUpdateDetailed}.
+ */
+export interface UpdateOutcome {
+	row: Row
+	held: string[]
+}
+
 export async function opUpdate(
 	ctx: OpContext,
 	resource: string,
 	id: string,
 	data: Row,
+	via: CellWriteVia = {},
 ): Promise<Row> {
+	return (await opUpdateDetailed(ctx, resource, id, data, via)).row
+}
+
+/**
+ * {@link opUpdate}, also saying which columns a person's edit held (#460).
+ *
+ * A separate entry point rather than a changed return type, because `opUpdate`
+ * returning the row is a contract every surface and every owned caller already
+ * relies on — and a held cell is not an error, so it cannot be a throw. The
+ * callers that have somewhere to *say* it (the MCP tool an agent reads, the
+ * import report) ask for it; the rest see the row they always saw.
+ */
+export async function opUpdateDetailed(
+	ctx: OpContext,
+	resource: string,
+	id: string,
+	data: Row,
+	via: CellWriteVia = {},
+): Promise<UpdateOutcome> {
 	const { registry, store, user } = ctx
 	const entry = resolve(registry, resource)
 	const tenant = tenantOf(entry, user, resource, 'update')
@@ -1902,29 +1959,54 @@ export async function opUpdate(
 			),
 		)
 	}
-	entry.config.customValidation?.(validated.data as Row, 'update')
+	// A person's value outranks a machine's (#460). Merged *after* the empty-body
+	// refusal above — a sync whose every cell is held sent a real body and was
+	// outranked, which is not the caller error that refusal is about — and
+	// *before* the hook and the caps, so both see only what will be written.
+	const merged = mergeCellWrite({
+		columns: entry.resource.columns,
+		existing,
+		data: validated.data as Row,
+		stamp: stampFor(user, via),
+	})
+	const toWrite = merged.data
+	const written = Object.keys(toWrite).filter(
+		(key) => key !== CELL_PROVENANCE_COLUMN,
+	)
+	// Every cell held and nothing else to write: no store call (drizzle's
+	// `.set({})` throws), no audit entry for a write that did not happen, no live
+	// publish for a row that did not change. The row comes back as it stands.
+	// (Stamps only ever accompany a value being written, so a payload of nothing
+	// but stamps cannot arise.)
+	if (written.length === 0) return { row: existing, held: merged.held }
+	entry.config.customValidation?.(toWrite, 'update')
 	// Declared per-value caps — checked against `existing` so an edit
 	// that does not change the capped column is never refused by a full column.
 	await assertWithinLimits(
 		ctx,
 		entry,
 		resource,
-		validated.data as Row,
+		toWrite,
 		existing,
 		tenant,
 		softField,
 	)
-	const updated = await store.update(resource, id, validated.data as Row)
+	const updated = await store.update(resource, id, toWrite)
 	if (!updated) throw new NotFoundError(resource, id)
-	// Record the fields the update actually changed — the diff a history feed shows.
+	// Record the fields the update actually changed — the diff a history feed
+	// shows — and, when a person's edit held some, which ones, so the history
+	// says why a sync that ran did not change them.
 	await record(ctx, {
 		action: 'update',
 		resource,
 		resourceId: id,
-		metadata: { fields: Object.keys(validated.data as Row) },
+		metadata: {
+			fields: written,
+			...(merged.held.length > 0 ? { held: merged.held } : {}),
+		},
 	})
 	await publish(ctx, resource, id)
-	return updated
+	return { row: updated, held: merged.held }
 }
 
 /**
