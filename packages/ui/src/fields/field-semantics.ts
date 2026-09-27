@@ -63,6 +63,11 @@ export interface FieldMetaLike {
 	merge?: { humanEditWins?: boolean }
 	/** This column is the row's per-cell writer record (#460), not a field. */
 	cellProvenance?: boolean
+	/** A declared history (#307) — structurally `ColumnMetadata.history`. Its
+	 * presence means the row carries this column's past values. */
+	history?: { keep: number }
+	/** This column is the row's per-cell history (#307), not a field. */
+	cellHistory?: boolean
 	/** The "many" side of a reference (task 38): this column holds an array of
 	 * foreign keys. Structurally a `SproutColumnReference`. */
 	arrayReference?: FieldReferenceLike

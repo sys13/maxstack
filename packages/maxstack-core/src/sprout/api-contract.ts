@@ -162,6 +162,8 @@ export function entityApiContract(
 		// The per-cell writer record (#460) is read, never written — it is not a
 		// field a client can send, so it is not in the write contract.
 		if (column.meta.cellProvenance === true) continue
+		// Nor is the per-cell history (#307).
+		if (column.meta.cellHistory === true) continue
 		fields[column.name] = {
 			create: describeColumn(column, 'create').accepts,
 			update: describeColumn(column, 'update').accepts,

@@ -16,7 +16,11 @@ import {
 	findActionPlan,
 } from './actions.ts'
 import {
-	CELL_PROVENANCE_COLUMN,
+	appendCellHistory,
+	CELL_HISTORY_COLUMN,
+	isPlatformCellColumn,
+} from './cell-history.ts'
+import {
 	type CellWriteVia,
 	mergeCellWrite,
 	stampFor,
@@ -1021,6 +1025,26 @@ async function assertPortalBudget(
 		)
 }
 
+/**
+ * A page of rows without their per-cell history (#307).
+ *
+ * History is a record-view concern: a list, a search page or a reference batch
+ * shows a cell's current value, and shipping every row's past with it would make
+ * a page's weight grow with how often its rows have been edited — up to `keep`
+ * copies of every declared field, on every row, on every page. {@link opGet}
+ * keeps it, because one record is the view that renders it. A resource with no
+ * declared history is returned untouched.
+ */
+function withoutCellHistory(entry: RegisteredResource, rows: Row[]): Row[] {
+	if (!entry.resource.columns.some((c) => c.meta.cellHistory === true))
+		return rows
+	return rows.map((row) => {
+		if (!(CELL_HISTORY_COLUMN in row)) return row
+		const { [CELL_HISTORY_COLUMN]: _history, ...rest } = row
+		return rest
+	})
+}
+
 export async function opList(
 	ctx: OpContext,
 	resource: string,
@@ -1071,7 +1095,11 @@ export async function opList(
 	// The portal projection runs after THAT, so an undeclared rollup is dropped
 	// on the way out rather than never computed — the gate is one place, and it
 	// is the last one.
-	return projectForPortal(user, entry, await withDerived(ctx, resource, rows))
+	return projectForPortal(
+		user,
+		entry,
+		withoutCellHistory(entry, await withDerived(ctx, resource, rows)),
+	)
 }
 
 /**
@@ -1244,10 +1272,13 @@ export async function opSearch(
 	})
 	// Derived values attach after the scoping predicates, for `opList`'s reason:
 	// a rollup must aggregate over the rows the caller is actually allowed to see.
-	const rows = await withDerived(
-		ctx,
-		resource,
-		hits.map((h) => h.row),
+	const rows = withoutCellHistory(
+		entry,
+		await withDerived(
+			ctx,
+			resource,
+			hits.map((h) => h.row),
+		),
 	)
 	return hits.map((hit, i) => ({ row: rows[i] ?? hit.row, rank: hit.rank }))
 }
@@ -1400,7 +1431,7 @@ export async function opGetMany(
 	return projectForPortal(
 		user,
 		entry,
-		await withDerived(ctx, resource, visible),
+		withoutCellHistory(entry, await withDerived(ctx, resource, visible)),
 	)
 }
 
@@ -1844,11 +1875,20 @@ export async function opCreate(
 	// Stamp the cells of any field with a declared merge policy (#460). On a
 	// create nothing can be held — there is no earlier writer — so this only
 	// records who supplied each non-empty value.
-	const { data: toCreate } = mergeCellWrite({
+	const stamp = stampFor(user, via)
+	const { data: merged } = mergeCellWrite({
 		columns: entry.resource.columns,
 		existing: null,
 		data: validated.data as Row,
-		stamp: stampFor(user, via),
+		stamp,
+	})
+	// And start the history of any field that keeps one (#307) with the value it
+	// was created with, under the same stamp.
+	const toCreate = appendCellHistory({
+		columns: entry.resource.columns,
+		existing: null,
+		data: merged,
+		stamp,
 	})
 	const created = await store.create(resource, toCreate)
 	const createdId = String(created[entry.resource.primaryKey])
@@ -1963,21 +2003,29 @@ export async function opUpdateDetailed(
 	// refusal above — a sync whose every cell is held sent a real body and was
 	// outranked, which is not the caller error that refusal is about — and
 	// *before* the hook and the caps, so both see only what will be written.
+	const stamp = stampFor(user, via)
 	const merged = mergeCellWrite({
 		columns: entry.resource.columns,
 		existing,
 		data: validated.data as Row,
-		stamp: stampFor(user, via),
+		stamp,
 	})
-	const toWrite = merged.data
+	// Extend the history of any field that keeps one (#307) — over the merged
+	// payload, so a held cell, which this write did not change, gets no entry.
+	const toWrite = appendCellHistory({
+		columns: entry.resource.columns,
+		existing,
+		data: merged.data,
+		stamp,
+	})
 	const written = Object.keys(toWrite).filter(
-		(key) => key !== CELL_PROVENANCE_COLUMN,
+		(key) => !isPlatformCellColumn(key),
 	)
 	// Every cell held and nothing else to write: no store call (drizzle's
 	// `.set({})` throws), no audit entry for a write that did not happen, no live
 	// publish for a row that did not change. The row comes back as it stands.
-	// (Stamps only ever accompany a value being written, so a payload of nothing
-	// but stamps cannot arise.)
+	// (Stamps and history entries only ever accompany a value being written, so
+	// a payload of nothing but those cannot arise.)
 	if (written.length === 0) return { row: existing, held: merged.held }
 	entry.config.customValidation?.(toWrite, 'update')
 	// Declared per-value caps — checked against `existing` so an edit

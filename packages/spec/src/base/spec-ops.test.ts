@@ -15,7 +15,13 @@ import {
 	validateOpDryRun,
 } from './spec-ops.ts'
 import { validateSpecSystem } from './spec-system.schema.ts'
-import { newSpecSystem, resolveTheme, type SpecSystem } from './spec-system.ts'
+import {
+	CELL_HISTORY_COLUMN,
+	MAX_CELL_HISTORY,
+	newSpecSystem,
+	resolveTheme,
+	type SpecSystem,
+} from './spec-system.ts'
 
 const base = (): SpecSystem => newSpecSystem(tasklyPRD)
 const meta = (n: number): ApplyMeta => ({
@@ -46,8 +52,8 @@ const entity: SpecOp = {
 }
 
 describe('the vocabulary', () => {
-	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + data.setFieldFilter + data.setFieldMergePolicy + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + the access ops + provenance.review, one metadata entry each', () => {
-		expect(SPEC_OP_NAMES).toHaveLength(76)
+	it('is the first 10 ops + the set-ops + theme.set + site.set + the derived-value ops + the flag ops + the schedule ops + data.setFieldReference + data.setFieldOpenReference + data.setFieldDisplay + data.setFieldFilter + data.setFieldMergePolicy + data.setFieldHistory + the date-view ops + the board ops + the external-source ops + the search ops + the document ops + the importer ops + the portal ops + the live ops + the view ops + the access ops + provenance.review, one metadata entry each', () => {
+		expect(SPEC_OP_NAMES).toHaveLength(77)
 		expect(Object.keys(SPEC_OP_VOCABULARY).sort()).toEqual(
 			[...SPEC_OP_NAMES].sort(),
 		)
@@ -4943,5 +4949,140 @@ describe('cell provenance — data.setFieldMergePolicy (#460)', () => {
 			'Keep hand edits to field "fld-book-cover": a value a person wrote is not overwritten by a source, import or agent',
 		)
 		expect(diffOp(setMerge({})).summary).toMatch(/last-wins and unrecorded/)
+	})
+})
+
+describe('cell history — data.setFieldHistory (#307)', () => {
+	const deal: SpecOp = {
+		op: 'data.addEntity',
+		args: {
+			entity: {
+				id: 'e-deal',
+				name: 'Deal',
+				fields: [
+					{
+						id: 'fld-deal-name',
+						name: 'name',
+						type: 'string',
+						required: true,
+						provenance: suggested(),
+					},
+					{
+						id: 'fld-deal-stage',
+						name: 'stage',
+						type: 'string',
+						required: false,
+						provenance: suggested(),
+					},
+				],
+				provenance: suggested(),
+			},
+		},
+	}
+	const withDeal = () => applyOp(base(), deal, meta(1))
+	const setHistory = (
+		history: Record<string, unknown>,
+		fieldId = 'fld-deal-stage',
+	): SpecOp =>
+		({
+			op: 'data.setFieldHistory',
+			args: { entityId: 'e-deal', fieldId, history },
+		}) as unknown as SpecOp
+	const find = (spec: SpecSystem, fieldId = 'fld-deal-stage') =>
+		spec.data.entities
+			.find((e) => e.id === 'e-deal')
+			?.fields.find((f) => f.id === fieldId)
+
+	it('declares how many past values a field keeps', () => {
+		const s = applyOp(withDeal(), setHistory({ keep: 20 }), meta(2))
+		expect(find(s)?.history).toEqual({ keep: 20 })
+		expect(validateSpecSystem(s)).toBe(s)
+	})
+
+	it('is last-wins, and {} clears the declaration', () => {
+		const twenty = applyOp(withDeal(), setHistory({ keep: 20 }), meta(2))
+		const five = applyOp(twenty, setHistory({ keep: 5 }), meta(3))
+		expect(find(five)?.history).toEqual({ keep: 5 })
+		const cleared = applyOp(five, setHistory({}), meta(4))
+		// Deleted rather than stored as `{}`, so a field that stops keeping history
+		// encodes byte-for-byte as it did before anything was declared on it.
+		const back = find(cleared)
+		expect(back && 'history' in back).toBe(false)
+		expect(validateOp(five, setHistory({}))).toEqual([])
+	})
+
+	it('is bounded: keep is a whole number from 1 to the platform cap', () => {
+		// Unbounded history is the storage decision #307 says nobody should make
+		// by accident, so the bound itself is bounded.
+		for (const keep of [0, -1, 2.5, MAX_CELL_HISTORY + 1, '10'])
+			expect(validateOp(withDeal(), setHistory({ keep })).join()).toMatch(
+				/history\.keep must be a whole number from 1 to 100/,
+			)
+		expect(
+			validateOp(withDeal(), setHistory({ keep: MAX_CELL_HISTORY })),
+		).toEqual([])
+	})
+
+	it('refuses a retention the runtime does not apply, rather than ignoring it', () => {
+		// A time window is the obvious other shape. Accepting it silently would be
+		// a spec that says "90 days" while the app keeps a count.
+		const refused = validateOp(withDeal(), setHistory({ days: 90 })).join()
+		expect(refused).toMatch(/history\.days is not something this platform/)
+		expect(refused).toMatch(/history\.keep is required/)
+	})
+
+	it('names an unknown entity or field rather than failing silently', () => {
+		expect(
+			validateOp(withDeal(), setHistory({ keep: 5 }, 'fld-nope')),
+		).toContain('data.setFieldHistory: unknown field "fld-nope" on e-deal')
+	})
+
+	it('reserves the column the history lives in', () => {
+		expect(
+			validateOp(withDeal(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-deal',
+					field: {
+						id: 'fld-deal-hist',
+						name: CELL_HISTORY_COLUMN,
+						type: 'json',
+						required: false,
+					},
+				},
+			}).join(),
+		).toMatch(/the name "_maxstack_history" is reserved/)
+	})
+
+	it('validates a history declared inline on data.addField', () => {
+		expect(
+			validateOp(withDeal(), {
+				op: 'data.addField',
+				args: {
+					entityId: 'e-deal',
+					field: {
+						id: 'fld-deal-amount',
+						name: 'amount',
+						type: 'number',
+						required: false,
+						history: { keep: 1000 },
+					},
+				},
+			}).join(),
+		).toMatch(/history\.keep must be a whole number/)
+	})
+
+	it('round-trips through the spec directory codec', () => {
+		const s = applyOp(withDeal(), setHistory({ keep: 12 }), meta(2))
+		const back = decodeSpecSystem(encodeSpecSystem(s))
+		expect(find(back)?.history).toEqual({ keep: 12 })
+		expect(find(back, 'fld-deal-name')?.history).toBeUndefined()
+	})
+
+	it('summarizes the declaration in the diff', () => {
+		expect(diffOp(setHistory({ keep: 12 })).summary).toBe(
+			'Keep the last 12 values of field "fld-deal-stage", with who wrote each and when',
+		)
+		expect(diffOp(setHistory({})).summary).toMatch(/only its current value/)
 	})
 })

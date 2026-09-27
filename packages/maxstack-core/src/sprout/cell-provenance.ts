@@ -168,7 +168,7 @@ const isEmpty = (value: unknown) =>
  * because the driver hands back `2026-01-02 03:04:05` for a value a form sent as
  * `2026-01-02T03:04:05` and those are the same cell.
  */
-function sameValue(
+export function sameCellValue(
 	column: SproutColumn,
 	next: unknown,
 	prev: unknown,
@@ -241,7 +241,7 @@ export function mergeCellWrite(args: {
 		if (!(name in data)) continue
 		const value = data[name]
 		if (existing) {
-			const unchanged = sameValue(column, value, existing[name])
+			const unchanged = sameCellValue(column, value, existing[name])
 			if (
 				!human &&
 				column.meta.merge?.humanEditWins === true &&

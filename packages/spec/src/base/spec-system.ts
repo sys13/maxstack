@@ -338,6 +338,11 @@ export interface FieldSpec extends Provenanced {
 	 * did. See {@link FieldMergeSpec}.
 	 */
 	merge?: FieldMergeSpec
+	/**
+	 * Keep this field's past values, each with who wrote it and when — the cell's
+	 * history. See {@link FieldHistorySpec}.
+	 */
+	history?: FieldHistorySpec
 }
 
 /**
@@ -397,6 +402,58 @@ export interface FieldMergeSpec {
 	 * keeps last-wins while still stamping who wrote the cell.
 	 */
 	humanEditWins?: boolean
+}
+
+/**
+ * The column a row's per-cell history lives in (#307), on the entity's own
+ * table. Reserved for {@link CELL_PROVENANCE_COLUMN}'s reason: the runtime adds
+ * it to any entity that declares a {@link FieldHistorySpec} on one of its
+ * fields, so a field of that name would be one column holding two things.
+ */
+export const CELL_HISTORY_COLUMN = '_maxstack_history'
+
+/**
+ * The most past values one cell may keep. A bound on the bound: `keep` is
+ * declared per field, and this is what stops a declaration from quietly
+ * becoming the unbounded history #307 says nobody chose on purpose.
+ */
+export const MAX_CELL_HISTORY = 100
+
+/**
+ * Keep a field's past values — #307, the first slice of temporal fields.
+ *
+ * ## The failure it exists for
+ *
+ * "What was this record's status on the 1st?" had no answer short of the app
+ * author designing a history table, the write-path hook that fills it, and the
+ * query that reads it, per entity. The audit log records *which* fields an
+ * update touched, never what they held, and `<RevisionHistory>` diffs snapshots
+ * nothing stores.
+ *
+ * ## What declaring it does
+ *
+ * Every write that changes this field appends the new value to the cell's
+ * history, with the same writer stamp #460 records — the identity, its origin,
+ * the source or importer, the time. The latest {@link keep} values are kept;
+ * older ones are dropped by the write that pushes them out. The record view
+ * shows the history under the field.
+ *
+ * **Declared and bounded**, as the issue asks: nothing is retained for a field
+ * that does not ask, and a field that asks names how much. Unbounded history
+ * across every entity is a storage decision, and it should be one somebody
+ * made.
+ *
+ * ## What it deliberately is not (yet)
+ *
+ * The query layer does not read it: there is no as-of filter, and a rollup
+ * cannot be computed over past state. Each entry carries its time, so that is an
+ * additive read over values already kept rather than a migration. History starts
+ * at the declaration — a value written before it has no entry, because nobody
+ * recorded who wrote it.
+ */
+export interface FieldHistorySpec {
+	/** How many past values to keep per cell, 1 to {@link MAX_CELL_HISTORY}. */
+	keep: number
 }
 
 /**
