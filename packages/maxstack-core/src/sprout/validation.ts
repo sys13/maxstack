@@ -215,6 +215,9 @@ function includeColumn(column: SproutColumn): boolean {
 	// person whose edit outranks the next sync. Out of the schema, so it is
 	// stripped like any unknown key and named "not writable" by an empty update.
 	if (column.meta.cellProvenance === true) return false
+	// The per-cell history (#307), for the same reason: a history a client could
+	// send is a record of values nobody wrote.
+	if (column.meta.cellHistory === true) return false
 	if (TIMESTAMP_NAMES.has(column.name) && column.hasDefault) return false
 	return true
 }

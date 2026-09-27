@@ -38,6 +38,7 @@ import {
 import { createDrizzleStore } from '../demo/store.ts'
 import type { ActionPlan } from './actions.ts'
 import type { StoreBackend } from './backend.ts'
+import { CELL_HISTORY_COLUMN } from './cell-history.ts'
 import { CELL_PROVENANCE_COLUMN } from './cell-provenance.ts'
 import type { ComputedShape, RollupShape } from './derived.ts'
 import type { DocumentPlan } from './documents.ts'
@@ -159,11 +160,22 @@ export interface SpecFieldShape {
 	 * {@link CELL_PROVENANCE_COLUMN} to keep stamps in.
 	 */
 	merge?: { humanEditWins?: boolean }
+	/**
+	 * The field's declared history — the spec's `field.history` (#307). Carried
+	 * into `meta.history`; its presence on any field is what gives the entity a
+	 * {@link CELL_HISTORY_COLUMN} to keep past values in.
+	 */
+	history?: { keep: number }
 }
 
 /** Whether an entity keeps per-cell stamps — any field declaring a policy. */
 function keepsCellProvenance(entity: SpecEntityShape): boolean {
 	return entity.fields.some((f) => f.merge !== undefined)
+}
+
+/** Whether an entity keeps per-cell history — any field declaring one. */
+function keepsCellHistory(entity: SpecEntityShape): boolean {
+	return entity.fields.some((f) => f.history !== undefined)
 }
 
 /**
@@ -324,6 +336,8 @@ function columnFor(
 	// A declared merge policy (#460). On the column for `valueLimits`' reason:
 	// the ops that enforce it read the resource, not the spec.
 	if (field.merge) meta.merge = { ...field.merge }
+	// A declared history (#307), on the column for the same reason.
+	if (field.history) meta.history = { keep: field.history.keep }
 	// A rank key is a text column with a database default, hidden and
 	// read-only in the UI: it is written by moving a row, never by typing.
 	// `readOnly` is a rendering hint only — the validation schema still accepts the
@@ -413,6 +427,18 @@ export function tableFromSpecEntity(entity: SpecEntityShape): PgTable {
 			hidden: true,
 			readOnly: true,
 			cellProvenance: true,
+		})
+	// The per-cell history (#307), on the same terms as the stamps above: only
+	// on an entity that declared one, hidden, read-only, and out of every input
+	// schema by `cellHistory`.
+	if (keepsCellHistory(entity))
+		columns[CELL_HISTORY_COLUMN] = withMeta(jsonb(CELL_HISTORY_COLUMN), {
+			label: 'Cell history',
+			description:
+				"The past values of each field that declares a history: {field: [{value, by, origin, source?, importer?, at}]}, oldest first, bounded by the field's keep. Written by the platform on every write; never accepted from a caller.",
+			hidden: true,
+			readOnly: true,
+			cellHistory: true,
 		})
 	return pgTable(entity.name, columns)
 }
@@ -616,6 +642,13 @@ export function specSchemaDdl(entities: readonly SpecEntityShape[]): string {
 		if (keepsCellProvenance(entity))
 			statements.push(
 				`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${quote(CELL_PROVENANCE_COLUMN)} jsonb;`,
+			)
+		// The per-cell history (#307), additive the same way. Declared on a live
+		// table it starts empty: a value written before the declaration has no
+		// entry, because nobody recorded who wrote it.
+		if (keepsCellHistory(entity))
+			statements.push(
+				`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${quote(CELL_HISTORY_COLUMN)} jsonb;`,
 			)
 		// The search index last, after every column it names exists.
 		// Additive in both directions: `CREATE INDEX IF NOT EXISTS` adds no column

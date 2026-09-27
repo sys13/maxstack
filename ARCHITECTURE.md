@@ -224,6 +224,26 @@ re-saved unchanged is not claimed. Precedence between several sources, and an
 expiry on a held edit, are not declarable yet — an unknown key is refused
 rather than ignored, so a spec cannot say something the runtime does not do.
 
+## What a cell used to hold
+
+`data.setFieldHistory` keeps a field's past values: every write that changes
+the cell appends the new value with the same writer stamp as above — who, by
+what route, when — and the record view lists them under the field, newest
+first. It is **declared and bounded**: only a field that asks keeps anything,
+and it names how many values (`keep`, capped at 100), so retention is a
+decision somebody made rather than a side effect of 134 entities.
+
+The history lives in the row, in a `_maxstack_history` jsonb column, for the
+stamps' reason: with no transaction, a history kept in a second table can skip a
+step, and a history that skips steps is worse than none. It is appended after
+the merge rule runs, so a cell a person's edit held against a sync gets no entry
+for the sync, and a save that leaves a value unchanged adds nothing. A record
+read carries it; a list, a search page and a reference batch do not, so a page's
+weight does not grow with how often its rows were edited. The query layer does
+not read it yet — an as-of filter and a rollup over past state are the next
+half of #307 — but every entry carries its time, so they are a read over values
+already kept rather than a migration.
+
 ## Invariants
 
 These do not bend, and each has a test that fails if it does:

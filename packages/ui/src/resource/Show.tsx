@@ -13,14 +13,19 @@
  */
 
 import type { ReactNode } from 'react'
+import { cellHistoryOf } from '../fields/cell-history.ts'
 import { cellStampOf, describeCellWriter } from '../fields/cell-writer.ts'
-import { humanizeLabel } from '../fields/field-semantics.ts'
+import {
+	humanizeLabel,
+	type IntrospectedColumn,
+} from '../fields/field-semantics.ts'
 import { Field } from '../fields/fields.tsx'
 import { FileProvider, type FileResolution } from '../fields/file-context.tsx'
 import {
 	ReferenceProvider,
 	type ReferenceResolution,
 } from '../fields/reference-context.tsx'
+import { Timestamp } from '../format/timestamp.tsx'
 import { cn } from '../lib/cn.ts'
 import {
 	type ColumnOverrides,
@@ -95,6 +100,13 @@ export function Show({
 											held={column.meta.merge.humanEditWins === true}
 										/>
 									) : null}
+									{column.meta?.history ? (
+										<CellHistory
+											resource={resource}
+											record={record}
+											column={column}
+										/>
+									) : null}
 								</dd>
 							</div>
 						)
@@ -134,6 +146,53 @@ function CellWriter({
 			{text}
 			{human && held ? ' · kept from sync' : ''}
 		</span>
+	)
+}
+
+/**
+ * The values this cell has held, under its value (#307) — only on a column that
+ * declares a history, because only those keep one. Collapsed by default: the
+ * current value is what a record view is for, and the past is one click away
+ * rather than the length of the page. Each value says who wrote it in the same
+ * words as the writer line above, so "synced from hubspot" means one thing
+ * wherever it appears.
+ */
+function CellHistory({
+	resource,
+	record,
+	column,
+}: {
+	resource: IntrospectedResource
+	record: Row
+	column: IntrospectedColumn
+}): ReactNode {
+	const entries = cellHistoryOf(resource.columns, record, column.name)
+	if (entries.length === 0) return null
+	return (
+		<details className="mt-1 text-xs" data-cell-history={column.name}>
+			<summary className="cursor-pointer text-muted-foreground">
+				History · {entries.length} {entries.length === 1 ? 'value' : 'values'}
+			</summary>
+			<ol className="mt-1 list-none space-y-1 border-l border-border pl-3">
+				{entries.map((entry) => (
+					<li
+						// One cell, one writer, one instant: two entries cannot share both.
+						key={`${entry.at}|${entry.by}`}
+						className="flex flex-wrap items-baseline gap-x-2"
+					>
+						<span className="text-sm">
+							<Field value={entry.value} column={column} />
+						</span>
+						<span className="text-muted-foreground" title={entry.by}>
+							{describeCellWriter(entry).text} ·{' '}
+							<time dateTime={entry.at}>
+								<Timestamp iso={entry.at} />
+							</time>
+						</span>
+					</li>
+				))}
+			</ol>
+		</details>
 	)
 }
 

@@ -865,6 +865,9 @@ export function groundedEntityShapes(
 				// the worst kind of no-op: `data.setFieldMergePolicy` would read as
 				// protecting a hand edit while every sync went on reverting it.
 				merge: field.merge,
+				// A field's declared history (#307). Dropped here, the op would read
+				// as keeping a field's past while every write went on discarding it.
+				history: field.history,
 				reference: field.reference
 					? groundReference(entities, field.reference, options.installedBundles)
 					: undefined,

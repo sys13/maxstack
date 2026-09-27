@@ -220,6 +220,7 @@ function fieldColumns(
 		if (TIMESTAMP_NAMES.has(c.name) && c.hasDefault) return false
 		// Written by the ops only (#460) — never an input an agent is offered.
 		if (c.meta.cellProvenance === true) return false
+		if (c.meta.cellHistory === true) return false
 		// In create mode, columns with a DB default are optional inputs.
 		if (mode === 'create' && c.hasDefault) return false
 		return true

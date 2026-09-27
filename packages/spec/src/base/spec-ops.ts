@@ -236,6 +236,7 @@ import {
 	type BoardSpec,
 	CALENDAR_DISPLAYS,
 	type CalendarSpec,
+	CELL_HISTORY_COLUMN,
 	CELL_PROVENANCE_COLUMN,
 	COMPUTED_OPERATORS,
 	type ComputedFieldSpec,
@@ -246,11 +247,13 @@ import {
 	FILTER_OPERATORS,
 	type FieldDisplaySpec,
 	type FieldFilterSpec,
+	type FieldHistorySpec,
 	type FieldMergeSpec,
 	type FieldOption,
 	type FieldSpec,
 	isAcceptPattern,
 	isImageAcceptPattern,
+	MAX_CELL_HISTORY,
 	MAX_COMPUTED_DEPTH,
 	MAX_ROLLUP_HOPS,
 	MAX_ROLLUP_LIMIT,
@@ -833,6 +836,27 @@ export type SpecOp =
 				entityId: EntityId
 				fieldId: FieldId
 				merge: FieldMergeSpec
+			}
+	  }
+	| {
+			/**
+			 * Keep a field's past values, each with who wrote it and when (#307):
+			 * the cell's history, shown under the field on the record view.
+			 * Bounded by `keep`, because unbounded history is a storage decision
+			 * nobody made on purpose.
+			 *
+			 * Its own op rather than a key on the merge policy: a field can want
+			 * its history without anyone arbitrating between its writers, and
+			 * the two answer different questions — who may overwrite it, and what
+			 * it used to be.
+			 *
+			 * Last-wins, and `{}` clears the declaration.
+			 */
+			op: 'data.setFieldHistory'
+			args: {
+				entityId: EntityId
+				fieldId: FieldId
+				history: FieldHistorySpec | Record<string, never>
 			}
 	  }
 	| {
@@ -1639,6 +1663,7 @@ export const SPEC_OP_NAMES = [
 	'data.setFieldDisplay',
 	'data.setFieldFilter',
 	'data.setFieldMergePolicy',
+	'data.setFieldHistory',
 	'data.addComputed',
 	'data.addRollup',
 	'page.addPage',
@@ -2977,6 +3002,36 @@ export const SPEC_OP_VOCABULARY: Record<SpecOpName, SpecOpMeta> = {
 				},
 			},
 			required: ['entityId', 'fieldId', 'merge'],
+		},
+	},
+	'data.setFieldHistory': {
+		name: 'data.setFieldHistory',
+		layer: 'data',
+		summary:
+			"Keep a field's PAST VALUES, each with who wrote it (a person, a source run, an import, an agent, an api key) and when. The record view then shows the cell's history under the field, newest first. keep is how many values to retain per cell (1-100); the write that pushes one past it drops the oldest. Only writes that change the value add an entry, and history starts at the declaration — nothing before it is recovered. Use it for a field whose past matters (a status, a price, a score), not for every field. Last-wins; {} clears the declaration.",
+		args: {
+			type: 'object',
+			properties: {
+				entityId: {
+					type: 'string',
+					description: 'entity that owns the field, prefix "e-".',
+				},
+				fieldId: {
+					type: 'string',
+					description: 'the field whose history to keep, prefix "fld-".',
+				},
+				history: {
+					type: 'object',
+					properties: {
+						keep: {
+							type: 'integer',
+							description:
+								'how many past values to keep per cell, 1-100. Omit (pass {}) to stop keeping history.',
+						},
+					},
+				},
+			},
+			required: ['entityId', 'fieldId', 'history'],
 		},
 	},
 	'data.addComputed': {
@@ -5759,6 +5814,52 @@ function fieldMergeErrors(
 	return errors
 }
 
+/** The keys a {@link FieldHistorySpec} may carry. */
+const FIELD_HISTORY_KEYS = new Set(['keep'])
+
+/**
+ * Issue #307 — a field's declared history, and the one name a field may not take
+ * because of it. The same two rules as {@link fieldMergeErrors}: an unknown key
+ * is refused rather than ignored (an author who writes `days` expects a time
+ * window the runtime does not apply), and the column the history is kept in is
+ * reserved on every field, since the declaration can arrive after the field.
+ * `keep` is bounded above so a declaration cannot become unbounded retention.
+ */
+function fieldHistoryErrors(
+	field: { id: string; name: string; history?: unknown },
+	opName: SpecOpName,
+): string[] {
+	const where = `${opName}: field "${field.id}"`
+	const errors: string[] = []
+	if (field.name === CELL_HISTORY_COLUMN)
+		errors.push(
+			`${where} -> the name "${CELL_HISTORY_COLUMN}" is reserved: it is the column that keeps the past values of a field that declares a history`,
+		)
+	const raw = field.history
+	if (raw === undefined) return errors
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return [...errors, `${where} -> "history" must be an object`]
+	for (const key of Object.keys(raw))
+		if (!FIELD_HISTORY_KEYS.has(key))
+			errors.push(
+				`${where} -> history.${key} is not something this platform keeps history by (only keep, a count of values, is)`,
+			)
+	const { keep } = raw as { keep?: unknown }
+	if (
+		keep !== undefined &&
+		!(
+			typeof keep === 'number' &&
+			Number.isInteger(keep) &&
+			keep >= 1 &&
+			keep <= MAX_CELL_HISTORY
+		)
+	)
+		errors.push(
+			`${where} -> history.keep must be a whole number from 1 to ${MAX_CELL_HISTORY}`,
+		)
+	return errors
+}
+
 /** The values an enum field's options declare, or `undefined` when it has none
  * (a permissive text column — there is nothing to check a limit against). */
 function optionValuesOf(field: {
@@ -6481,6 +6582,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 				errors.push(...fieldDisplayErrors(f, op.op))
 				errors.push(...fieldFilterErrors(f, op.op))
 				errors.push(...fieldMergeErrors(f, op.op))
+				errors.push(...fieldHistoryErrors(f, op.op))
 			}
 			errors.push(
 				...provenanceShapeErrors(op.op, [
@@ -6513,6 +6615,7 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 			errors.push(...fieldDisplayErrors(op.args.field, op.op))
 			errors.push(...fieldFilterErrors(op.args.field, op.op))
 			errors.push(...fieldMergeErrors(op.args.field, op.op))
+			errors.push(...fieldHistoryErrors(op.args.field, op.op))
 			errors.push(
 				...fieldLimitsErrors(
 					op.args.field,
@@ -6648,6 +6751,37 @@ export function validateOp(system: SpecSystem, op: SpecOp): string[] {
 					op.op,
 				),
 			)
+			break
+		}
+		case 'data.setFieldHistory': {
+			const entity = system.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			if (!entity) {
+				errors.push(`${op.op}: unknown entity "${op.args.entityId}"`)
+				break
+			}
+			if (!field) {
+				errors.push(
+					`${op.op}: unknown field "${op.args.fieldId}" on ${op.args.entityId}`,
+				)
+				break
+			}
+			// `{}` clears, so an empty object is the one history without a `keep`
+			// that is valid; any other key set must name how much to keep.
+			const history = op.args.history as Record<string, unknown>
+			const declared = Object.entries(history ?? {}).filter(
+				([, v]) => v !== undefined,
+			)
+			errors.push(
+				...fieldHistoryErrors(
+					{ id: op.args.fieldId, name: field.name, history },
+					op.op,
+				),
+			)
+			if (declared.length > 0 && history.keep === undefined)
+				errors.push(
+					`${op.op}: field "${op.args.fieldId}" -> history.keep is required: say how many past values to keep, or pass {} to stop keeping them`,
+				)
 			break
 		}
 		case 'data.setFieldReference': {
@@ -8258,6 +8392,20 @@ export function diffOp(op: SpecOp): SpecDiff {
 							: `Clear the merge policy of field "${op.args.fieldId}" — every write is last-wins and unrecorded`,
 			}
 		}
+		case 'data.setFieldHistory': {
+			const { keep } = op.args.history as { keep?: number }
+			return {
+				op: op.op,
+				layer,
+				change: 'set',
+				targetId: op.args.fieldId,
+				parentId: op.args.entityId,
+				summary:
+					keep === undefined
+						? `Stop keeping the history of field "${op.args.fieldId}" — only its current value is kept`
+						: `Keep the last ${keep} ${keep === 1 ? 'value' : 'values'} of field "${op.args.fieldId}", with who wrote each and when`,
+			}
+		}
 		case 'data.setFieldFilter': {
 			const { filterable, operators } = op.args.filter
 			const said = [
@@ -9030,6 +9178,19 @@ export function applyOp(
 				) as FieldMergeSpec
 				if (Object.keys(declared).length === 0) delete field.merge
 				else field.merge = declared
+			}
+			break
+		}
+		case 'data.setFieldHistory': {
+			const entity = next.data.entities.find((e) => e.id === op.args.entityId)
+			const field = entity?.fields.find((f) => f.id === op.args.fieldId)
+			// Last-wins and `{}` clears, as `data.setFieldMergePolicy` above.
+			// Clearing stops the runtime *appending*; values already kept stay in
+			// the rows, true statements about what the cell held.
+			if (field) {
+				const { keep } = op.args.history as { keep?: number }
+				if (keep === undefined) delete field.history
+				else field.history = { keep }
 			}
 			break
 		}

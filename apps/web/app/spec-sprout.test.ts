@@ -1,10 +1,12 @@
 import {
+	CELL_HISTORY_COLUMN as CORE_CELL_HISTORY_COLUMN,
 	CELL_PROVENANCE_COLUMN as CORE_CELL_PROVENANCE_COLUMN,
 	specSchemaDdl,
 } from '@maxstack/core'
 import { bundle } from '@maxstack/features'
 import {
 	accept,
+	CELL_HISTORY_COLUMN,
 	CELL_PROVENANCE_COLUMN,
 	type DocumentSection,
 	type EntitySpec,
@@ -916,5 +918,27 @@ describe('a declared merge policy (#460)', () => {
 		// copy is the one that refuses a field of that name; if the two drifted,
 		// a field could take the name of the column the stamps are written to.
 		expect(CELL_PROVENANCE_COLUMN).toBe(CORE_CELL_PROVENANCE_COLUMN)
+	})
+})
+
+describe('a declared history (#307)', () => {
+	it('is grounded onto the field, and gives the entity its history column', () => {
+		const book: EntitySpec = {
+			...readingItem,
+			fields: [titleField, { ...urlField, history: { keep: 7 } }],
+		}
+		const [shape] = groundedEntityShapes(specWith([book]))
+		expect(shape?.fields.find((f) => f.name === 'url')?.history).toEqual({
+			keep: 7,
+		})
+		expect(specSchemaDdl(shape ? [shape] : [])).toContain(
+			`ADD COLUMN IF NOT EXISTS "${CELL_HISTORY_COLUMN}" jsonb`,
+		)
+	})
+
+	it('reserves in the spec the same column name core writes', () => {
+		// The spec's copy refuses a field of that name; if the two drifted, a
+		// field could take the name of the column the history is written to.
+		expect(CELL_HISTORY_COLUMN).toBe(CORE_CELL_HISTORY_COLUMN)
 	})
 })

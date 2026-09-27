@@ -4,7 +4,7 @@
 
 # Spec-op reference
 
-The 76 typed operations that can change a project spec — the whole
+The 77 typed operations that can change a project spec — the whole
 vocabulary. Nothing else writes to the spec: the CLI sugar, the MCP tools, and
 the workbench UI all compile down to these, which is what makes a change
 reviewable, attributable, and replayable.
@@ -49,6 +49,7 @@ keys or nothing.
 | [`data.setFieldDisplay`](#datasetfielddisplay) | `data` | State how a NUMBER field is drawn and on what scale, instead of letting its NAME decide. A number called "rating" or "stars" otherwise renders as a 5-star widget and one called "duration" as 3m 20s. format wins over the name in both directions: "number" is the escape hatch that keeps a column called rating a plain number; "rating" promotes a column called score. min/max/step declare the scale (a rating out of 10, a 0–100 score). Presentation only — nothing here constrains what may be stored, and a value outside the range is displayed honestly rather than clamped. Last-wins; {} clears the declaration and returns the field to inference. |
 | [`data.setFieldFilter`](#datasetfieldfilter) | `data` | Say whether a field is one of a list's FILTER CONTROLS and with which operators, instead of letting its TYPE decide. By default an enum filters as a dropdown, a reference as a record dropdown, a boolean as yes/no, a number or date as a >= / <= range pair, and a plain string not at all (it is searched by the search box instead). filterable:false takes a column out of the filter bar AND out of search — and REST refuses a filter on it too, so it means one thing everywhere. filterable:true gives a plain string an exact-match input. operators narrows the spellings: ["eq"] turns a range pair into one exact-match input, ["range"] drops equality. A NARROWING only — a page can be filtered by exactly the columns it renders, and this cannot reach past them. Last-wins; {} clears the declaration and returns the field to inference. |
 | [`data.setFieldMergePolicy`](#datasetfieldmergepolicy) | `data` | Say who may OVERWRITE a field once somebody has written it. humanEditWins:true keeps a value a PERSON wrote (a form, an inline edit, a portal) from being overwritten by a MACHINE — a declared source run, an import, an agent over MCP, an api key, a system job. The machine's other fields still land; this one is left alone and reported back as held, and a later human edit still replaces it. Declaring any policy also records, per row, who last wrote this field and when, so a maintainer can see why a cell holds what it holds. Without one, every write is last-wins and nothing is recorded. Only cells written after the declaration carry a stamp. Last-wins; {} clears the declaration. |
+| [`data.setFieldHistory`](#datasetfieldhistory) | `data` | Keep a field's PAST VALUES, each with who wrote it (a person, a source run, an import, an agent, an api key) and when. The record view then shows the cell's history under the field, newest first. keep is how many values to retain per cell (1-100); the write that pushes one past it drops the oldest. Only writes that change the value add an entry, and history starts at the declaration — nothing before it is recovered. Use it for a field whose past matters (a status, a price, a score), not for every field. Last-wins; {} clears the declaration. |
 | [`data.addComputed`](#dataaddcomputed) | `data` | Add a value computed from a row's own numeric fields (never stored; evaluated on read). |
 | [`data.addRollup`](#dataaddrollup) | `data` | Add an aggregate over a related entity's rows. With groupBy it yields a series (chart/list); without, a scalar. |
 | [`page.addPage`](#pageaddpage) | `page` | Add a page. |
@@ -355,6 +356,17 @@ Say who may OVERWRITE a field once somebody has written it. humanEditWins:true k
 - `fieldId` — `string` · **required** · the field to declare a merge policy for, prefix "fld-".
 - `merge` — `object` · **required**
   - `humanEditWins` — `boolean` · true = a value a person wrote outranks every later machine write. false = last-wins, but still record who wrote each cell.
+
+### `data.setFieldHistory`
+
+Keep a field's PAST VALUES, each with who wrote it (a person, a source run, an import, an agent, an api key) and when. The record view then shows the cell's history under the field, newest first. keep is how many values to retain per cell (1-100); the write that pushes one past it drops the oldest. Only writes that change the value add an entry, and history starts at the declaration — nothing before it is recovered. Use it for a field whose past matters (a status, a price, a score), not for every field. Last-wins; {} clears the declaration.
+
+**Arguments**
+
+- `entityId` — `string` · **required** · entity that owns the field, prefix "e-".
+- `fieldId` — `string` · **required** · the field whose history to keep, prefix "fld-".
+- `history` — `object` · **required**
+  - `keep` — `integer` · how many past values to keep per cell, 1-100. Omit (pass {}) to stop keeping history.
 
 ### `data.addComputed`
 

@@ -109,4 +109,69 @@ describe('Show', () => {
 		// A column with no policy carries no line at all.
 		expect(document.querySelectorAll('[data-cell-writer]')).toHaveLength(2)
 	})
+
+	it('lists the values a cell with a declared history has held, newest first (#307)', () => {
+		const deal: IntrospectedResource = {
+			name: 'deal',
+			primaryKey: 'id',
+			columns: [
+				{ name: 'id', type: 'uuid', meta: {} },
+				{ name: 'stage', type: 'string', meta: { history: { keep: 5 } } },
+				{ name: 'owner', type: 'string', meta: { history: { keep: 5 } } },
+				{ name: 'notes', type: 'string', meta: {} },
+				{
+					name: '_maxstack_history',
+					type: 'json',
+					meta: {
+						label: 'Cell history',
+						hidden: true,
+						readOnly: true,
+						cellHistory: true,
+					},
+				},
+			],
+		}
+		render(
+			<Show
+				resource={deal}
+				record={{
+					id: 'd1',
+					stage: 'proposal',
+					owner: 'Sam',
+					notes: 'n',
+					_maxstack_history: {
+						stage: [
+							{
+								value: 'lead',
+								by: 'u-rep',
+								origin: 'session',
+								at: '2026-09-01T10:00:00.000Z',
+							},
+							{
+								value: 'proposal',
+								by: 'service:sync',
+								origin: 'system',
+								source: 'hubspot',
+								at: '2026-09-02T10:00:00.000Z',
+							},
+						],
+					},
+				}}
+			/>,
+		)
+		const history = document.querySelector('[data-cell-history="stage"]')
+		expect(history).not.toBeNull()
+		expect(history).toHaveTextContent('History · 2 values')
+		const items = history?.querySelectorAll('li') ?? []
+		expect([...items].map((li) => li.textContent)).toEqual([
+			expect.stringMatching(/^proposal.*synced from hubspot/),
+			expect.stringMatching(/^lead.*edited by hand/),
+		])
+		// Who, exactly, is one hover away rather than on the page.
+		expect(screen.getByText(/edited by hand/)).toHaveAttribute('title', 'u-rep')
+		// A declared field with nothing kept yet shows no empty history, a field
+		// with no declaration shows none at all, and the column itself is hidden.
+		expect(document.querySelectorAll('[data-cell-history]')).toHaveLength(1)
+		expect(screen.queryByText('Cell history')).not.toBeInTheDocument()
+	})
 })

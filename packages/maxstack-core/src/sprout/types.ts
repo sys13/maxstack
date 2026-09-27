@@ -129,6 +129,18 @@ export interface ColumnMetadata {
 	 * of every input schema. See `cell-provenance.ts`.
 	 */
 	cellProvenance?: boolean
+	/**
+	 * The field's declared history — the spec's `field.history` (#307). Its
+	 * presence makes `opCreate`/`opUpdate` append every value the column takes,
+	 * with its writer, keeping the last `keep`.
+	 */
+	history?: { keep: number }
+	/**
+	 * This column is the row's per-cell history (`_maxstack_history`, #307):
+	 * written only by the ops, never accepted from a caller, left out of every
+	 * input schema and of list reads. See `cell-history.ts`.
+	 */
+	cellHistory?: boolean
 	// relational
 	reference?: SproutColumnReference
 	/**
