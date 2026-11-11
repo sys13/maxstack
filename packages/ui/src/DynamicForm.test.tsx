@@ -393,3 +393,77 @@ describe('DynamicForm — json columns', () => {
 		expect(onSubmit).not.toHaveBeenCalled()
 	})
 })
+
+describe('DynamicForm — grid layout', () => {
+	const schema = z.object({
+		amount: z.number(),
+		date: z.string(),
+		unit: z.string(),
+		note: z.string(),
+	})
+	// The cell is the field's outermost element: the label's wrapper.
+	const cellOf = (name: string) =>
+		screen.getByLabelText(byLabel(name)).closest('.grid > *')
+
+	it('spells the column class out, so Tailwind can generate it', () => {
+		const { container } = render(
+			<DynamicForm
+				schema={schema}
+				layout="grid"
+				gridColumns={3}
+				onSubmit={vi.fn()}
+			/>,
+		)
+		const grid = container.querySelector('.grid')
+		expect(grid?.className).toContain('md:grid-cols-3')
+	})
+
+	it('clamps the column count to 1–6', () => {
+		const { container } = render(
+			<DynamicForm
+				schema={schema}
+				layout="grid"
+				gridColumns={9}
+				onSubmit={vi.fn()}
+			/>,
+		)
+		expect(container.querySelector('.grid')?.className).toContain(
+			'md:grid-cols-6',
+		)
+	})
+
+	it('puts uiOptions.colSpan on the field cell, not the input', () => {
+		render(
+			<DynamicForm
+				schema={schema}
+				layout="grid"
+				gridColumns={3}
+				uiOptions={{
+					note: { inputType: 'textarea', colSpan: 'full' },
+					unit: { colSpan: 2 },
+				}}
+				onSubmit={vi.fn()}
+			/>,
+		)
+		expect(cellOf('note')?.className).toContain('col-span-full')
+		expect(cellOf('unit')?.className).toContain('md:col-span-2')
+		expect(cellOf('amount')?.className).not.toContain('col-span')
+		expect(screen.getByLabelText(byLabel('note')).className).not.toContain(
+			'col-span',
+		)
+	})
+
+	it('spans structural fields too (a repeater is its own cell)', () => {
+		const { container } = render(
+			<DynamicForm
+				schema={z.object({ title: z.string(), steps: z.array(z.string()) })}
+				layout="grid"
+				gridColumns={2}
+				uiOptions={{ steps: { colSpan: 'full' } }}
+				onSubmit={vi.fn()}
+			/>,
+		)
+		const fieldset = container.querySelector('.grid > fieldset')
+		expect(fieldset?.className).toContain('col-span-full')
+	})
+})

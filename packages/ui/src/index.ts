@@ -44,6 +44,7 @@ export type {
 	FieldUiOptions,
 	FormLayout,
 	FormSection,
+	GridSpan,
 	InputTypeOverride,
 	ReferenceFieldPlans,
 	SectionVariant,

@@ -5,7 +5,12 @@ import type { FieldMetadata, FormMetadata } from '@conform-to/react'
 import type { IntrospectedColumn } from '../fields/field-semantics.ts'
 import type { SelectOption } from '../ui/form-fields.tsx'
 import type { FormFieldConfig } from '../zod-to-form-fields.ts'
-import type { FieldLayout, FieldUiOptions, FormSection } from './types.ts'
+import type {
+	FieldLayout,
+	FieldUiOptions,
+	FormSection,
+	GridSpan,
+} from './types.ts'
 
 export type AnyField = FieldMetadata<any>
 export type AnyForm = FormMetadata<Record<string, unknown>>
@@ -61,6 +66,43 @@ export function toDateInputValue(value: unknown): string {
 	if (iso?.[1]) return iso[1]
 	const d = new Date(raw)
 	return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+}
+
+// Tailwind generates only the classes it finds written out in source. A class
+// built at runtime (`md:grid-cols-${n}`) never reaches the stylesheet, so the
+// grid layout silently rendered as one stacked column in every consuming app.
+// Every class the grid can use is therefore spelled out in these maps.
+const GRID_COLUMNS = {
+	1: 'md:grid-cols-1',
+	2: 'md:grid-cols-2',
+	3: 'md:grid-cols-3',
+	4: 'md:grid-cols-4',
+	5: 'md:grid-cols-5',
+	6: 'md:grid-cols-6',
+} as const
+
+const GRID_SPANS: Record<GridSpan, string> = {
+	1: 'md:col-span-1',
+	2: 'md:col-span-2',
+	3: 'md:col-span-3',
+	4: 'md:col-span-4',
+	5: 'md:col-span-5',
+	6: 'md:col-span-6',
+	full: 'col-span-full',
+}
+
+/** The fields container for `layout="grid"`, one column on small screens. */
+export function gridContainerClass(columns: number): string {
+	const n = Math.min(
+		Math.max(Math.round(columns), 1),
+		6,
+	) as keyof typeof GRID_COLUMNS
+	return `grid grid-cols-1 gap-4 ${GRID_COLUMNS[n]}`
+}
+
+/** A field cell's span in the grid (`uiOptions.colSpan`); `''` when unset. */
+export function gridSpanClass(span: GridSpan | undefined): string {
+	return span === undefined ? '' : GRID_SPANS[span]
 }
 
 export function fieldContainerClass(layout: FieldLayout): string {

@@ -10,6 +10,8 @@ import {
 } from './reference-search.ts'
 
 export type FormLayout = 'vertical' | 'horizontal' | 'grid'
+/** A grid cell's width: a column count (1–6) or the whole row. */
+export type GridSpan = 1 | 2 | 3 | 4 | 5 | 6 | 'full'
 export type FieldLayout = 'vertical' | 'horizontal' | 'inline'
 /** How multi-section forms present their groups. */
 export type SectionVariant = 'panels' | 'tabs' | 'accordion'
@@ -36,6 +38,13 @@ export interface FieldUiOptions {
 	helpText?: string
 	className?: string
 	layout?: FieldLayout
+	/**
+	 * How many columns this field's cell spans in a `layout="grid"` form, or
+	 * `'full'` for the whole row (a notes textarea under a row of short inputs).
+	 * Applied to the field's cell, not its input — `className` styles the input
+	 * itself, so it cannot move the cell. Ignored outside the grid layout.
+	 */
+	colSpan?: GridSpan
 	inputType?: InputTypeOverride
 	/**
 	 * Options for a `reference` (FK) picker — `{ label, value }` where `value`

@@ -37,6 +37,7 @@ import {
 	fieldContainerClass,
 	getFieldListOf,
 	getFieldsetOf,
+	gridSpanClass,
 	keyOf,
 	labeledOptions,
 	leafKey,
@@ -60,13 +61,17 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 	const fieldLayout = uiOptions?.layout ?? 'vertical'
 	const disabled = ctx.disabled.has(config.path)
 	const errors = meta.errors ?? ctx.serverErrorFor(config.path)
+	// Every widget's outermost element is the grid cell, so each carries the span.
+	const span = gridSpanClass(uiOptions?.colSpan)
 
 	// --- structural widgets --------------------------------------------------
 
 	if (config.type === 'object') {
 		const sub = getFieldsetOf(meta)
 		return (
-			<fieldset className="space-y-3 rounded-md border border-input p-3">
+			<fieldset
+				className={cn('space-y-3 rounded-md border border-input p-3', span)}
+			>
 				<legend className="px-1 text-sm font-medium">{label}</legend>
 				{(config.fields ?? []).map((child) => (
 					<FieldRenderer
@@ -92,7 +97,9 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 		const element = config.element
 		const lastIndex = items.length - 1
 		return (
-			<fieldset className="space-y-3 rounded-md border border-input p-3">
+			<fieldset
+				className={cn('space-y-3 rounded-md border border-input p-3', span)}
+			>
 				<legend className="px-1 text-sm font-medium">{label}</legend>
 				{items.map((item: AnyField, index: number) => (
 					<div key={keyOf(item) ?? index} className="flex items-start gap-2">
@@ -145,7 +152,15 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 	}
 
 	if (config.type === 'union' && config.branches) {
-		return <UnionField config={config} meta={meta} ctx={ctx} label={label} />
+		return (
+			<UnionField
+				config={config}
+				meta={meta}
+				ctx={ctx}
+				label={label}
+				className={span}
+			/>
+		)
 	}
 
 	// --- leaf widgets --------------------------------------------------------
@@ -475,7 +490,7 @@ export function FieldRenderer({ config, meta, ctx }: FieldRendererProps) {
 	}
 
 	return (
-		<div className={fieldContainerClass(fieldLayout)}>
+		<div className={cn(fieldContainerClass(fieldLayout), span)}>
 			{inputType !== 'checkbox' && labelNode}
 			{control}
 			{uiOptions?.helpText && (
@@ -495,16 +510,19 @@ interface UnionFieldProps {
 	meta: AnyField
 	ctx: RenderCtx
 	label: string
+	className?: string
 }
 
-function UnionField({ config, meta, ctx, label }: UnionFieldProps) {
+function UnionField({ config, meta, ctx, label, className }: UnionFieldProps) {
 	const branches = config.branches ?? []
 	const [branchIndex, setBranchIndex] = useState(0)
 	const sub = getFieldsetOf(meta)
 	const active = branches[branchIndex]
 
 	return (
-		<fieldset className="space-y-3 rounded-md border border-input p-3">
+		<fieldset
+			className={cn('space-y-3 rounded-md border border-input p-3', className)}
+		>
 			<legend className="px-1 text-sm font-medium">{label}</legend>
 			<div className="space-y-2">
 				<Label htmlFor={`${meta.id}-branch`}>Type</Label>

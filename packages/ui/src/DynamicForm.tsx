@@ -47,6 +47,7 @@ import {
 	type AnyField,
 	collectTopLevelDefaults,
 	fieldOwnsError,
+	gridContainerClass,
 	type RenderCtx,
 	type ResolvedSection,
 	resolveSections,
@@ -71,6 +72,7 @@ export {
 	type FieldUiOptions,
 	type FormLayout,
 	type FormSection,
+	type GridSpan,
 	type InputTypeOverride,
 	type ReferenceFieldPlans,
 	referenceUiOptions,
@@ -301,7 +303,7 @@ export function DynamicForm<T extends z.ZodType>({
 		layout === 'horizontal'
 			? 'flex flex-wrap gap-4'
 			: layout === 'grid'
-				? `grid gap-4 grid-cols-1 md:grid-cols-${Math.min(Math.max(gridColumns, 1), 6)}`
+				? gridContainerClass(gridColumns)
 				: 'space-y-6'
 
 	const renderFields = (section: ResolvedSection) => (
